@@ -33,6 +33,8 @@ convention = "google"
 "tests/conftest.py" = ["E402"]
 # CLI entrypoints: argparse usage strings serve as docs.
 "tools/*.py" = ["D103"]
+# seed script bootstraps sys.path before importing the foundry package.
+"tools/seed_console_data.py" = ["E402"]
 # visualize_ontology embeds an HTML/D3 template string; JS lines may exceed.
 "tools/visualize_ontology.py" = ["E501"]
 
