@@ -334,6 +334,11 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
   - [x] `release` với migration note bắt buộc cho MAJOR; changelog sinh tự động
   - [x] Blast radius analysis (`blast-radius`) + stability metric (`stability`)
   - [ ] Migration scripts tự động hóa; alignment registry
+- [~] Tooling: Ontology Console v0.1 (read-only UI)
+  - [x] FastAPI backend (`foundry/console/`) tái dùng logic tools/ + foundry/
+  - [x] SPA: Dashboard / Explorer / Versions / Impact / Data Monitor
+  - [x] API tests; seed script qua ingestion pipeline thật
+  - [ ] Write operations từ UI (release) — cần auth + audit trail (Phase 3+)
 - [ ] Phase 3: projector + read models + benchmark dashboard
 - [ ] Phase 4+: xem bảng phase ở trên
 

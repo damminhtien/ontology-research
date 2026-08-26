@@ -7,3 +7,4 @@ build/
 
 # graphify generated artifacts (rebuilt by git hooks / graphify update)
 graphify-out/
+data/

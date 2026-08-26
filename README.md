@@ -56,6 +56,26 @@ Từng bước:
 5. Dependency module là DAG hướng xuống: `core ← middle ← domain`;
    import ngược chiều hoặc circular → CI fail.
 
+## Ontology Console (UI)
+
+Web console cho người quản lý và monitor ontology — read-only, tái sử dụng 100%
+logic của các tool đã test:
+
+```bash
+make seed-console   # sinh data/events.jsonl demo qua ingestion pipeline thật
+make console        # mở http://127.0.0.1:8787
+```
+
+Views: **Dashboard** (health cards: version check, DAG, CQ regression, stability,
+events) · **Explorer** (D3 hierarchy + chi tiết term + blast radius) ·
+**Versions** (pending release + suggested bump, diff 2 versions, release
+timeline) · **Impact** (blast radius theo term) · **Data Monitor** (event log,
+SHACL gate, competency queries).
+
+REST API cùng nguồn dữ liệu: `GET /api/overview`, `/api/ontology/*`,
+`/api/releases/*`, `/api/impact?term=`, `/api/monitor/*` (xem `/api/docs`).
+Console chỉ đọc — release/tag vẫn qua CLI flow; không auth, bind localhost.
+
 ## Ontology versioning
 
 Mỗi module khai báo `dcterms:version` (SemVer); `registry/` lưu release log +

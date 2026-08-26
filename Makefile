@@ -41,3 +41,9 @@ check: lint versions validate dag test
 clean:
 	find . -name __pycache__ -type d -exec rm -rf {} +
 	rm -rf .pytest_cache
+
+console:
+	$(PY) -m uvicorn foundry.console.app:app --port 8787
+
+seed-console:
+	$(PY) tools/seed_console_data.py
