@@ -293,11 +293,42 @@ không chia cứng "ontology team vs backend team".
 - [ ] documentation + owner
 - [ ] performance regression test
 
+## Phân tích khoảng trống & rủi ro (cập nhật sau Phase 1)
+
+Các gap đã được chốt quyết định qua ADR (xem `docs/adr/`):
+
+| # | Gap | Quyết định | ADR |
+|---|-----|------------|-----|
+| 1 | Storage engine cho 5 loại workload khác nhau | Polyglot, ontology chỉ bind semantics | ADR-0001 |
+| 2 | History/provenance/replay | Append-only event log, corrections = event mới | ADR-0002 |
+| 3 | Identity: fuzzy match có tự merge không? | Precision-first — review gate bắt buộc | ADR-0003 |
+
+Rủi ro lớn nhất cần theo dõi liên tục:
+
+```text
+R1 False-merge entity      -> giảm revenue tin cậy của cả hệ thống  (ADR-0003)
+R2 Projection lag          -> phá SLO p95 operational queries
+R3 Ontology drift          -> core bị domain concepts xâm nhập (test đang chặn)
+R4 SHACL gate quá ngặt     -> review queue phình to, ingestion nghẽn
+R5 Benchmark không đo thật -> KPI thành con số trên giấy (Phase 3 phải có dashboard)
+```
+
+Việc còn mở cần quyết định trước khi vào Phase 3:
+
+- [ ] Event supersede/correction semantics (Phase 5 nhưng schema nên chốt sớm)
+- [ ] Định dạng mapping config (YAML/RML?) khi số nguồn tăng lên
+- [ ] Access control ở query API layer (ai được thấy provenance nào)
+
 ## Trạng thái hiện tại
 
 - [x] Phase 0: requirements + benchmark scaffold (CQ queries chạy được với expected results)
 - [x] Phase 1: `semantic-core` v0.1 + SHACL + CI tests (pytest + rdflib + pyshacl)
-- [ ] Phase 2: ingestion pipeline + identity service + event log
+- [~] Phase 2 (đang làm): 
+  - [x] Append-only event log + immutable event contract (`foundry/events.py`)
+  - [x] Identity service precision-first (`foundry/identity.py`, ADR-0003)
+  - [x] Ingestion pipeline với SHACL gate (`foundry/ingestion.py`) — structured records + location observations
+  - [ ] Unstructured documents (LLM extraction trước cùng gate đó)
+  - [ ] Throughput benchmark 10^4-10^5 events/s (synthetic)
 - [ ] Phase 3: projector + read models + benchmark dashboard
 - [ ] Phase 4+: xem bảng phase ở trên
 
