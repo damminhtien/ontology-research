@@ -255,9 +255,7 @@ def module_identity(graph: Graph) -> tuple[str, str]:
     """
     ontologies = sorted(str(s) for s in graph.subjects(RDF.type, OWL.Ontology))
     if len(ontologies) != 1:
-        raise ValueError(
-            f"expected exactly one owl:Ontology header, found {len(ontologies)}"
-        )
+        raise ValueError(f"expected exactly one owl:Ontology header, found {len(ontologies)}")
     iri = ontologies[0]
     versions = sorted(str(v) for v in graph.objects(URIRef(iri), _DCT_VERSION))
     if len(versions) != 1:
@@ -448,9 +446,7 @@ def cmd_check_versions(_args: argparse.Namespace) -> int:
             continue
 
         latest_terms = load_snapshot_terms(registry, local_name(iri), latest["version"])
-        status, message = evaluate_module_version(
-            latest, latest_terms, declared, snapshot(graph)
-        )
+        status, message = evaluate_module_version(latest, latest_terms, declared, snapshot(graph))
         print(f"[{status:<5}] {local_name(iri)} ({rel}): {message}")
         if status == "error":
             failures += 1
@@ -573,6 +569,256 @@ def cmd_report(_args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Release workflow, changelog, blast radius, stability
+# ---------------------------------------------------------------------------
+
+
+def changed_term_names(changes: list[Change]) -> list[str]:
+    """Local names of all terms touched by a change list."""
+    return sorted({local_name(change.target) for change in changes})
+
+
+def blast_radius_for_terms(
+    term_names: list[str], repo_root: Path | None = None
+) -> dict[str, list[str]]:
+    """Find files referencing any of ``term_names`` across consumer layers.
+
+    Categories: ``modules`` (ontology .ttl files), ``queries`` (benchmark
+    .rq files), ``applications`` (foundry package sources). Matching is
+    lexical on IRI fragments and local names - deliberately over-reporting
+    rather than missing a consumer.
+    """
+    base = repo_root if repo_root is not None else REPO_ROOT
+    iri_patterns = [re.compile(rf"[:#/]{re.escape(name)}\b") for name in term_names]
+    # Application sources reference terms as bare identifiers, not IRIs.
+    word_patterns = [re.compile(rf"\b{re.escape(name)}\b") for name in term_names]
+
+    def references_iri(text: str) -> bool:
+        return any(pattern.search(text) for pattern in iri_patterns)
+
+    def references_word(text: str) -> bool:
+        return any(pattern.search(text) for pattern in word_patterns)
+
+    result: dict[str, list[str]] = {"modules": [], "queries": [], "applications": []}
+
+    ontology_dir = base / "ontology"
+    if ontology_dir.exists():
+        for path in sorted(ontology_dir.rglob("*.ttl")):
+            if references_iri(path.read_text(encoding="utf-8")):
+                result["modules"].append(path.relative_to(base).as_posix())
+
+    queries_dir = base / "benchmarks" / "queries"
+    if queries_dir.exists():
+        for path in sorted(queries_dir.rglob("*.rq")):
+            if references_iri(path.read_text(encoding="utf-8")):
+                result["queries"].append(path.relative_to(base).as_posix())
+
+    foundry_dir = base / "foundry"
+    if foundry_dir.exists():
+        for path in sorted(foundry_dir.rglob("*.py")):
+            if references_word(path.read_text(encoding="utf-8")):
+                result["applications"].append(path.relative_to(base).as_posix())
+
+    return result
+
+
+def stability_report(releases: list[dict]) -> list[tuple[str, float, int, int]]:
+    """Compute Stability(m) = 1 - N_breaking/N_releases per module."""
+    by_module: dict[str, list[dict]] = {}
+    for release in releases:
+        by_module.setdefault(release["module_iri"], []).append(release)
+
+    report: list[tuple[str, float, int, int]] = []
+    for module_iri in sorted(by_module):
+        entries = by_module[module_iri]
+        total = len(entries)
+        breaking = sum(1 for e in entries if e.get("severity") == SEVERITY_MAJOR)
+        stability = round(1 - breaking / total, 4)
+        report.append((module_iri, stability, breaking, total))
+    return report
+
+
+def render_changelog(releases: list[dict]) -> str:
+    """Render the full changelog deterministically from the registry."""
+    lines = [
+        "# Ontology Changelog",
+        "",
+        "Generated from `registry/releases.json` by "
+        "`tools/manage_ontology.py release`. Do not edit by hand.",
+        "",
+    ]
+    by_module: dict[str, list[dict]] = {}
+    for release in releases:
+        by_module.setdefault(release["module_iri"], []).append(release)
+
+    for module_iri in sorted(by_module):
+        lines.append(f"## {local_name(module_iri)}")
+        lines.append("")
+        entries = sorted(
+            by_module[module_iri], key=lambda r: parse_version(r["version"]), reverse=True
+        )
+        for entry in entries:
+            lines.append(f"### {entry['version']} ({entry['date']}) - {entry['severity']}")
+            lines.append("")
+            if entry.get("commit"):
+                lines.append(f"Commit: `{entry['commit']}`")
+                lines.append("")
+            changes = entry.get("changes", [])
+            if changes:
+                for change in changes:
+                    marker = {"added": "+", "removed": "-", "changed": "~"}.get(change["kind"], "*")
+                    name = local_name(change["target"])
+                    lines.append(f"- {marker} [{change['severity']}] {name}: {change['detail']}")
+            else:
+                lines.append("- Initial baseline release.")
+            if entry.get("migration"):
+                lines.append("")
+                lines.append("#### Migration")
+                lines.append("")
+                lines.append(str(entry["migration"]))
+            lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def cmd_release(args: argparse.Namespace) -> int:
+    """Record a release: validate, snapshot terms, log entry, regenerate changelog."""
+    registry = registry_dir()
+    releases = load_releases(registry)
+
+    matched = []
+    for path in find_module_files():
+        graph = load_graph(path)
+        iri, declared = module_identity(graph)
+        if args.module in {local_name(iri), str(path.relative_to(REPO_ROOT))}:
+            matched.append((path, graph, iri, declared))
+
+    if not matched:
+        print(f"No module matches '{args.module}'. Use a module name like 'core' or a path.")
+        return 1
+
+    failures: list[str] = []
+    prepared: list[tuple] = []
+    for path, graph, iri, declared in matched:
+        local = local_name(iri)
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        current_terms = snapshot(graph)
+        latest = latest_release(releases, iri)
+
+        if latest is None:
+            severity, changes = SEVERITY_NONE, []
+        else:
+            latest_terms = load_snapshot_terms(registry, local, latest["version"])
+            changes = diff_snapshots(latest_terms, current_terms)
+            if not changes:
+                failures.append(
+                    f"{local}: no semantic changes since {latest['version']}; nothing to release"
+                )
+                continue
+            severity = highest_severity(changes)
+            status, message = evaluate_module_version(latest, latest_terms, declared, current_terms)
+            if status == "error":
+                failures.append(f"{local}: {message}")
+                continue
+            if severity == SEVERITY_MAJOR and not args.migration:
+                failures.append(
+                    f"{local}: MAJOR release requires --migration (never redefine silently)"
+                )
+                continue
+
+        prepared.append((local, iri, rel, declared, severity, changes))
+
+    if failures:
+        for failure in failures:
+            print(f"[error] {failure}")
+        return 1
+
+    if args.dry_run:
+        for local, _iri, _rel, declared, severity, changes in prepared:
+            print(f"{local} -> {declared} [{severity}]")
+            radius = blast_radius_for_terms(changed_term_names(changes))
+            for category, files in radius.items():
+                if files:
+                    print(f"  {category}: {', '.join(files)}")
+        print("\nDry run only; re-run without --dry-run to record.")
+        return 0
+
+    commit_hash = current_commit()
+    for local, iri, rel, declared, severity, changes in prepared:
+        save_snapshot(registry, local, declared, iri, rel, snapshot(load_graph(REPO_ROOT / rel)))
+        releases.append(
+            {
+                "module_iri": iri,
+                "file": rel,
+                "version": declared,
+                "date": utc_now_iso(),
+                "severity": severity,
+                "changes": [
+                    {
+                        "kind": change.kind,
+                        "target": change.target,
+                        "detail": change.detail,
+                        "severity": change.severity,
+                    }
+                    for change in changes
+                ],
+                "migration": args.migration if severity == SEVERITY_MAJOR else None,
+                "commit": commit_hash,
+            }
+        )
+    save_releases(registry, releases)
+
+    docs_dir = REPO_ROOT / "docs"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    (docs_dir / "CHANGELOG.md").write_text(render_changelog(releases), encoding="utf-8")
+
+    for local, _iri, _rel, declared, severity, _changes in prepared:
+        tag = f"{local}/{declared}"
+        print(f"Released {local} {declared} [{severity}]")
+        print(f"Suggested: git add registry/ docs/CHANGELOG.md && git commit && git tag {tag}")
+    return 0
+
+
+def cmd_blast_radius(args: argparse.Namespace) -> int:
+    """Report consumers of a term across modules, queries and applications."""
+    term = args.term
+    name = local_name(term) if "://" in term else term
+    radius = blast_radius_for_terms([name])
+    score = sum(len(files) for files in radius.values())
+    print(f"Blast radius for '{name}': BR = {score}")
+    for category, files in radius.items():
+        listing = ", ".join(files) if files else "none"
+        print(f"  {category} ({len(files)}): {listing}")
+    return 0
+
+
+def cmd_stability(_args: argparse.Namespace) -> int:
+    """Report Semantic Stability per module against roadmap thresholds."""
+    releases = load_releases(registry_dir())
+    if not releases:
+        print("No releases recorded yet; run 'release' first.")
+        return 0
+
+    violations = 0
+    for module_iri, stability, breaking, total in stability_report(releases):
+        threshold = (
+            STABILITY_THRESHOLD_CORE
+            if module_iri.endswith("/core")
+            else STABILITY_THRESHOLD_DEFAULT
+        )
+        verdict = "ok" if stability >= threshold else f"WARN below {threshold}"
+        print(
+            f"{local_name(module_iri):<20} stability={stability:<7} "
+            f"(breaking {breaking}/{total}) [{verdict}]"
+        )
+        if stability < threshold:
+            violations += 1
+    if violations:
+        print(f"\n{violations} module(s) below their stability threshold.")
+        return 1
+    return 0
+
+
 def main() -> int:
     """CLI entrypoint dispatching subcommands."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -599,6 +845,26 @@ def main() -> int:
 
     sub.add_parser("check-versions", help="enforce version vs semantic diff").set_defaults(
         func=cmd_check_versions
+    )
+
+    release_parser = sub.add_parser("release", help="record a module release")
+    release_parser.add_argument("module", help="module name (e.g. 'core') or repo path")
+    release_parser.add_argument(
+        "--migration",
+        default=None,
+        help="migration note; REQUIRED for MAJOR releases",
+    )
+    release_parser.add_argument(
+        "--dry-run", action="store_true", help="preview changes and blast radius only"
+    )
+    release_parser.set_defaults(func=cmd_release)
+
+    radius_parser = sub.add_parser("blast-radius", help="consumers of a term")
+    radius_parser.add_argument("term", help="term local name or full IRI")
+    radius_parser.set_defaults(func=cmd_blast_radius)
+
+    sub.add_parser("stability", help="stability per module vs thresholds").set_defaults(
+        func=cmd_stability
     )
 
     args = parser.parse_args()
