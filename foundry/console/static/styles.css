@@ -1,0 +1,71 @@
+/* Ontology Console design system */
+:root {
+  --bg: #f5f7fa;
+  --panel: #ffffff;
+  --border: #e2e6ea;
+  --text: #1c2733;
+  --muted: #66788c;
+  --ok: #1a7f37;
+  --warn: #b45309;
+  --err: #c62828;
+  --info: #1f6feb;
+  --accent: #4a7fb5;
+  --sidebar-bg: #16222e;
+  --radius: 8px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+#app { display: flex; height: 100vh; }
+.sidebar { width: 210px; background: var(--sidebar-bg); color: #cfe0ef; padding: 18px 14px; display: flex; flex-direction: column; gap: 6px; }
+.brand { font-weight: 700; font-size: 19px; line-height: 1.15; margin-bottom: 14px; color: #fff; }
+.brand span { color: #8fb8dd; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+.sidebar nav a { color: #cfe0ef; text-decoration: none; padding: 8px 10px; border-radius: 6px; font-size: 14px; }
+.sidebar nav a.active { background: #24384c; color: #fff; font-weight: 600; }
+#health-badge { margin-top: auto; }
+.sidebar-note { font-size: 11px; color: #6d8299; margin-top: 10px; }
+#view { flex: 1; overflow: auto; padding: 22px; }
+
+h2.view-title { margin: 0 0 4px; }
+p.view-sub { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
+section { margin-bottom: 26px; }
+h3.section-title { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }
+
+.cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px 16px; min-width: 165px; }
+.card h4 { margin: 0 0 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.card .value { font-size: 25px; font-weight: 700; }
+.card .sub { font-size: 12px; color: var(--muted); }
+
+.badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge.ok   { background: #dcf5e4; color: var(--ok); }
+.badge.warn { background: #fdf0d9; color: var(--warn); }
+.badge.error{ background: #fde3e3; color: var(--err); }
+.badge.info { background: #e0edff; color: var(--info); }
+
+table.data { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; font-size: 13px; }
+table.data th, table.data td { text-align: left; padding: 8px 11px; border-bottom: 1px solid var(--border); }
+table.data th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; background: #fafbfc; }
+table.data tr:last-child td { border-bottom: none; }
+td.mono, code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+
+input, select, button { font: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+input:focus, select:focus { outline: 2px solid #bcd4ea; }
+button { cursor: pointer; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+.grid-2 { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 16px; align-items: start; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.meter { height: 8px; background: #e6ebf0; border-radius: 4px; overflow: hidden; width: 110px; display: inline-block; vertical-align: middle; }
+.meter > div { height: 100%; background: var(--ok); }
+.meter.low > div { background: var(--err); }
+
+.timeline { list-style: none; padding: 0; margin: 0; }
+.timeline li { padding: 9px 0 9px 14px; border-left: 2px solid var(--border); position: relative; }
+.timeline li::before { content: ""; position: absolute; left: -5px; top: 15px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.timeline .when { color: var(--muted); font-size: 12px; }
+
+.empty { color: var(--muted); font-style: italic; font-size: 13px; }
+.error-text { color: var(--err); font-size: 13px; }

@@ -417,40 +417,70 @@ def evaluate_module_version(
     return "ok", f"{required} release {latest['version']} -> {declared_version}"
 
 
-def cmd_check_versions(_args: argparse.Namespace) -> int:
-    """Validate every module's declared version against its release baseline."""
+def collect_version_status() -> list[dict]:
+    """Compute per-module version consistency against release baselines.
+
+    Single source of truth used by both ``cmd_check_versions`` (CLI output)
+    and the console API. Each result dict carries: file, module (local name),
+    module_iri, declared_version, latest_version, status (ok/warn/error/info)
+    and message.
+    """
     registry = registry_dir()
     releases = load_releases(registry)
-    failures = 0
+    results: list[dict] = []
 
-    modules = find_module_files()
-    if not modules:
+    for path in find_module_files():
+        entry: dict = {
+            "file": path.relative_to(REPO_ROOT).as_posix(),
+            "module": None,
+            "module_iri": None,
+            "declared_version": None,
+            "latest_version": None,
+            "status": "ok",
+            "message": "",
+        }
+        try:
+            iri, declared = module_identity(load_graph(path))
+        except ValueError as exc:
+            entry.update(status="error", message=str(exc))
+            results.append(entry)
+            continue
+
+        entry["module"] = local_name(iri)
+        entry["module_iri"] = iri
+        entry["declared_version"] = declared
+        latest = latest_release(releases, iri)
+
+        if latest is None:
+            entry.update(
+                status="info",
+                message=(
+                    f"never released; run 'release {entry['module']}' to record "
+                    f"{declared} as baseline"
+                ),
+            )
+            results.append(entry)
+            continue
+
+        entry["latest_version"] = latest["version"]
+        latest_terms = load_snapshot_terms(registry, entry["module"], latest["version"])
+        status, message = evaluate_module_version(
+            latest, latest_terms, declared, snapshot(load_graph(path))
+        )
+        entry.update(status=status, message=message)
+        results.append(entry)
+    return results
+
+
+def cmd_check_versions(_args: argparse.Namespace) -> int:
+    """Validate every module's declared version against its release baseline."""
+    statuses = collect_version_status()
+    if not statuses:
         print("No ontology modules found.")
         return 1
-    for path in modules:
-        rel = path.relative_to(REPO_ROOT)
-        graph = load_graph(path)
-        try:
-            iri, declared = module_identity(graph)
-        except ValueError as exc:
-            print(f"[error] {rel}: {exc}")
-            failures += 1
-            continue
-
-        latest = latest_release(releases, iri)
-        if latest is None:
-            print(
-                f"[info ] {local_name(iri)} ({rel}): never released; run "
-                f"'release {local_name(iri)}' to record {declared} as baseline"
-            )
-            continue
-
-        latest_terms = load_snapshot_terms(registry, local_name(iri), latest["version"])
-        status, message = evaluate_module_version(latest, latest_terms, declared, snapshot(graph))
-        print(f"[{status:<5}] {local_name(iri)} ({rel}): {message}")
-        if status == "error":
-            failures += 1
-
+    for entry in statuses:
+        print(f"[{entry['status']:<5}] {entry['file']}: {entry['message']}")
+    failures = sum(1 for e in statuses if e["status"] == "error")
     if failures:
         print(f"\n{failures} module(s) failed the version check.")
         return 1

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ontology Console</title>
+<link rel="stylesheet" href="/static/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">Ontology<br><span>Console</span></div>
+    <nav id="nav">
+      <a href="#/dashboard" data-view="dashboard">Dashboard</a>
+      <a href="#/explorer" data-view="explorer">Explorer</a>
+      <a href="#/versions" data-view="versions">Versions</a>
+      <a href="#/impact" data-view="impact">Impact</a>
+      <a href="#/monitor" data-view="monitor">Data Monitor</a>
+    </nav>
+    <div id="health-badge" class="badge info">loading…</div>
+    <div class="sidebar-note">read-only · v0.1<br>localhost only</div>
+  </aside>
+  <main id="view"></main>
+</div>
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>
