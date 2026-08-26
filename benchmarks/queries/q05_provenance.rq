@@ -1,0 +1,13 @@
+# CQ-010 (Q5 Provenance): which sources support the fact
+# "patrol-01 was located at Cam Ranh Bay"? Target p95 < 500ms.
+PREFIX core: <https://ontology.example/core#>
+PREFIX ex: <https://data.example/entity/>
+
+SELECT ?sourceLabel WHERE {
+  ?la a core:LocationAssertion ;
+      core:describes ex:patrol-01 ;
+      core:locatedAt ex:loc-cam-ranh ;
+      core:hasSource ?s .
+  ?s core:name ?sourceLabel .
+}
+ORDER BY ?sourceLabel

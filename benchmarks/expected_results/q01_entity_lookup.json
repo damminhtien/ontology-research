@@ -1,0 +1,10 @@
+{
+  "id": "CQ-001",
+  "group": "Q1",
+  "slo_p95_ms": 50,
+  "query_file": "q01_entity_lookup.rq",
+  "variables": ["name"],
+  "rows": [
+    ["Patrol Vessel 01"]
+  ]
+}

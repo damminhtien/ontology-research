@@ -1,0 +1,10 @@
+{
+  "id": "CQ-006",
+  "group": "Q3",
+  "slo_p95_ms": 300,
+  "query_file": "q03_region_platforms.rq",
+  "variables": ["platformName"],
+  "rows": [
+    ["Patrol Vessel 01"]
+  ]
+}

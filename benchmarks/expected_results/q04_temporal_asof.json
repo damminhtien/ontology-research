@@ -1,0 +1,10 @@
+{
+  "id": "CQ-008",
+  "group": "Q4",
+  "slo_p95_ms": 500,
+  "query_file": "q04_temporal_asof.rq",
+  "variables": ["placeName", "t"],
+  "rows": [
+    ["Cam Ranh Bay", "2026-08-20T03:00:00Z"]
+  ]
+}

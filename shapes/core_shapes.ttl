@@ -1,0 +1,73 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix core: <https://ontology.example/core#> .
+
+# An Observation MUST be anchored in time, to at least one source,
+# and point at the entity it observed.
+core:ObservationShape a sh:NodeShape ;
+    sh:targetClass core:Observation ;
+    sh:property [
+        sh:path core:atTime ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:datatype xsd:dateTime ;
+        sh:message "Observation must have exactly one xsd:dateTime atTime."@en ;
+    ] ;
+    sh:property [
+        sh:path core:hasSource ;
+        sh:minCount 1 ;
+        sh:class core:Source ;
+        sh:message "Observation must cite at least one Source."@en ;
+    ] ;
+    sh:property [
+        sh:path core:observes ;
+        sh:minCount 1 ;
+        sh:class core:Entity ;
+        sh:message "Observation must observe at least one Entity."@en ;
+    ] ;
+    sh:property [
+        sh:path core:hasConfidence ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ; sh:maxInclusive 1 ;
+        sh:message "Confidence must be a decimal in [0,1]."@en ;
+    ] .
+
+# A reified location assertion must name its subject entity, its location,
+# its validity start and its sources.
+core:LocationAssertionShape a sh:NodeShape ;
+    sh:targetClass core:LocationAssertion ;
+    sh:property [
+        sh:path core:describes ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:class core:Entity ;
+        sh:message "LocationAssertion must describe exactly one Entity."@en ;
+    ] ;
+    sh:property [
+        sh:path core:locatedAt ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:class core:Location ;
+        sh:message "LocationAssertion must point at exactly one Location."@en ;
+    ] ;
+    sh:property [
+        sh:path core:validFrom ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:datatype xsd:dateTime ;
+        sh:message "LocationAssertion must have exactly one validFrom."@en ;
+    ] ;
+    sh:property [
+        sh:path core:hasSource ;
+        sh:minCount 1 ;
+        sh:class core:Source ;
+        sh:message "LocationAssertion must cite at least one Source."@en ;
+    ] .
+
+# Every named thing (agents, artifacts, locations, sources) carries at least
+# one human-readable name. Events/observations are exempt: they are identified
+# by IRI and time anchors, not by label.
+core:NamedThingShape a sh:NodeShape ;
+    sh:targetClass core:Agent, core:Artifact, core:Location, core:Source ;
+    sh:property [
+        sh:path core:name ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "Agents, artifacts, locations and sources need at least one name."@en ;
+    ] .

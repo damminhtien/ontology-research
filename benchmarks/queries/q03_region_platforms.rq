@@ -1,0 +1,14 @@
+# CQ-006 (Q3 2-3 hop traversal): platforms operated by organizations located
+# inside region Khanh Hoa (transitive partOf). Target p95 < 300ms.
+# Exercises: operates hop + locatedAt hop + transitive partOf* path.
+PREFIX core: <https://ontology.example/core#>
+PREFIX ex: <https://data.example/entity/>
+
+SELECT DISTINCT ?platformName WHERE {
+  ?org core:operates ?platform ;
+       core:name ?orgName ;
+       core:locatedAt ?orgLoc .
+  ?orgLoc core:partOf* ex:loc-khanh-hoa .
+  ?platform core:name ?platformName .
+}
+ORDER BY ?platformName

@@ -1,0 +1,11 @@
+{
+  "id": "CQ-010",
+  "group": "Q5",
+  "slo_p95_ms": 500,
+  "query_file": "q05_provenance.rq",
+  "variables": ["sourceLabel"],
+  "rows": [
+    ["AIS feed"],
+    ["Satellite imagery pass 2026-08-20"]
+  ]
+}

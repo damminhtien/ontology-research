@@ -1,0 +1,39 @@
+[project]
+name = "semantic-foundry"
+version = "0.1.0"
+description = "Production-first semantic platform scaffold (Phase 0 + Phase 1)"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv", "graphify-out"]
+
+[tool.ruff.lint]
+# Senior-level default set:
+#   E/W   pycodestyle errors + warnings
+#   F     pyflakes (unused imports/vars, f-string bugs)
+#   I     isort (import ordering)
+#   B     flake8-bugbear (likely bugs & bad patterns)
+#   UP    pyupgrade (modern syntax)
+#   SIM   flake8-simplify
+#   C4    flake8-comprehensions
+#   PTH   use pathlib instead of os.path
+#   RUF   ruff-specific correctness rules
+#   D     pydocstring (google convention)
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "C4", "PTH", "RUF", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests: fixtures/assert helpers don't need docstrings; long parametrize ids ok.
+"tests/**" = ["D103", "D101", "D102"]
+# conftest bootstraps sys.path for tools/ imports before third-party imports.
+"tests/conftest.py" = ["E402"]
+# CLI entrypoints: argparse usage strings serve as docs.
+"tools/*.py" = ["D103"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

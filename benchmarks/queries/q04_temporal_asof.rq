@@ -1,0 +1,18 @@
+# CQ-008 (Q4 Temporal as-of): where was patrol-01 at cutoff time?
+# Latest location assertion valid at or before 2026-08-21.
+# Canonical answer must come from LocationAssertion history, not projections.
+# Target p95 < 500ms.
+PREFIX core: <https://ontology.example/core#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX ex: <https://data.example/entity/>
+
+SELECT ?placeName ?t WHERE {
+  ?la a core:LocationAssertion ;
+      core:describes ex:patrol-01 ;
+      core:locatedAt ?loc ;
+      core:validFrom ?t .
+  FILTER(?t <= "2026-08-21T00:00:00Z"^^xsd:dateTime)
+  ?loc core:name ?placeName .
+}
+ORDER BY DESC(?t)
+LIMIT 1

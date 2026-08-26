@@ -1,0 +1,13 @@
+# CQ-012 (Q6 Analytical): count entities per asserted type.
+# NOTE: in production this runs on the OLAP engine, never on the graph store.
+# It is included here only to pin down correctness of the aggregation contract.
+# Runs on raw asserted types (no RDFS closure materialization).
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?typeLabel (COUNT(?e) AS ?count) WHERE {
+  ?e a ?type .
+  ?type rdfs:label ?typeLabel .
+}
+GROUP BY ?typeLabel
+ORDER BY ?typeLabel

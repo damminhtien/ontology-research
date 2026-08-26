@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+# graphify generated artifacts (rebuilt by git hooks / graphify update)
+graphify-out/

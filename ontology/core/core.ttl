@@ -1,0 +1,133 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix core: <https://ontology.example/core#> .
+
+<https://ontology.example/core> a owl:Ontology ;
+    dcterms:title "Semantic Core Kernel"@en ;
+    dcterms:description "Semantic kernel v0.1: only stable, cross-domain classes and predicates."@en ;
+    dcterms:version "0.1.0" ;
+    vann:preferredNamespacePrefix "core" ;
+    vann:preferredNamespaceUri "https://ontology.example/core#" .
+
+#################################################################
+# Classes (20) — Entity taxonomy, max depth kept shallow
+#################################################################
+
+core:Entity a owl:Class ; rdfs:label "Entity"@en ; rdfs:comment "Root of all things with identity."@en .
+
+core:Agent a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Agent"@en .
+core:Person a owl:Class ; rdfs:subClassOf core:Agent ; rdfs:label "Person"@en .
+core:Organization a owl:Class ; rdfs:subClassOf core:Agent ; rdfs:label "Organization"@en .
+
+core:PhysicalObject a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Physical Object"@en .
+core:Artifact a owl:Class ; rdfs:subClassOf core:PhysicalObject ; rdfs:label "Artifact"@en .
+core:Platform a owl:Class ; rdfs:subClassOf core:Artifact ; rdfs:label "Platform"@en .
+core:Facility a owl:Class ; rdfs:subClassOf core:Artifact ; rdfs:label "Facility"@en .
+
+core:System a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "System"@en ;
+    rdfs:comment "Engineered system of interacting components."@en .
+core:InformationObject a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Information Object"@en .
+core:Source a owl:Class ; rdfs:subClassOf core:InformationObject ; rdfs:label "Source"@en ;
+    rdfs:comment "Provenance anchor for assertions and observations."@en .
+core:Location a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Location"@en .
+
+core:Event a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Event"@en .
+core:Activity a owl:Class ; rdfs:subClassOf core:Event ; rdfs:label "Activity"@en .
+core:Observation a owl:Class ; rdfs:subClassOf core:Event ; rdfs:label "Observation"@en ;
+    rdfs:comment "An act of observing, anchored in time and to a source."@en .
+core:LocationAssertion a owl:Class ; rdfs:subClassOf core:Event ; rdfs:label "Location Assertion"@en ;
+    rdfs:comment "Reified claim that an entity was located somewhere from some time."@en .
+
+core:Role a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Role"@en .
+core:Capability a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Capability"@en .
+core:Quality a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Quality"@en .
+core:State a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "State"@en .
+
+#################################################################
+# Object properties (24) — every property declares domain and range
+#################################################################
+
+core:partOf a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:Entity ;
+    rdfs:label "part of"@en ; rdfs:comment "Transitive mereological/partonomic relation."@en .
+core:hasPart a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:Entity ;
+    owl:inverseOf core:partOf ; rdfs:label "has part"@en .
+core:memberOf a owl:ObjectProperty ; rdfs:domain core:Agent ; rdfs:range core:Agent ;
+    rdfs:label "member of"@en .
+core:hasMember a owl:ObjectProperty ; rdfs:domain core:Agent ; rdfs:range core:Agent ;
+    owl:inverseOf core:memberOf ; rdfs:label "has member"@en .
+
+core:locatedAt a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:Location ;
+    rdfs:label "located at"@en .
+core:hasLocation a owl:ObjectProperty ; rdfs:domain core:Location ; rdfs:range core:Entity ;
+    owl:inverseOf core:locatedAt ; rdfs:label "has located entity"@en .
+core:currentLocation a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:Location ;
+    rdfs:label "current location"@en ;
+    rdfs:comment "OPERATIONAL PROJECTION ONLY — materialized by the read-model projector, never asserted directly by ingestion."@en .
+
+core:participatesIn a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:Event ;
+    rdfs:label "participates in"@en .
+core:hasParticipant a owl:ObjectProperty ; rdfs:domain core:Event ; rdfs:range core:Entity ;
+    owl:inverseOf core:participatesIn ; rdfs:label "has participant"@en .
+
+core:operates a owl:ObjectProperty ; rdfs:domain core:Organization ; rdfs:range core:Artifact ;
+    rdfs:label "operates"@en .
+core:uses a owl:ObjectProperty ; rdfs:domain core:Agent ; rdfs:range core:Entity ;
+    rdfs:label "uses"@en .
+core:controls a owl:ObjectProperty ; rdfs:domain core:Agent ; rdfs:range core:Entity ;
+    rdfs:label "controls"@en .
+core:owns a owl:ObjectProperty ; rdfs:domain core:Agent ; rdfs:range core:Entity ;
+    rdfs:label "owns"@en .
+
+core:hasRole a owl:ObjectProperty ; rdfs:domain core:Agent ; rdfs:range core:Role ;
+    rdfs:label "has role"@en ; rdfs:comment "Playing a role does NOT reclassify the agent."@en .
+core:hasCapability a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:Capability ;
+    rdfs:label "has capability"@en .
+
+core:observes a owl:ObjectProperty ; rdfs:domain core:Observation ; rdfs:range core:Entity ;
+    rdfs:label "observes"@en ; rdfs:comment "Subject is the observation act, not the observer."@en .
+core:observedBy a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:Observation ;
+    owl:inverseOf core:observes ; rdfs:label "observed by"@en .
+
+core:produces a owl:ObjectProperty ; rdfs:domain core:Agent ; rdfs:range core:Entity ;
+    rdfs:label "produces"@en .
+core:consumes a owl:ObjectProperty ; rdfs:domain core:Agent ; rdfs:range core:Entity ;
+    rdfs:label "consumes"@en .
+
+core:dependsOn a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:Entity ;
+    rdfs:label "depends on"@en .
+core:connectedTo a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:Entity ;
+    rdfs:label "connected to"@en ; rdfs:comment "Symmetric physical/logical connectivity."@en .
+
+core:describes a owl:ObjectProperty ; rdfs:domain core:InformationObject ; rdfs:range core:Entity ;
+    rdfs:label "describes"@en .
+core:describedBy a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:InformationObject ;
+    owl:inverseOf core:describes ; rdfs:label "described by"@en .
+core:hasSource a owl:ObjectProperty ; rdfs:domain core:Event ; rdfs:range core:Source ;
+    rdfs:label "has source"@en ; rdfs:comment "Provenance link from an assertion/event to its source(s)."@en .
+
+#################################################################
+# Datatype properties (9)
+#################################################################
+
+core:name a owl:DatatypeProperty ; rdfs:domain core:Entity ; rdfs:range xsd:string ;
+    rdfs:label "name"@en .
+core:alias a owl:DatatypeProperty ; rdfs:domain core:Entity ; rdfs:range xsd:string ;
+    rdfs:label "alias"@en ; rdfs:comment "Alternative names used by identity resolution."@en .
+core:externalId a owl:DatatypeProperty ; rdfs:domain core:Entity ; rdfs:range xsd:string ;
+    rdfs:label "external id"@en .
+core:atTime a owl:DatatypeProperty ; rdfs:domain core:Event ; rdfs:range xsd:dateTime ;
+    rdfs:label "at time"@en ; rdfs:comment "Instant of an event/observation. Exactly one per observation."@en .
+core:startTime a owl:DatatypeProperty ; rdfs:domain core:Event ; rdfs:range xsd:dateTime ;
+    rdfs:label "start time"@en .
+core:endTime a owl:DatatypeProperty ; rdfs:domain core:Event ; rdfs:range xsd:dateTime ;
+    rdfs:label "end time"@en .
+core:validFrom a owl:DatatypeProperty ; rdfs:domain core:Event ; rdfs:range xsd:dateTime ;
+    rdfs:label "valid from"@en ; rdfs:comment "Temporal validity start of an asserted fact."@en .
+core:validUntil a owl:DatatypeProperty ; rdfs:domain core:Event ; rdfs:range xsd:dateTime ;
+    rdfs:label "valid until"@en .
+core:hasConfidence a owl:DatatypeProperty ; rdfs:domain core:Event ; rdfs:range xsd:decimal ;
+    rdfs:label "has confidence"@en ; rdfs:comment "Assessed confidence in [0,1]. Constrained by SHACL."@en .

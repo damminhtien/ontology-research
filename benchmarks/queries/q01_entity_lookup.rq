@@ -1,0 +1,8 @@
+# CQ-001 (Q1 Entity lookup): return the name of entity patrol-01.
+# Target p95 < 50ms (point lookup by identity).
+PREFIX core: <https://ontology.example/core#>
+PREFIX ex: <https://data.example/entity/>
+
+SELECT ?name WHERE {
+  ex:patrol-01 core:name ?name .
+}

@@ -1,0 +1,10 @@
+{
+  "id": "CQ-003",
+  "group": "Q2",
+  "slo_p95_ms": 100,
+  "query_file": "q02_one_hop.rq",
+  "variables": ["orgName"],
+  "rows": [
+    ["Coast Guard Region 4"]
+  ]
+}

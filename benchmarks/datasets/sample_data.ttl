@@ -1,0 +1,81 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix core: <https://ontology.example/core#> .
+@prefix ex: <https://data.example/entity/> .
+@prefix src: <https://data.example/source/> .
+
+# ---- Locations -----------------------------------------------------------
+ex:loc-vietnam a core:Location ; core:name "Vietnam" .
+ex:loc-khanh-hoa a core:Location ; core:name "Khanh Hoa" ;
+    core:partOf ex:loc-vietnam .
+ex:loc-cam-ranh a core:Location ; core:name "Cam Ranh Bay" ;
+    core:partOf ex:loc-khanh-hoa .
+ex:loc-da-nang a core:Location ; core:name "Da Nang" ;
+    core:partOf ex:loc-vietnam .
+ex:loc-hanoi a core:Location ; core:name "Hanoi" ;
+    core:partOf ex:loc-vietnam .
+
+# ---- Organizations / people ----------------------------------------------
+ex:org-cg-region4 a core:Organization ;
+    core:name "Coast Guard Region 4" ;
+    core:locatedAt ex:loc-cam-ranh .
+
+ex:org-maritime-hq a core:Organization ;
+    core:name "Maritime Headquarters" ;
+    core:locatedAt ex:loc-hanoi .
+
+ex:role-commander a core:Role ; core:name "Commander" .
+
+ex:person-tran-van-b a core:Person ;
+    core:name "Tran Van B" ;
+    core:memberOf ex:org-cg-region4 ;
+    core:hasRole ex:role-commander .
+
+# ---- Platforms ------------------------------------------------------------
+ex:patrol-01 a core:Platform ;
+    core:name "Patrol Vessel 01" ;
+    core:alias "PV-01" .
+ex:patrol-02 a core:Platform ;
+    core:name "Patrol Vessel 02" ;
+    core:alias "PV-02" .
+
+ex:org-cg-region4 core:operates ex:patrol-01 .
+ex:org-maritime-hq core:operates ex:patrol-02 .
+
+# Operational projection triples (read model) — produced by the projector,
+# never by ingestion.
+ex:patrol-01 core:currentLocation ex:loc-cam-ranh .
+ex:patrol-02 core:currentLocation ex:loc-hanoi .
+
+# ---- Sources ---------------------------------------------------------------
+src:sat-pass-0820 a core:Source ; core:name "Satellite imagery pass 2026-08-20" .
+src:ais-feed a core:Source ; core:name "AIS feed" .
+src:open-report a core:Source ; core:name "Open source report" .
+
+# ---- Observations (Q5 provenance, SHACL target) ----------------------------
+ex:obs-001 a core:Observation ;
+    core:observes ex:patrol-01 ;
+    core:atTime "2026-08-20T03:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:sat-pass-0820 , src:ais-feed ;
+    core:hasConfidence "0.92"^^xsd:decimal .
+
+ex:obs-002 a core:Observation ;
+    core:observes ex:patrol-02 ;
+    core:atTime "2026-08-21T09:30:00Z"^^xsd:dateTime ;
+    core:hasSource src:ais-feed ;
+    core:hasConfidence "0.85"^^xsd:decimal .
+
+# ---- Location assertions (canonical temporal facts) ------------------------
+# Older fact first: patrol-01 seen at Da Nang, then later at Cam Ranh.
+ex:la-001 a core:LocationAssertion ;
+    core:describes ex:patrol-01 ;
+    core:locatedAt ex:loc-da-nang ;
+    core:validFrom "2026-07-15T00:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:open-report .
+
+ex:la-002 a core:LocationAssertion ;
+    core:describes ex:patrol-01 ;
+    core:locatedAt ex:loc-cam-ranh ;
+    core:validFrom "2026-08-20T03:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:sat-pass-0820 , src:ais-feed .
