@@ -36,6 +36,9 @@ ontology-report:
 	$(PY) tools/manage_ontology.py report
 	$(PY) tools/manage_ontology.py stats
 
+benchmark:
+	$(PY) tools/benchmark.py --scale 1000 --observations 3
+
 check: lint versions validate dag test
 
 clean:
