@@ -5,15 +5,15 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Make shared helpers in tools/ importable from the test suite.
-TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
-if TOOLS_DIR.as_posix() not in sys.path:
-    sys.path.insert(0, TOOLS_DIR.as_posix())
+# Make shared helpers in tools/ and the foundry package importable from tests.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+for _path in (REPO_ROOT / "tools", REPO_ROOT):
+    if _path.as_posix() not in sys.path:
+        sys.path.insert(0, _path.as_posix())
 
 import pytest
 from rdflib import RDF, RDFS, Graph, URIRef
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 CORE_ONTOLOGY = REPO_ROOT / "ontology" / "core" / "core.ttl"
 SHAPES_FILE = REPO_ROOT / "shapes" / "core_shapes.ttl"
 SAMPLE_DATA = REPO_ROOT / "benchmarks" / "datasets" / "sample_data.ttl"
