@@ -56,6 +56,25 @@ Từng bước:
 5. Dependency module là DAG hướng xuống: `core ← middle ← domain`;
    import ngược chiều hoặc circular → CI fail.
 
+## Ontology versioning
+
+Mỗi module khai báo `dcterms:version` (SemVer); `registry/` lưu release log +
+term snapshots làm baseline. `make check` chạy `check-versions`: sửa semantics
+mà không bump, hoặc bump sai mức, sẽ fail CI.
+
+```bash
+make versions                                              # kiểm tra consistency
+.venv/bin/python tools/manage_ontology.py release core --dry-run  # preview + blast radius
+.venv/bin/python tools/manage_ontology.py release core \
+    --migration "gadget range widened; re-map data"        # MAJOR bắt buộc migration note
+.venv/bin/python tools/manage_ontology.py blast-radius Platform
+.venv/bin/python tools/manage_ontology.py stability        # core >= 0.99 được enforce
+```
+
+Phân loại: đổi `domain`/`range`, xóa term → **MAJOR** (+migration bắt buộc);
+thêm term → **MINOR**; label/comment → **PATCH**. Release log nằm ở
+`registry/releases.json`; `docs/CHANGELOG.md` sinh tự động, không sửa tay.
+
 ## Ontology tooling
 
 ### Visualization & management

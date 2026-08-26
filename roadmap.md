@@ -329,6 +329,11 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
   - [x] Ingestion pipeline với SHACL gate (`foundry/ingestion.py`) — structured records + location observations
   - [ ] Unstructured documents (LLM extraction trước cùng gate đó)
   - [ ] Throughput benchmark 10^4-10^5 events/s (synthetic)
+- [~] Phase 5 (bắt đầu sớm): version governance
+  - [x] Release registry (`registry/`) + SemVer enforcement trong `make check`
+  - [x] `release` với migration note bắt buộc cho MAJOR; changelog sinh tự động
+  - [x] Blast radius analysis (`blast-radius`) + stability metric (`stability`)
+  - [ ] Migration scripts tự động hóa; alignment registry
 - [ ] Phase 3: projector + read models + benchmark dashboard
 - [ ] Phase 4+: xem bảng phase ở trên
 

@@ -1,0 +1,15 @@
+{
+  "registry_version": 1,
+  "releases": [
+    {
+      "changes": [],
+      "commit": "72415c7",
+      "date": "2026-08-26T07:05:33Z",
+      "file": "ontology/core/core.ttl",
+      "migration": null,
+      "module_iri": "https://ontology.example/core",
+      "severity": "NONE",
+      "version": "0.1.0"
+    }
+  ]
+}
