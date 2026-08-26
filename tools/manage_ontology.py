@@ -1,4 +1,4 @@
-"""Ontology management CLI: stats, semantic diff, module scaffolding, report.
+"""Ontology management CLI: stats, diff, versioning, scaffolding, report.
 
 Subcommands:
     stats                     per-module class/property counts
@@ -7,33 +7,57 @@ Subcommands:
                               --allow-breaking is passed)
     new-module NAME --layer   scaffold a middle/domain module importing core
     report                    markdown summary of the whole registry
+    check-versions            enforce declared dcterms:version consistency
+                              against the latest release in registry/
+    release MODULE            record a release: snapshot + log + changelog
+                              (MAJOR requires --migration)
+    blast-radius TERM         count modules/queries/application files that
+                              reference TERM
+    stability                 Stability(m) = 1 - N_breaking/N_releases per module
 
 The diff command enforces the roadmap rule "never redefine silently": any
 domain/range change or term removal is flagged as a breaking (MAJOR) change;
-label/comment edits are PATCH-level; additions are MINOR.
+label/comment edits are PATCH-level; additions are MINOR. check-versions makes
+that rule machine-enforced on every `make check` run.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ontology_utils import (
     describe_classes,
     describe_properties,
+    dump_json,
     find_module_files,
     local_name,
 )
-from rdflib import Graph
+from rdflib import RDF, Graph, URIRef
+from rdflib.namespace import OWL
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-SEVERITY_ORDER = ["PATCH", "MINOR", "MAJOR"]
+SEVERITY_ORDER = ["NONE", "PATCH", "MINOR", "MAJOR"]
+SEVERITY_NONE = "NONE"
 SEVERITY_PATCH = "PATCH"
 SEVERITY_MINOR = "MINOR"
 SEVERITY_MAJOR = "MAJOR"
+
+REGISTRY_DIRNAME = "registry"
+RELEASES_FILE = "releases.json"
+SNAPSHOT_VERSION = 1
+STABILITY_THRESHOLD_CORE = 0.99
+STABILITY_THRESHOLD_DEFAULT = 0.95
+
+_DCT_VERSION = URIRef("http://purl.org/dc/terms/version")
+_SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
 MODULE_TEMPLATE = """@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
@@ -171,6 +195,273 @@ def format_term(iri: str) -> str:
     return local_name(iri)
 
 
+# ---------------------------------------------------------------------------
+# Versioning engine: SemVer helpers, release registry, consistency checks
+# ---------------------------------------------------------------------------
+
+
+def utc_now_iso() -> str:
+    """Return the current UTC instant as an xsd:dateTime lexical form."""
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_version(text: str) -> tuple[int, int, int]:
+    """Parse a SemVer string into a comparable tuple.
+
+    Raises:
+        ValueError: If the text is not MAJOR.MINOR.PATCH.
+    """
+    match = _SEMVER_RE.match(text.strip())
+    if not match:
+        raise ValueError(f"'{text}' is not valid SemVer (MAJOR.MINOR.PATCH)")
+    return tuple(int(group) for group in match.groups())  # type: ignore[return-value]
+
+
+def bump_level(old: str, new: str) -> str:
+    """Classify the transition old -> new as NONE/PATCH/MINOR/MAJOR.
+
+    Raises:
+        ValueError: On downgrade or invalid input.
+    """
+    old_v, new_v = parse_version(old), parse_version(new)
+    if new_v < old_v:
+        raise ValueError(f"version downgraded {old} -> {new}")
+    if new_v[0] != old_v[0]:
+        return SEVERITY_MAJOR
+    if new_v[1] != old_v[1]:
+        return SEVERITY_MINOR
+    if new_v[2] != old_v[2]:
+        return SEVERITY_PATCH
+    return SEVERITY_NONE
+
+
+def next_version(current: str, severity: str) -> str:
+    """Return the smallest version of ``current`` satisfying ``severity``."""
+    major, minor, patch = parse_version(current)
+    if severity == SEVERITY_MAJOR:
+        return f"{major + 1}.0.0"
+    if severity == SEVERITY_MINOR:
+        return f"{major}.{minor + 1}.0"
+    if severity == SEVERITY_PATCH:
+        return f"{major}.{minor}.{patch + 1}"
+    return current
+
+
+def module_identity(graph: Graph) -> tuple[str, str]:
+    """Return (module_iri, declared_version) from an ontology graph.
+
+    Raises:
+        ValueError: If the header is missing/ambiguous or version is invalid.
+    """
+    ontologies = sorted(str(s) for s in graph.subjects(RDF.type, OWL.Ontology))
+    if len(ontologies) != 1:
+        raise ValueError(
+            f"expected exactly one owl:Ontology header, found {len(ontologies)}"
+        )
+    iri = ontologies[0]
+    versions = sorted(str(v) for v in graph.objects(URIRef(iri), _DCT_VERSION))
+    if len(versions) != 1:
+        raise ValueError(f"module <{iri}> must declare exactly one dcterms:version")
+    parse_version(versions[0])
+    return iri, versions[0]
+
+
+def registry_dir(repo_root: Path | None = None) -> Path:
+    """Resolve the release registry directory for a repo root."""
+    base = repo_root if repo_root is not None else REPO_ROOT
+    return base / REGISTRY_DIRNAME
+
+
+def load_releases(registry: Path) -> list[dict]:
+    """Load all release entries from ``registry/releases.json``."""
+    path = registry / RELEASES_FILE
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("registry_version") != 1:
+        raise ValueError(f"unsupported registry_version in {path}")
+    return list(data.get("releases", []))
+
+
+def save_releases(registry: Path, entries: list[dict]) -> None:
+    """Persist release entries to the registry as stable JSON."""
+    registry.mkdir(parents=True, exist_ok=True)
+    payload = {"registry_version": 1, "releases": entries}
+    (registry / RELEASES_FILE).write_text(dump_json(payload) + "\n", encoding="utf-8")
+
+
+def latest_release(releases: list[dict], module_iri: str) -> dict | None:
+    """Return the highest-version release entry for a module, or None."""
+    module_releases = [r for r in releases if r.get("module_iri") == module_iri]
+    if not module_releases:
+        return None
+    return max(module_releases, key=lambda r: parse_version(r["version"]))
+
+
+def terms_to_jsonable(terms: dict[str, dict]) -> dict[str, dict]:
+    """Convert term descriptors to JSON-safe form (sets become sorted lists)."""
+    out: dict[str, dict] = {}
+    for iri, desc in terms.items():
+        entry = dict(desc)
+        if isinstance(entry.get("parents"), set):
+            entry["parents"] = sorted(entry["parents"])
+        out[iri] = entry
+    return out
+
+
+def terms_from_jsonable(raw: dict[str, dict]) -> dict[str, dict]:
+    """Rebuild term descriptors from JSON form (parents lists become sets)."""
+    out: dict[str, dict] = {}
+    for iri, desc in raw.items():
+        entry = dict(desc)
+        if "parents" in entry:
+            entry["parents"] = set(entry["parents"])
+        out[iri] = entry
+    return out
+
+
+def snapshot_path(registry: Path, module_local: str, version: str) -> Path:
+    """Path of the snapshot file for one module version."""
+    return registry / "snapshots" / module_local / f"{version}.json"
+
+
+def save_snapshot(
+    registry: Path,
+    module_local: str,
+    version: str,
+    module_iri: str,
+    file_rel: str,
+    terms: dict[str, dict],
+) -> Path:
+    """Persist one term snapshot and return its path."""
+    payload = {
+        "snapshot_version": SNAPSHOT_VERSION,
+        "module_iri": module_iri,
+        "file": file_rel,
+        "version": version,
+        "date": utc_now_iso(),
+        "terms": terms_to_jsonable(terms),
+    }
+    path = snapshot_path(registry, module_local, version)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(dump_json(payload) + "\n", encoding="utf-8")
+    return path
+
+
+def load_snapshot_terms(registry: Path, module_local: str, version: str) -> dict[str, dict]:
+    """Load a stored term snapshot back into diff-compatible descriptors."""
+    path = snapshot_path(registry, module_local, version)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("snapshot_version") != SNAPSHOT_VERSION:
+        raise ValueError(f"unsupported snapshot_version in {path}")
+    return terms_from_jsonable(data["terms"])
+
+
+def current_commit() -> str | None:
+    """Best-effort short commit hash of HEAD; None when git is unavailable."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=REPO_ROOT,
+        )
+        return result.stdout.strip()
+    except Exception:
+        return None
+
+
+def evaluate_module_version(
+    latest: dict,
+    latest_terms: dict[str, dict],
+    declared_version: str,
+    current_terms: dict[str, dict],
+) -> tuple[str, str]:
+    """Check declared-version consistency against the semantic diff baseline.
+
+    Returns (status, message); status is one of ok/warn/error, implementing
+    the truth table from the Phase 5 design.
+    """
+    changes = diff_snapshots(latest_terms, current_terms)
+    required = highest_severity(changes)
+    bump = bump_level(latest["version"], declared_version)
+
+    if not changes:
+        if bump == SEVERITY_NONE:
+            return "ok", f"no changes since {latest['version']}"
+        return (
+            "error",
+            f"version bumped {latest['version']} -> {declared_version} but no "
+            "semantic changes; revert the bump or make a real change",
+        )
+    if bump == SEVERITY_NONE:
+        return (
+            "error",
+            f"{required} changes detected since {latest['version']} "
+            f"(e.g. {changes[0].detail}); bump dcterms:version to at least "
+            f"{next_version(latest['version'], required)}",
+        )
+    if SEVERITY_ORDER.index(required) > SEVERITY_ORDER.index(bump):
+        return (
+            "error",
+            f"{required} changes detected but only a {bump} bump "
+            f"({latest['version']} -> {declared_version}); silent redefinition "
+            f"is forbidden - use at least "
+            f"{next_version(latest['version'], required)}",
+        )
+    if SEVERITY_ORDER.index(bump) > SEVERITY_ORDER.index(required):
+        return (
+            "warn",
+            f"conservative {bump} bump for {required} changes "
+            f"({latest['version']} -> {declared_version})",
+        )
+    return "ok", f"{required} release {latest['version']} -> {declared_version}"
+
+
+def cmd_check_versions(_args: argparse.Namespace) -> int:
+    """Validate every module's declared version against its release baseline."""
+    registry = registry_dir()
+    releases = load_releases(registry)
+    failures = 0
+
+    modules = find_module_files()
+    if not modules:
+        print("No ontology modules found.")
+        return 1
+    for path in modules:
+        rel = path.relative_to(REPO_ROOT)
+        graph = load_graph(path)
+        try:
+            iri, declared = module_identity(graph)
+        except ValueError as exc:
+            print(f"[error] {rel}: {exc}")
+            failures += 1
+            continue
+
+        latest = latest_release(releases, iri)
+        if latest is None:
+            print(
+                f"[info ] {local_name(iri)} ({rel}): never released; run "
+                f"'release {local_name(iri)}' to record {declared} as baseline"
+            )
+            continue
+
+        latest_terms = load_snapshot_terms(registry, local_name(iri), latest["version"])
+        status, message = evaluate_module_version(
+            latest, latest_terms, declared, snapshot(graph)
+        )
+        print(f"[{status:<5}] {local_name(iri)} ({rel}): {message}")
+        if status == "error":
+            failures += 1
+
+    if failures:
+        print(f"\n{failures} module(s) failed the version check.")
+        return 1
+    print("\nVersion check passed.")
+    return 0
+
+
 def cmd_stats(_args: argparse.Namespace) -> int:
     """Print per-module term counts."""
     modules = find_module_files()
@@ -305,6 +596,10 @@ def main() -> int:
     new_parser.set_defaults(func=cmd_new_module)
 
     sub.add_parser("report", help="markdown registry report").set_defaults(func=cmd_report)
+
+    sub.add_parser("check-versions", help="enforce version vs semantic diff").set_defaults(
+        func=cmd_check_versions
+    )
 
     args = parser.parse_args()
     return args.func(args)

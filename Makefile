@@ -22,6 +22,9 @@ lint:
 	.venv/bin/ruff check .
 	.venv/bin/ruff format --check .
 
+versions:
+	$(PY) tools/manage_ontology.py check-versions
+
 fmt:
 	.venv/bin/ruff check . --fix
 	.venv/bin/ruff format .
@@ -33,7 +36,7 @@ ontology-report:
 	$(PY) tools/manage_ontology.py report
 	$(PY) tools/manage_ontology.py stats
 
-check: lint validate dag test
+check: lint versions validate dag test
 
 clean:
 	find . -name __pycache__ -type d -exec rm -rf {} +
