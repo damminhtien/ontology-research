@@ -33,6 +33,8 @@ convention = "google"
 "tests/conftest.py" = ["E402"]
 # CLI entrypoints: argparse usage strings serve as docs.
 "tools/*.py" = ["D103"]
+# visualize_ontology embeds an HTML/D3 template string; JS lines may exceed.
+"tools/visualize_ontology.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"

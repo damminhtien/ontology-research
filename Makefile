@@ -26,6 +26,13 @@ fmt:
 	.venv/bin/ruff check . --fix
 	.venv/bin/ruff format .
 
+visualize-ontology:
+	$(PY) tools/visualize_ontology.py
+
+ontology-report:
+	$(PY) tools/manage_ontology.py report
+	$(PY) tools/manage_ontology.py stats
+
 check: lint validate dag test
 
 clean:

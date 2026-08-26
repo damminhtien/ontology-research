@@ -56,6 +56,27 @@ Từng bước:
 5. Dependency module là DAG hướng xuống: `core ← middle ← domain`;
    import ngược chiều hoặc circular → CI fail.
 
+## Ontology tooling
+
+### Visualization & management
+
+```bash
+make visualize-ontology   # sinh build/ontology.html (D3 interactive) + ontology.mmd (Mermaid)
+make ontology-report      # sinh build/ontology-report.md + bảng stats từng module
+```
+
+Quản lý lifecycle (`tools/manage_ontology.py`):
+
+```bash
+.venv/bin/python tools/manage_ontology.py stats                    # đếm terms theo module
+.venv/bin/python tools/manage_ontology.py diff old.ttl new.ttl     # semantic diff + SemVer severity
+.venv/bin/python tools/manage_ontology.py new-module organization --layer middle
+```
+
+`diff` thực thi rule **"never redefine silently"** (CODING_CONVENTIONS.md):
+đổi `domain`/`range` hoặc xóa term = MAJOR (exit 1, chặn CI); thêm term mới =
+MINOR; đổi label/comment = PATCH. Chỉ vượt qua MAJOR bằng `--allow-breaking`.
+
 ## Agent tooling (rtk + graphify)
 
 Repo này đã cấu hình sẵn hai tool hỗ trợ AI coding agents:
