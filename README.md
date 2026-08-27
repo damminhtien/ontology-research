@@ -1,5 +1,9 @@
 # Semantic Foundry
 
+[![ci](https://github.com/damminhtien/ontology-research/actions/workflows/ci.yml/badge.svg)](https://github.com/damminhtien/ontology-research/actions/workflows/ci.yml)
+[![docs](https://github.com/damminhtien/ontology-research/actions/workflows/docs.yml/badge.svg)](https://damminhtien.github.io/ontology-research/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Production-first semantic platform scaffold — Phase 0 + Phase 1 của
 [roadmap.md](roadmap.md) đã được implement và kiểm chứng bằng CI tests.
 
