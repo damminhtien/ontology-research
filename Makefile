@@ -10,7 +10,12 @@ setup:
 validate:
 	$(PY) tools/validate.py \
 		--shapes shapes/core_shapes.ttl \
-		--data benchmarks/datasets/sample_data.ttl
+		--data benchmarks/datasets/sample_data.ttl \
+		--data benchmarks/datasets/domain_tracking.ttl
+	$(PY) tools/validate.py \
+		--shapes shapes/domain_shapes.ttl \
+		--data benchmarks/datasets/sample_data.ttl \
+		--data benchmarks/datasets/domain_tracking.ttl
 
 dag:
 	$(PY) tools/check_dependency_dag.py

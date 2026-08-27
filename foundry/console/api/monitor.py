@@ -8,7 +8,7 @@ from typing import Annotated
 
 from cq_runner import run_competency_queries
 from fastapi import APIRouter, Query
-from ontology_utils import materialize_type_closure
+from ontology_utils import find_module_files, materialize_type_closure
 from pyshacl import validate as shacl_validate
 from rdflib import RDF, Graph
 from rdflib.namespace import SH
@@ -16,9 +16,6 @@ from rdflib.namespace import SH
 from foundry.events import EventLog
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-CORE_ONTOLOGY = REPO_ROOT / "ontology" / "core" / "core.ttl"
-SHAPES_FILE = REPO_ROOT / "shapes" / "core_shapes.ttl"
-SAMPLE_DATA = REPO_ROOT / "benchmarks" / "datasets" / "sample_data.ttl"
 
 EVENT_LOG_ENV = "FOUNDRY_EVENT_LOG"
 
@@ -29,6 +26,25 @@ def event_log_path() -> Path:
     """Resolve the event log path (FOUNDRY_EVENT_LOG or data/events.jsonl)."""
     configured = os.environ.get(EVENT_LOG_ENV)
     return Path(configured) if configured else REPO_ROOT / "data" / "events.jsonl"
+
+
+def _validation_graphs() -> tuple[Graph, Graph, list[str], list[str]]:
+    """Build the full data graph and shapes graph the SHACL gate runs on."""
+    data = Graph()
+    data_files: list[str] = []
+    for path in find_module_files():
+        data.parse(path.as_posix(), format="turtle")
+    for path in sorted((REPO_ROOT / "benchmarks" / "datasets").glob("*.ttl")):
+        data.parse(path.as_posix(), format="turtle")
+        data_files.append(path.name)
+    materialize_type_closure(data)
+
+    shapes = Graph()
+    shapes_files: list[str] = []
+    for path in sorted((REPO_ROOT / "shapes").glob("*.ttl")):
+        shapes.parse(path.as_posix(), format="turtle")
+        shapes_files.append(path.name)
+    return data, shapes, data_files, shapes_files
 
 
 @router.get("/events/stats")
@@ -70,14 +86,8 @@ def recent_events(limit: Annotated[int, Query(le=500)]) -> dict:
 
 @router.get("/validation")
 def validation() -> dict:
-    """Run the SHACL gate over the seed dataset and report violations."""
-    data = Graph()
-    data.parse(CORE_ONTOLOGY.as_posix(), format="turtle")
-    data.parse(SAMPLE_DATA.as_posix(), format="turtle")
-    materialize_type_closure(data)
-
-    shapes = Graph()
-    shapes.parse(SHAPES_FILE.as_posix(), format="turtle")
+    """Run the SHACL gate (all shapes) over all benchmark datasets."""
+    data, shapes, data_files, shapes_files = _validation_graphs()
 
     conforms, results_graph, _results_text = shacl_validate(
         data_graph=data,
@@ -99,8 +109,8 @@ def validation() -> dict:
                 )
 
     return {
-        "data": SAMPLE_DATA.name,
-        "shapes": SHAPES_FILE.name,
+        "data": data_files,
+        "shapes": shapes_files,
         "conforms": conforms,
         "violation_count": len(violations),
         "violations": violations,

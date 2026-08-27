@@ -15,7 +15,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from ontology_utils import materialize_type_closure
+from ontology_utils import find_module_files, materialize_type_closure
 from pyshacl import validate
 from rdflib import Graph
 
@@ -61,15 +61,11 @@ def main() -> int:
         action="append",
         default=None,
         help="Ontology module providing class axioms for type expansion "
-        "(repeatable; defaults to ontology/core/core.ttl)",
+        "(repeatable; defaults to every registered module)",
     )
     args = parser.parse_args()
 
-    ontology_paths = (
-        [Path(p) for p in args.ontology]
-        if args.ontology
-        else [Path(__file__).resolve().parent.parent / "ontology" / "core" / "core.ttl"]
-    )
+    ontology_paths = [Path(p) for p in args.ontology] if args.ontology else find_module_files()
     shapes_paths = [Path(p) for p in args.shapes]
     data_paths = [Path(p) for p in args.data]
     for p in ontology_paths + shapes_paths + data_paths:

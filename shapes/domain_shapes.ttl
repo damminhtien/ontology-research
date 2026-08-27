@@ -1,0 +1,40 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix core: <https://ontology.example/core#> .
+@prefix sensor: <https://ontology.example/domain/sensor#> .
+@prefix tracking: <https://ontology.example/domain/tracking#> .
+
+# A Track is a derived information product: it MUST resolve to exactly one
+# entity, cite at least one supporting observation, and carry exactly one
+# string identifier (ADR-0005).
+tracking:TrackShape a sh:NodeShape ;
+    sh:targetClass tracking:Track ;
+    sh:property [
+        sh:path tracking:trackOf ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:class core:Entity ;
+        sh:message "Track must resolve to exactly one Entity via trackOf."@en ;
+    ] ;
+    sh:property [
+        sh:path tracking:derivedFrom ;
+        sh:minCount 1 ;
+        sh:class core:Observation ;
+        sh:message "Track must derive from at least one Observation."@en ;
+    ] ;
+    sh:property [
+        sh:path tracking:hasTrackId ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "Track must carry exactly one xsd:string track id."@en ;
+    ] .
+
+# A Sensor MUST be mounted on exactly one platform — an unmounted sensor
+# reading is not a meaningful operational fact.
+sensor:SensorShape a sh:NodeShape ;
+    sh:targetClass sensor:Sensor ;
+    sh:property [
+        sh:path sensor:mountedOn ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:class core:Platform ;
+        sh:message "Sensor must be mounted on exactly one Platform."@en ;
+    ] .

@@ -173,3 +173,70 @@ class TestDomainModules:
         assert "http://www.w3.org/2002/07/owl#DatatypeProperty" in types
         rng = next(graph.objects(prop, RDFS.range), None)
         assert str(rng) == "http://www.w3.org/2001/XMLSchema#string"
+
+
+class TestDomainShaclConformance:
+    """Domain data must satisfy domain shapes (and core shapes) — the DoD gate."""
+
+    @staticmethod
+    def _data_graph() -> Graph:
+        from ontology_utils import find_module_files, materialize_type_closure
+
+        graph = Graph()
+        for path in find_module_files():
+            graph.parse(path.as_posix(), format="turtle")
+        for path in sorted((REPO_ROOT / "benchmarks" / "datasets").glob("*.ttl")):
+            graph.parse(path.as_posix(), format="turtle")
+        materialize_type_closure(graph)
+        return graph
+
+    @staticmethod
+    def _validate(data: Graph, shapes_file: str = "domain_shapes.ttl") -> tuple[bool, str]:
+        from pyshacl import validate as shacl_validate
+
+        shapes = Graph()
+        shapes.parse((REPO_ROOT / "shapes" / shapes_file).as_posix(), format="turtle")
+        conforms, _results_graph, text = shacl_validate(
+            data_graph=data, shacl_graph=shapes, inference="none", advanced=True
+        )
+        return conforms, text
+
+    def test_full_data_conforms_to_domain_shapes(self):
+        conforms, text = self._validate(self._data_graph())
+        assert conforms, text
+
+    def test_full_data_conforms_to_core_shapes(self):
+        conforms, text = self._validate(self._data_graph(), shapes_file="core_shapes.ttl")
+        assert conforms, text
+
+    @staticmethod
+    def _stripped_violation_graph(prop_iri: str, subject_iri: str) -> Graph:
+        """Module+domain dataset graph with one assertion removed (violation fixture)."""
+        from ontology_utils import find_module_files, materialize_type_closure
+
+        graph = Graph()
+        for path in find_module_files():
+            graph.parse(path.as_posix(), format="turtle")
+        graph.parse(
+            (REPO_ROOT / "benchmarks" / "datasets" / "domain_tracking.ttl").as_posix(),
+            format="turtle",
+        )
+        graph.remove((URIRef(subject_iri), URIRef(prop_iri), None))
+        materialize_type_closure(graph)
+        return graph
+
+    def test_track_without_track_id_violates(self):
+        graph = self._stripped_violation_graph(
+            "https://ontology.example/domain/tracking#hasTrackId",
+            "https://data.example/entity/track-t101",
+        )
+        conforms, _ = self._validate(graph)
+        assert not conforms
+
+    def test_sensor_without_mount_violates(self):
+        graph = self._stripped_violation_graph(
+            "https://ontology.example/domain/sensor#mountedOn",
+            "https://data.example/entity/radar-01",
+        )
+        conforms, _ = self._validate(graph)
+        assert not conforms

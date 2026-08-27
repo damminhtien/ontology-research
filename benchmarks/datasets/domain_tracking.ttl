@@ -13,7 +13,8 @@
 # vertical chain joins across both files. Benchmark scaffolding only — per
 # ADR-0005 this file is never fed through the ingestion pipeline.
 
-# ---- Administrative geography (types refine existing core:Location IRIs) ----
+# ---- Administrative geography (types refine existing core:Location IRIs;
+# names/partOf already live in sample_data.ttl — never restate them here) ----
 ex:loc-vietnam a location:Country .
 ex:loc-khanh-hoa a location:AdministrativeRegion .
 ex:loc-cam-ranh a location:AdministrativeRegion .
@@ -38,6 +39,7 @@ ex:obs-003 a core:Observation ;
 
 # ---- Track (derived information product, ADR-0005) ---------------------------
 ex:track-t101 a tracking:Track ;
+    core:name "Track T-101" ;
     tracking:hasTrackId "T-101" ;
     tracking:trackOf ex:patrol-01 ;
     tracking:derivedFrom ex:obs-001 , ex:obs-003 .
