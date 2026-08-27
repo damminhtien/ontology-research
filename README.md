@@ -3,6 +3,8 @@
 Production-first semantic platform scaffold — Phase 0 + Phase 1 của
 [roadmap.md](roadmap.md) đã được implement và kiểm chứng bằng CI tests.
 
+📚 **Tài liệu & tutorials: <https://damminhtien.github.io/ontology-research/>**
+
 ## Cấu trúc
 
 ```text
