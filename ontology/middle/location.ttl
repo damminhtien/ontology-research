@@ -1,0 +1,28 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix core: <https://ontology.example/core#> .
+@prefix location: <https://ontology.example/middle/location#> .
+
+<https://ontology.example/middle/location> a owl:Ontology ;
+    dcterms:title "Middle Layer: Geography"@en ;
+    dcterms:description "Administrative geography on top of core:Location. Containment reuses core:partOf; this module adds administrative region types only."@en ;
+    dcterms:version "0.1.0" ;
+    owl:imports <https://ontology.example/core> ;
+    vann:preferredNamespacePrefix "location" ;
+    vann:preferredNamespaceUri "https://ontology.example/middle/location#" .
+
+#################################################################
+# Classes
+#################################################################
+
+location:Country a owl:Class ; rdfs:subClassOf core:Location ;
+    rdfs:label "Country"@en ;
+    rdfs:comment "Sovereign state; top administrative level."@en .
+
+location:AdministrativeRegion a owl:Class ; rdfs:subClassOf core:Location ;
+    rdfs:label "Administrative Region"@en ;
+    rdfs:comment "Sub-national administrative unit (province, city, district). Containment expressed with core:partOf."@en .
+

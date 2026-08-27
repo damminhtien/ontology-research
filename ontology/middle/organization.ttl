@@ -1,0 +1,25 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix core: <https://ontology.example/core#> .
+@prefix organization: <https://ontology.example/middle/organization#> .
+
+<https://ontology.example/middle/organization> a owl:Ontology ;
+    dcterms:title "Middle Layer: Organization Structure"@en ;
+    dcterms:description "Command and administrative structure between organizations on top of core:Organization."@en ;
+    dcterms:version "0.1.0" ;
+    owl:imports <https://ontology.example/core> ;
+    vann:preferredNamespacePrefix "organization" ;
+    vann:preferredNamespaceUri "https://ontology.example/middle/organization#" .
+
+#################################################################
+# Object properties
+#################################################################
+
+organization:subordinateTo a owl:ObjectProperty ;
+    rdfs:domain core:Organization ; rdfs:range core:Organization ;
+    rdfs:label "subordinate to"@en ;
+    rdfs:comment "Command/administrative subordination between organizations. Use transitive queries (subordinateTo+) for chains."@en .
+
