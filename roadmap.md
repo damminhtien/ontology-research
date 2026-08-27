@@ -341,7 +341,13 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
   - [x] API tests; seed script qua ingestion pipeline thật
   - [ ] Write operations từ UI (release) — cần auth + audit trail (Phase 3+)
 - [x] Phase 3: projector + read models + benchmark dashboard (ADR-0004)
-- [ ] Phase 4+: xem bảng phase ở trên
+- [x] Phase 4 (bắt đầu): tracking vertical `Observation → Track → Entity → Organization → Location`
+  - [x] Middle modules: `location.ttl`, `organization.ttl`; domain modules: `sensor.ttl`, `tracking.ttl` (ADR-0005)
+  - [x] CQ-013…CQ-016 vào regression harness tự động (cq_runner load mọi module/dataset)
+  - [x] Domain SHACL contracts (`shapes/domain_shapes.ttl`) trong `make validate`
+  - [x] Baseline releases 0.1.0 cho 4 module; SemVer enforcement áp dụng toàn registry
+  - [ ] Ingestion mapping cho domain types (khi có data source thật)
+- [ ] Phase 5+: xem bảng phase ở trên
 
 
 

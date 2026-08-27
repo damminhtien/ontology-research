@@ -1,0 +1,15 @@
+{
+  "date": "2026-08-27T14:02:26Z",
+  "file": "ontology/middle/organization.ttl",
+  "module_iri": "https://ontology.example/middle/organization",
+  "snapshot_version": 1,
+  "terms": {
+    "https://ontology.example/middle/organization#subordinateTo": {
+      "domain": "https://ontology.example/core#Organization",
+      "kind": "object-property",
+      "label": "subordinate to",
+      "range": "https://ontology.example/core#Organization"
+    }
+  },
+  "version": "0.1.0"
+}

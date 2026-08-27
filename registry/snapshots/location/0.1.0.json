@@ -1,0 +1,25 @@
+{
+  "date": "2026-08-27T14:02:26Z",
+  "file": "ontology/middle/location.ttl",
+  "module_iri": "https://ontology.example/middle/location",
+  "snapshot_version": 1,
+  "terms": {
+    "https://ontology.example/middle/location#AdministrativeRegion": {
+      "comment": "Sub-national administrative unit (province, city, district). Containment expressed with core:partOf.",
+      "kind": "class",
+      "label": "Administrative Region",
+      "parents": [
+        "https://ontology.example/core#Location"
+      ]
+    },
+    "https://ontology.example/middle/location#Country": {
+      "comment": "Sovereign state; top administrative level.",
+      "kind": "class",
+      "label": "Country",
+      "parents": [
+        "https://ontology.example/core#Location"
+      ]
+    }
+  },
+  "version": "0.1.0"
+}

@@ -10,6 +10,46 @@
       "module_iri": "https://ontology.example/core",
       "severity": "NONE",
       "version": "0.1.0"
+    },
+    {
+      "changes": [],
+      "commit": "4cbf25d",
+      "date": "2026-08-27T14:02:26Z",
+      "file": "ontology/middle/location.ttl",
+      "migration": null,
+      "module_iri": "https://ontology.example/middle/location",
+      "severity": "NONE",
+      "version": "0.1.0"
+    },
+    {
+      "changes": [],
+      "commit": "4cbf25d",
+      "date": "2026-08-27T14:02:26Z",
+      "file": "ontology/middle/organization.ttl",
+      "migration": null,
+      "module_iri": "https://ontology.example/middle/organization",
+      "severity": "NONE",
+      "version": "0.1.0"
+    },
+    {
+      "changes": [],
+      "commit": "4cbf25d",
+      "date": "2026-08-27T14:02:27Z",
+      "file": "ontology/domain/sensor.ttl",
+      "migration": null,
+      "module_iri": "https://ontology.example/domain/sensor",
+      "severity": "NONE",
+      "version": "0.1.0"
+    },
+    {
+      "changes": [],
+      "commit": "4cbf25d",
+      "date": "2026-08-27T14:02:27Z",
+      "file": "ontology/domain/tracking.ttl",
+      "migration": null,
+      "module_iri": "https://ontology.example/domain/tracking",
+      "severity": "NONE",
+      "version": "0.1.0"
     }
   ]
 }

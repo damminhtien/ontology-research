@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-27T14:02:27Z",
+  "file": "ontology/domain/sensor.ttl",
+  "module_iri": "https://ontology.example/domain/sensor",
+  "snapshot_version": 1,
+  "terms": {
+    "https://ontology.example/domain/sensor#Sensor": {
+      "comment": "Physical device that detects entities and produces observations.",
+      "kind": "class",
+      "label": "Sensor",
+      "parents": [
+        "https://ontology.example/core#Artifact"
+      ]
+    },
+    "https://ontology.example/domain/sensor#detectedBy": {
+      "domain": "https://ontology.example/core#Observation",
+      "kind": "object-property",
+      "label": "detected by",
+      "range": "https://ontology.example/domain/sensor#Sensor"
+    },
+    "https://ontology.example/domain/sensor#mountedOn": {
+      "domain": "https://ontology.example/domain/sensor#Sensor",
+      "kind": "object-property",
+      "label": "mounted on",
+      "range": "https://ontology.example/core#Platform"
+    }
+  },
+  "version": "0.1.0"
+}
