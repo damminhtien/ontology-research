@@ -1,0 +1,16 @@
+{
+  "id": "CQ-016",
+  "group": "Q5",
+  "slo_p95_ms": 500,
+  "query_file": "q10_track_sensor_provenance.rq",
+  "variables": [
+    "trackId",
+    "sensorName"
+  ],
+  "rows": [
+    [
+      "T-101",
+      "Surface Search Radar"
+    ]
+  ]
+}

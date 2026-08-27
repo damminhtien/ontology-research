@@ -1,0 +1,14 @@
+{
+  "id": "CQ-013",
+  "group": "Q3",
+  "slo_p95_ms": 300,
+  "query_file": "q07_org_subordinates.rq",
+  "variables": [
+    "name"
+  ],
+  "rows": [
+    [
+      "Coast Guard Region 4"
+    ]
+  ]
+}

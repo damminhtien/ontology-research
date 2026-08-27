@@ -21,6 +21,10 @@ dataset xác định, và expected results để làm regression test.
 | CQ-010 | Q5 | Which sources support fact/assertion F? | < 500ms |
 | CQ-011 | Q5 | List all facts derived from source S in interval [T1,T2]. | < 500ms |
 | CQ-012 | Q6 | Count entities grouped by type/region/time. (chạy OLAP, không graph store) | n/a |
+| CQ-013 | Q3 | Which organizations report (transitively) to organization Y? | < 300ms |
+| CQ-014 | Q2 | Which entity does track T resolve to? | < 100ms |
+| CQ-015 | Q3 | Which tracks belong to entities operated by organizations in region X? | < 300ms |
+| CQ-016 | Q5 | Which sensors produced the observations a track derives from? | < 500ms |
 
 Nhóm query:
 
@@ -30,6 +34,7 @@ Nhóm query:
 - **Q4 Temporal** — trạng thái tại thời điểm / lịch sử. Target p95 < 500ms.
 - **Q5 Provenance** — fact ↔ nguồn. Target p95 < 500ms.
 - **Q6 Analytical** — aggregation lớn, chạy trên OLAP engine, không bao giờ trên operational graph store.
+- **Vertical tracking** — CQ-013…CQ-016 kiểm chứng chuỗi Observation → Track → Entity → Organization → Location của domain modules (Phase 4).
 
 Performance invariant đặt ra cho toàn bộ CQ operational:
 

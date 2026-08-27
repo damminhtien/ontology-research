@@ -1,0 +1,18 @@
+{
+  "id": "CQ-015",
+  "group": "Q3",
+  "slo_p95_ms": 300,
+  "query_file": "q09_tracks_in_region.rq",
+  "variables": [
+    "trackId",
+    "platformName",
+    "orgName"
+  ],
+  "rows": [
+    [
+      "T-101",
+      "Patrol Vessel 01",
+      "Coast Guard Region 4"
+    ]
+  ]
+}

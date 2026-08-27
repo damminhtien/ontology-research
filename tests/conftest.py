@@ -11,6 +11,7 @@ for _path in (REPO_ROOT / "tools", REPO_ROOT):
     if _path.as_posix() not in sys.path:
         sys.path.insert(0, _path.as_posix())
 
+import cq_runner
 import pytest
 from rdflib import RDF, RDFS, Graph, URIRef
 
@@ -47,8 +48,5 @@ def core_graph() -> Graph:
 
 @pytest.fixture(scope="session")
 def benchmark_graph() -> Graph:
-    """Ontology + seed dataset loaded together (no inference materialized)."""
-    g = Graph()
-    g.parse(CORE_ONTOLOGY.as_posix(), format="turtle")
-    g.parse(SAMPLE_DATA.as_posix(), format="turtle")
-    return g
+    """Every ontology module + dataset, via the shared CQ runner (single truth)."""
+    return cq_runner.load_benchmark_graph()

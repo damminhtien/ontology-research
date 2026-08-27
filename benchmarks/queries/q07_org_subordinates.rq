@@ -1,0 +1,9 @@
+# CQ-013 (Q3): Which organizations are transitively subordinate to Maritime HQ?
+PREFIX core: <https://ontology.example/core#>
+PREFIX organization: <https://ontology.example/middle/organization#>
+
+SELECT DISTINCT ?name WHERE {
+  ?org organization:subordinateTo+ <https://data.example/entity/org-maritime-hq> ;
+       core:name ?name .
+}
+ORDER BY ?name

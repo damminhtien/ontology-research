@@ -10,6 +10,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from ontology_utils import find_module_files
 from rdflib import Graph
 from rdflib.plugins.sparql import prepareQuery
 
@@ -34,13 +35,24 @@ def _normalize_cell(value) -> object:
     return str(value)
 
 
-def load_benchmark_graph(ontology: Path | None = None, data: Path | None = None) -> Graph:
-    """Load the ontology + seed dataset graph the CQs run against."""
-    ontology = ontology or REPO_ROOT / "ontology" / "core" / "core.ttl"
-    data = data or REPO_ROOT / "benchmarks" / "datasets" / "sample_data.ttl"
+def load_benchmark_graph(
+    ontology: list[Path] | None = None, data: list[Path] | None = None
+) -> Graph:
+    """Load the full graph the CQs run against.
+
+    Defaults to every registered ontology module (core, middle, domain) plus
+    every dataset under benchmarks/datasets — the CQ suite must exercise the
+    whole vertical, not just the kernel.
+    """
+    ontology_paths = ontology if ontology is not None else find_module_files()
+    data_paths = (
+        data if data is not None else sorted((REPO_ROOT / "benchmarks" / "datasets").glob("*.ttl"))
+    )
     graph = Graph()
-    graph.parse(ontology.as_posix(), format="turtle")
-    graph.parse(data.as_posix(), format="turtle")
+    for path in ontology_paths:
+        graph.parse(path.as_posix(), format="turtle")
+    for path in data_paths:
+        graph.parse(path.as_posix(), format="turtle")
     return graph
 
 

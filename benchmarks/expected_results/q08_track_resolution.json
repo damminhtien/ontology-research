@@ -1,0 +1,16 @@
+{
+  "id": "CQ-014",
+  "group": "Q2",
+  "slo_p95_ms": 100,
+  "query_file": "q08_track_resolution.rq",
+  "variables": [
+    "trackId",
+    "entityName"
+  ],
+  "rows": [
+    [
+      "T-101",
+      "Patrol Vessel 01"
+    ]
+  ]
+}

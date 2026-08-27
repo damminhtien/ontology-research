@@ -4,15 +4,58 @@
   "slo_p95_ms": null,
   "slo_note": "Runs on OLAP in production; correctness-only here.",
   "query_file": "q06_analytical_count.rq",
-  "variables": ["typeLabel", "count"],
+  "variables": [
+    "typeLabel",
+    "count"
+  ],
   "rows": [
-    ["Location", 5],
-    ["Location Assertion", 2],
-    ["Observation", 2],
-    ["Organization", 2],
-    ["Person", 1],
-    ["Platform", 2],
-    ["Role", 1],
-    ["Source", 3]
+    [
+      "Administrative Region",
+      2
+    ],
+    [
+      "Country",
+      1
+    ],
+    [
+      "Location",
+      5
+    ],
+    [
+      "Location Assertion",
+      2
+    ],
+    [
+      "Observation",
+      3
+    ],
+    [
+      "Organization",
+      2
+    ],
+    [
+      "Person",
+      1
+    ],
+    [
+      "Platform",
+      2
+    ],
+    [
+      "Role",
+      1
+    ],
+    [
+      "Sensor",
+      1
+    ],
+    [
+      "Source",
+      3
+    ],
+    [
+      "Track",
+      1
+    ]
   ]
 }

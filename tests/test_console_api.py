@@ -135,7 +135,7 @@ class TestMonitorEndpoints:
 
     def test_cq_all_pass(self, client):
         data = client.get("/api/monitor/cq").json()
-        assert data["total"] == 6
+        assert data["total"] == 10  # 6 kernel CQs + 4 tracking-vertical CQs
         assert data["failed"] == 0
 
 

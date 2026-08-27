@@ -1,0 +1,43 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix core: <https://ontology.example/core#> .
+@prefix location: <https://ontology.example/middle/location#> .
+@prefix organization: <https://ontology.example/middle/organization#> .
+@prefix sensor: <https://ontology.example/domain/sensor#> .
+@prefix tracking: <https://ontology.example/domain/tracking#> .
+@prefix ex: <https://data.example/entity/> .
+@prefix src: <https://data.example/source/> .
+
+# Phase 4 tracking vertical dataset. Extends sample_data.ttl by REUSING its
+# IRIs (Cam Ranh, Coast Guard Region 4, patrol-01, obs-001, ...) so the whole
+# vertical chain joins across both files. Benchmark scaffolding only — per
+# ADR-0005 this file is never fed through the ingestion pipeline.
+
+# ---- Administrative geography (types refine existing core:Location IRIs) ----
+ex:loc-vietnam a location:Country .
+ex:loc-khanh-hoa a location:AdministrativeRegion .
+ex:loc-cam-ranh a location:AdministrativeRegion .
+
+# ---- Organization hierarchy -------------------------------------------------
+ex:org-cg-region4 organization:subordinateTo ex:org-maritime-hq .
+
+# ---- Sensors ----------------------------------------------------------------
+ex:radar-01 a sensor:Sensor ;
+    core:name "Surface Search Radar" ;
+    sensor:mountedOn ex:patrol-01 .
+
+# Physical detection links (complement core:hasSource provenance)
+ex:obs-001 sensor:detectedBy ex:radar-01 .
+
+ex:obs-003 a core:Observation ;
+    core:observes ex:patrol-01 ;
+    core:atTime "2026-08-20T05:15:00Z"^^xsd:dateTime ;
+    core:hasSource src:ais-feed ;
+    core:hasConfidence "0.90"^^xsd:decimal ;
+    sensor:detectedBy ex:radar-01 .
+
+# ---- Track (derived information product, ADR-0005) ---------------------------
+ex:track-t101 a tracking:Track ;
+    tracking:hasTrackId "T-101" ;
+    tracking:trackOf ex:patrol-01 ;
+    tracking:derivedFrom ex:obs-001 , ex:obs-003 .
