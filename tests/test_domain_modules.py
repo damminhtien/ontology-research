@@ -11,6 +11,7 @@ import subprocess
 import sys
 
 import manage_ontology as mgmt
+import pytest
 from conftest import CORE_ONTOLOGY, REPO_ROOT, type_closure
 from rdflib import RDF, Graph, URIRef
 from rdflib.namespace import RDFS
@@ -82,3 +83,93 @@ class TestMiddleModules:
             cwd=REPO_ROOT.as_posix(),
         )
         assert result.returncode == 0, result.stdout + result.stderr
+
+
+DOMAIN_SENSOR = "https://ontology.example/domain/sensor#"
+DOMAIN_TRACKING = "https://ontology.example/domain/tracking#"
+
+
+class TestDomainModules:
+    """Domain-layer invariants for the tracking vertical."""
+
+    def test_module_headers_are_registered(self):
+        for iri_suffix, path in (
+            ("sensor", DOMAIN["sensor"]),
+            ("tracking", DOMAIN["tracking"]),
+        ):
+            iri, version = mgmt.module_identity(mgmt.load_graph(path))
+            assert iri == f"https://ontology.example/domain/{iri_suffix}"
+            assert version == "0.1.0"
+
+    def test_sensor_closure_reaches_entity(self):
+        graph = load_module(DOMAIN["sensor"])
+        sensor = URIRef(EX + "x-sensor")
+        graph.add((sensor, RDF.type, URIRef(DOMAIN_SENSOR + "Sensor")))
+        closed = type_closure(graph, sensor)
+        for cls in ("Artifact", "PhysicalObject", "Entity"):
+            assert URIRef(CORE + cls) in closed
+
+    def test_track_closure_is_information_object_and_never_event(self):
+        graph = load_module(DOMAIN["tracking"])
+        track = URIRef(EX + "x-track")
+        graph.add((track, RDF.type, URIRef(DOMAIN_TRACKING + "Track")))
+        closed = type_closure(graph, track)
+        assert URIRef(CORE + "InformationObject") in closed
+        assert URIRef(CORE + "Entity") in closed
+        # ADR-0005: a track is derived information, never a world event.
+        assert URIRef(CORE + "Event") not in closed
+
+    def test_track_of_does_not_reclassify_target_as_track(self):
+        """Negative inference: asserting a link must never re-type its object."""
+        graph = load_module(DOMAIN["tracking"])
+        vessel = URIRef(EX + "x-vessel")
+        track = URIRef(EX + "x-track")
+        graph.add((track, RDF.type, URIRef(DOMAIN_TRACKING + "Track")))
+        graph.add((track, URIRef(DOMAIN_TRACKING + "trackOf"), vessel))
+        graph.add((vessel, RDF.type, URIRef(CORE + "Platform")))
+        assert (vessel, RDF.type, URIRef(DOMAIN_TRACKING + "Track")) not in graph
+        assert URIRef(DOMAIN_TRACKING + "Track") not in type_closure(graph, vessel)
+
+    def test_detected_by_does_not_reclassify_observation_as_sensor(self):
+        graph = load_module(DOMAIN["sensor"])
+        obs = URIRef(EX + "x-obs")
+        sensor = URIRef(EX + "x-sensor")
+        graph.add((obs, RDF.type, URIRef(CORE + "Observation")))
+        graph.add((obs, URIRef(DOMAIN_SENSOR + "detectedBy"), sensor))
+        assert (obs, RDF.type, URIRef(DOMAIN_SENSOR + "Sensor")) not in graph
+
+    @pytest.mark.parametrize(
+        ("prop_name", "domain_cls", "range_cls"),
+        [
+            ("mountedOn", "sensor:Sensor", "core:Platform"),
+            ("detectedBy", "core:Observation", "sensor:Sensor"),
+            ("trackOf", "tracking:Track", "core:Entity"),
+            ("derivedFrom", "tracking:Track", "core:Observation"),
+        ],
+    )
+    def test_domain_object_properties_have_complete_axioms(self, prop_name, domain_cls, range_cls):
+        ns = DOMAIN_SENSOR if prop_name in {"mountedOn", "detectedBy"} else DOMAIN_TRACKING
+        prop = URIRef(ns + prop_name)
+        graph = load_module(DOMAIN["sensor"], DOMAIN["tracking"])
+        prop_types = {str(t) for t in graph.objects(prop, RDF.type)}
+        assert "http://www.w3.org/2002/07/owl#ObjectProperty" in prop_types
+        prefix_map = {
+            "core": CORE,
+            "sensor": DOMAIN_SENSOR,
+            "tracking": DOMAIN_TRACKING,
+        }
+
+        def resolve(name: str) -> URIRef:
+            prefix, local = name.split(":")
+            return URIRef(prefix_map[prefix] + local)
+
+        assert next(graph.objects(prop, RDFS.domain), None) == resolve(domain_cls)
+        assert next(graph.objects(prop, RDFS.range), None) == resolve(range_cls)
+
+    def test_track_id_is_datatype_property_with_string_range(self):
+        prop = URIRef(DOMAIN_TRACKING + "hasTrackId")
+        graph = load_module(DOMAIN["tracking"])
+        types = {str(t) for t in graph.objects(prop, RDF.type)}
+        assert "http://www.w3.org/2002/07/owl#DatatypeProperty" in types
+        rng = next(graph.objects(prop, RDFS.range), None)
+        assert str(rng) == "http://www.w3.org/2001/XMLSchema#string"

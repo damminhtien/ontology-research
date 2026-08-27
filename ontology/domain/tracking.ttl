@@ -1,0 +1,43 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix core: <https://ontology.example/core#> .
+@prefix tracking: <https://ontology.example/domain/tracking#> .
+
+<https://ontology.example/domain/tracking> a owl:Ontology ;
+    dcterms:title "Domain Layer: Tracking"@en ;
+    dcterms:description "Tracks correlate observations into hypotheses about entities. A Track is a derived information product (InformationObject), never an Event; see ADR-0005."@en ;
+    dcterms:version "0.1.0" ;
+    owl:imports <https://ontology.example/core> ;
+    vann:preferredNamespacePrefix "tracking" ;
+    vann:preferredNamespaceUri "https://ontology.example/domain/tracking#" .
+
+#################################################################
+# Classes
+#################################################################
+
+tracking:Track a owl:Class ; rdfs:subClassOf core:InformationObject ;
+    rdfs:label "Track"@en ;
+    rdfs:comment "Derived hypothesis correlating observations about one entity over time. Not an Event (ADR-0005)."@en .
+
+#################################################################
+# Properties
+#################################################################
+
+tracking:trackOf a owl:ObjectProperty ;
+    rdfs:domain tracking:Track ; rdfs:range core:Entity ;
+    rdfs:label "track of"@en ;
+    rdfs:comment "The entity this track hypothesizes about (identity resolution result)."@en .
+
+tracking:derivedFrom a owl:ObjectProperty ;
+    rdfs:domain tracking:Track ; rdfs:range core:Observation ;
+    rdfs:label "derived from"@en ;
+    rdfs:comment "Observations contributing to this track."@en .
+
+tracking:hasTrackId a owl:DatatypeProperty ;
+    rdfs:domain tracking:Track ; rdfs:range <http://www.w3.org/2001/XMLSchema#string> ;
+    rdfs:label "has track id"@en ;
+    rdfs:comment "Stable identifier of the track within its tracking system."@en .
+

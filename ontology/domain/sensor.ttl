@@ -1,0 +1,38 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix core: <https://ontology.example/core#> .
+@prefix sensor: <https://ontology.example/domain/sensor#> .
+
+<https://ontology.example/domain/sensor> a owl:Ontology ;
+    dcterms:title "Domain Layer: Sensors"@en ;
+    dcterms:description "Sensor artifacts that observe entities and produce observations. Sensors are Artifacts mounted on platforms; Observations link back to their detecting sensor."@en ;
+    dcterms:version "0.1.0" ;
+    owl:imports <https://ontology.example/core> ;
+    vann:preferredNamespacePrefix "sensor" ;
+    vann:preferredNamespaceUri "https://ontology.example/domain/sensor#" .
+
+#################################################################
+# Classes
+#################################################################
+
+sensor:Sensor a owl:Class ; rdfs:subClassOf core:Artifact ;
+    rdfs:label "Sensor"@en ;
+    rdfs:comment "Physical device that detects entities and produces observations."@en .
+
+#################################################################
+# Object properties
+#################################################################
+
+sensor:mountedOn a owl:ObjectProperty ;
+    rdfs:domain sensor:Sensor ; rdfs:range core:Platform ;
+    rdfs:label "mounted on"@en ;
+    rdfs:comment "The platform carrying this sensor."@en .
+
+sensor:detectedBy a owl:ObjectProperty ;
+    rdfs:domain core:Observation ; rdfs:range sensor:Sensor ;
+    rdfs:label "detected by"@en ;
+    rdfs:comment "The sensor that produced this observation. Complements core:hasSource (provenance) with physical detection."@en .
+
