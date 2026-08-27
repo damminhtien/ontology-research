@@ -1,0 +1,24 @@
+{
+  "scale": {
+    "entities": 500,
+    "observations_per_entity": 3,
+    "runs": 200,
+    "iterations": 5,
+    "seed": 42
+  },
+  "query_latency": {
+    "q1_entity_lookup_ms": {
+      "p95_ms": 0.0038,
+      "slo_ms": 50
+    },
+    "q_current_location_ms": {
+      "p95_ms": 0.0201,
+      "slo_ms": 100
+    },
+    "q4_temporal_ms": {
+      "p95_ms": 0.0158,
+      "slo_ms": 500
+    }
+  },
+  "generated_at": "2026-08-27T03:11:01.952874+00:00"
+}

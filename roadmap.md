@@ -302,6 +302,7 @@ Các gap đã được chốt quyết định qua ADR (xem `docs/adr/`):
 | 1 | Storage engine cho 5 loại workload khác nhau | Polyglot, ontology chỉ bind semantics | ADR-0001 |
 | 2 | History/provenance/replay | Append-only event log, corrections = event mới | ADR-0002 |
 | 3 | Identity: fuzzy match có tự merge không? | Precision-first — review gate bắt buộc | ADR-0003 |
+| 4 | Operational query path vs ontology complexity | CQRS: projector + read model, không đi qua ontology/SPARQL | ADR-0004 |
 
 Rủi ro lớn nhất cần theo dõi liên tục:
 
@@ -327,8 +328,8 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
   - [x] Append-only event log + immutable event contract (`foundry/events.py`)
   - [x] Identity service precision-first (`foundry/identity.py`, ADR-0003)
   - [x] Ingestion pipeline với SHACL gate (`foundry/ingestion.py`) — structured records + location observations
+  - [x] Throughput benchmark 10^4-10^5 events/s (synthetic) (`tools/benchmark.py`)
   - [ ] Unstructured documents (LLM extraction trước cùng gate đó)
-  - [ ] Throughput benchmark 10^4-10^5 events/s (synthetic)
 - [~] Phase 5 (bắt đầu sớm): version governance
   - [x] Release registry (`registry/`) + SemVer enforcement trong `make check`
   - [x] `release` với migration note bắt buộc cho MAJOR; changelog sinh tự động
@@ -336,10 +337,10 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
   - [ ] Migration scripts tự động hóa; alignment registry
 - [~] Tooling: Ontology Console v0.1 (read-only UI)
   - [x] FastAPI backend (`foundry/console/`) tái dùng logic tools/ + foundry/
-  - [x] SPA: Dashboard / Explorer / Versions / Impact / Data Monitor
+  - [x] SPA: Dashboard / Explorer / Versions / Impact / Data Monitor / Projection
   - [x] API tests; seed script qua ingestion pipeline thật
   - [ ] Write operations từ UI (release) — cần auth + audit trail (Phase 3+)
-- [ ] Phase 3: projector + read models + benchmark dashboard
+- [x] Phase 3: projector + read models + benchmark dashboard (ADR-0004)
 - [ ] Phase 4+: xem bảng phase ở trên
 
 

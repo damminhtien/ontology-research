@@ -5,6 +5,7 @@ import { renderExplorer } from "./views/explorer.js";
 import { renderVersions } from "./views/versions.js";
 import { renderImpact } from "./views/impact.js";
 import { renderMonitor } from "./views/monitor.js";
+import { renderProjection } from "./views/projection.js";
 
 const routes = {
   dashboard: { title: "Dashboard", render: renderDashboard },
@@ -12,6 +13,7 @@ const routes = {
   versions: { title: "Versions & Releases", render: renderVersions },
   impact: { title: "Impact Analysis", render: renderImpact },
   monitor: { title: "Data Monitor", render: renderMonitor },
+  projection: { title: "Projection", render: renderProjection },
 };
 
 const viewEl = document.getElementById("view");

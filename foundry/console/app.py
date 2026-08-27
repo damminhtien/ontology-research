@@ -25,7 +25,14 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-from foundry.console.api import impact, monitor, ontology, overview, registry  # noqa: E402
+from foundry.console.api import (  # noqa: E402
+    impact,
+    monitor,
+    ontology,
+    overview,
+    projection,
+    registry,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -42,6 +49,7 @@ def create_app() -> FastAPI:
         ontology.router,
         registry.router,
         impact.router,
+        projection.router,
         monitor.router,
     ):
         application.include_router(router, prefix="/api")

@@ -137,3 +137,83 @@ class TestMonitorEndpoints:
         data = client.get("/api/monitor/cq").json()
         assert data["total"] == 6
         assert data["failed"] == 0
+
+
+class TestProjectionEndpoints:
+    """Read-model API: point lookup and temporal queries without SPARQL."""
+
+    @pytest.fixture()
+    def seeded_client(self, tmp_path, monkeypatch):
+        from foundry.console.api import projection
+        from foundry.events import EventLog, make_event
+
+        log_path = tmp_path / "events.jsonl"
+        log = EventLog(log_path)
+        log.extend(
+            [
+                make_event(
+                    "EntityCreated",
+                    {
+                        "entity_id": "urn:x:patrol-01",
+                        "entity_type": "Platform",
+                        "name": "Patrol Vessel 01",
+                        "source_id": "s1",
+                        "confidence": 1.0,
+                    },
+                ),
+                make_event(
+                    "LocationObserved",
+                    {
+                        "entity_id": "urn:x:patrol-01",
+                        "location_uri": "https://data.example/entity/loc-cam-ranh",
+                        "valid_from": "2026-08-20T03:00:00Z",
+                        "source_ids": ["s1"],
+                        "confidence": 0.9,
+                    },
+                ),
+            ]
+        )
+        monkeypatch.setenv("FOUNDRY_EVENT_LOG", str(log_path))
+        projection.reset_cache()
+        return TestClient(app)
+
+    def test_projection_stats(self, seeded_client):
+        data = seeded_client.get("/api/projection").json()
+        assert data["exists"] is True
+        assert data["entities"] == 1
+        assert data["with_location"] == 1
+        assert data["last_event_time"] is not None
+
+    def test_entity_by_id_with_current_location(self, seeded_client):
+        data = seeded_client.get("/api/projection/entities/urn:x:patrol-01").json()
+        assert data["entity"]["name"] == "Patrol Vessel 01"
+        assert data["current_location"]["location_uri"].endswith("loc-cam-ranh")
+
+    def test_unknown_entity_404(self, seeded_client):
+        assert seeded_client.get("/api/projection/entities/urn:x:missing").status_code == 404
+
+    def test_lookup_by_name(self, seeded_client):
+        data = seeded_client.get(
+            "/api/projection/lookup", params={"name": "patrol vessel 01"}
+        ).json()
+        assert data["matches"][0]["entity_id"] == "urn:x:patrol-01"
+
+    def test_temporal_asof(self, seeded_client):
+        data = seeded_client.get(
+            "/api/projection/entities/urn:x:patrol-01/location/as-of",
+            params={"at": "2026-08-21T00:00:00Z"},
+        ).json()
+        assert data["location"]["location_uri"].endswith("loc-cam-ranh")
+
+        before = seeded_client.get(
+            "/api/projection/entities/urn:x:patrol-01/location/as-of",
+            params={"at": "2026-01-01T00:00:00Z"},
+        ).json()
+        assert before["location"] is None
+
+    def test_asof_rejects_bad_timestamp(self, seeded_client):
+        response = seeded_client.get(
+            "/api/projection/entities/urn:x:patrol-01/location/as-of",
+            params={"at": "not-a-date"},
+        )
+        assert response.status_code == 400

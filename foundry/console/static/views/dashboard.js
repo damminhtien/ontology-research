@@ -15,6 +15,7 @@ export async function renderDashboard(view) {
       <div class="card"><h4>Dependency DAG</h4><div class="value">${badge(data.dag_check.passed ? "ok" : "error", data.dag_check.passed ? "OK" : "CYCLE")}</div></div>
       <div class="card"><h4>CQ regression</h4><div class="value">${data.cq.failed === 0 ? badge("ok", `${data.cq.total} PASS`) : badge("error", `${data.cq.failed} FAIL`)}</div><div class="sub">${esc((data.cq.failed_ids || []).join(", "))}</div></div>
       <div class="card"><h4>Worst stability</h4><div class="value mono">${worstStability}</div></div>
+      <div class="card"><h4>Projection</h4><div class="value" id="proj-value">…</div><div class="sub" id="proj-sub">loading</div></div>
       <div class="card"><h4>Events logged</h4><div class="value">${data.events.exists ? data.events.total : "—"}</div><div class="sub">${data.events.exists ? esc(Object.keys(data.events.by_type).join(", ")) : "no log yet"}</div></div>
     </div>`;
 
@@ -56,4 +57,23 @@ export async function renderDashboard(view) {
         <tbody>${stabilityRows}</tbody>
       </table>
     </section>`;
+
+  // Populate the projection card asynchronously; it is allowed to fail soft.
+  try {
+    const proj = await get("/api/projection");
+    const valueEl = document.getElementById("proj-value");
+    const subEl = document.getElementById("proj-sub");
+    if (!proj.exists) {
+      valueEl.textContent = "—";
+      subEl.textContent = "no event log yet";
+    } else {
+      const ok = proj.within_slo !== false;
+      valueEl.innerHTML = badge(ok ? "ok" : "error", `${proj.entities}`);
+      subEl.textContent = proj.within_slo === null
+        ? `${proj.with_location} with location`
+        : `lag ${proj.lag_seconds.toFixed(2)}s · ${proj.with_location} located`;
+    }
+  } catch (_err) {
+    // leave placeholder; health badge will show API issues
+  }
 }

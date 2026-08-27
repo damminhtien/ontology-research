@@ -39,7 +39,11 @@ ontology-report:
 benchmark:
 	$(PY) tools/benchmark.py --scale 1000 --observations 3
 
-check: lint versions validate dag test
+slo:
+	$(PY) tools/check_slo.py
+
+check: lint versions validate dag test slo
+
 
 clean:
 	find . -name __pycache__ -type d -exec rm -rf {} +
