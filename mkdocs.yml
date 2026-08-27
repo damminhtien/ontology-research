@@ -1,0 +1,75 @@
+site_name: Semantic Foundry
+site_description: "Production-first semantic platform: ontology engineering, ingestion, projection và governance."
+site_url: https://damminhtien.github.io/ontology-research/
+repo_url: https://github.com/damminhtien/ontology-research
+repo_name: damminhtien/ontology-research
+edit_uri: edit/main/docs/
+docs_dir: docs
+strict: true
+
+theme:
+  name: material
+  language: vi
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Dark mode
+    - scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      use_pygments: true
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Trang chủ: index.md
+  - Tutorials:
+      - 01. Getting started: tutorials/01-getting-started.md
+      - 02. Ontology kernel & SHACL: tutorials/02-ontology-shacl.md
+      - 03. Ingestion pipeline: tutorials/03-ingestion.md
+      - 04. Read model & benchmark: tutorials/04-read-model.md
+      - 05. Versioning & governance: tutorials/05-versioning.md
+      - 06. Console UI: tutorials/06-console.md
+  - Guides:
+      - CLI reference: guides/cli-reference.md
+  - Engineering docs:
+      - Roadmap 12 tháng: generated/roadmap.md
+      - Coding conventions: generated/conventions.md
+      - Performance SLOs: generated/performance_slo.md
+      - Competency questions: generated/competency_questions.md
+      - Scale targets: generated/scale_targets.md
+  - ADRs:
+      - ADR-0001 Polyglot persistence: adr/ADR-0001-polyglot-persistence.md
+      - ADR-0002 Append-only event log: adr/ADR-0002-append-only-event-log.md
+      - ADR-0003 Identity resolution: adr/ADR-0003-identity-resolution.md
+      - ADR-0004 CQRS read model: adr/ADR-0004-cqrs-read-model.md
+  - Changelog: CHANGELOG.md

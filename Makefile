@@ -1,4 +1,4 @@
-.PHONY: setup validate dag test lint fmt check clean
+.PHONY: setup validate dag test lint fmt check clean docs-setup docs-sync docs-serve docs-build
 
 PY := .venv/bin/python
 
@@ -54,3 +54,20 @@ console:
 
 seed-console:
 	$(PY) tools/seed_console_data.py
+
+docs-setup:
+	$(PY) -m pip install -r requirements-docs.txt
+
+docs-sync:
+	mkdir -p docs/generated
+	cp roadmap.md docs/generated/roadmap.md
+	cp CODING_CONVENTIONS.md docs/generated/conventions.md
+	cp requirements/performance_slo.md docs/generated/performance_slo.md
+	cp requirements/competency_questions.md docs/generated/competency_questions.md
+	cp requirements/scale_targets.md docs/generated/scale_targets.md
+
+docs-build: docs-sync
+	$(PY) -m mkdocs build --strict
+
+docs-serve: docs-sync
+	$(PY) -m mkdocs serve

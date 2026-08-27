@@ -8,3 +8,7 @@ build/
 # graphify generated artifacts (rebuilt by git hooks / graphify update)
 graphify-out/
 data/
+
+# mkdocs build output and build-time copies of root engineering docs
+site/
+docs/generated/
