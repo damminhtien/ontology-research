@@ -334,7 +334,7 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
   - [x] Release registry (`registry/`) + SemVer enforcement trong `make check`
   - [x] `release` với migration note bắt buộc cho MAJOR; changelog sinh tự động
   - [x] Blast radius analysis (`blast-radius`) + stability metric (`stability`)
-  - [ ] Migration scripts tự động hóa; alignment registry
+  - [x] Migration scripts (`migrate` — sinh SPARQL Update script review-before-apply cho MAJOR changes) + alignment registry (`align add/list/check`, trong `make check`)
 - [~] Tooling: Ontology Console v0.1 (read-only UI)
   - [x] FastAPI backend (`foundry/console/`) tái dùng logic tools/ + foundry/
   - [x] SPA: Dashboard / Explorer / Versions / Impact / Data Monitor / Projection

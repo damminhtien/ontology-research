@@ -14,6 +14,10 @@ Subcommands:
     blast-radius TERM         count modules/queries/application files that
                               reference TERM
     stability                 Stability(m) = 1 - N_breaking/N_releases per module
+    migrate MODULE            generate a SPARQL Update migration script for the
+                              breaking (MAJOR) changes since the latest release
+    align add/list/check      semantic alignment registry (registry/alignments.json);
+                              check validates every source term is still defined
 
 The diff command enforces the roadmap rule "never redefine silently": any
 domain/range change or term removal is flagged as a breaking (MAJOR) change;
@@ -51,6 +55,15 @@ SEVERITY_MINOR = "MINOR"
 SEVERITY_MAJOR = "MAJOR"
 
 REGISTRY_DIRNAME = "registry"
+MIGRATIONS_DIRNAME = "migrations"
+ALIGNMENTS_FILENAME = "alignments.json"
+ALIGNMENT_RELATIONS = (
+    "exactMatch",
+    "closeMatch",
+    "broadMatch",
+    "narrowMatch",
+    "relatedMatch",
+)
 RELEASES_FILE = "releases.json"
 SNAPSHOT_VERSION = 1
 STABILITY_THRESHOLD_CORE = 0.99
@@ -707,6 +720,9 @@ def render_changelog(releases: list[dict]) -> str:
                 lines.append("#### Migration")
                 lines.append("")
                 lines.append(str(entry["migration"]))
+            if entry.get("migration_script"):
+                lines.append("")
+                lines.append(f"Migration script: `{entry['migration_script']}`")
             lines.append("")
     return "\n".join(lines) + "\n"
 
@@ -750,11 +766,21 @@ def cmd_release(args: argparse.Namespace) -> int:
             if status == "error":
                 failures.append(f"{local}: {message}")
                 continue
-            if severity == SEVERITY_MAJOR and not args.migration:
+            migration = getattr(args, "migration", None)
+            migration_script = getattr(args, "migration_script", None)
+            if severity == SEVERITY_MAJOR and not migration:
                 failures.append(
                     f"{local}: MAJOR release requires --migration (never redefine silently)"
                 )
                 continue
+            if migration_script:
+                script = REPO_ROOT / migration_script
+                if severity != SEVERITY_MAJOR:
+                    failures.append(f"{local}: --migration-script only applies to MAJOR releases")
+                    continue
+                if not script.exists():
+                    failures.append(f"{local}: migration script not found: {script}")
+                    continue
 
         prepared.append((local, iri, rel, declared, severity, changes))
 
@@ -792,7 +818,8 @@ def cmd_release(args: argparse.Namespace) -> int:
                     }
                     for change in changes
                 ],
-                "migration": args.migration if severity == SEVERITY_MAJOR else None,
+                "migration": migration if severity == SEVERITY_MAJOR else None,
+                "migration_script": (migration_script if severity == SEVERITY_MAJOR else None),
                 "commit": commit_hash,
             }
         )
@@ -849,6 +876,198 @@ def cmd_stability(_args: argparse.Namespace) -> int:
     return 0
 
 
+def collect_defined_term_iris(module_paths: list[Path]) -> set[str]:
+    """Every class/property/individual IRI defined across the given modules."""
+    type_targets = (
+        OWL.Class,
+        OWL.ObjectProperty,
+        OWL.DatatypeProperty,
+        OWL.AnnotationProperty,
+        OWL.NamedIndividual,
+    )
+    iris: set[str] = set()
+    for path in module_paths:
+        graph = load_graph(path)
+        for target in type_targets:
+            iris.update(str(subject) for subject in graph.subjects(RDF.type, target))
+    return iris
+
+
+def alignments_file(repo_root: Path | None = None) -> Path:
+    base = repo_root if repo_root is not None else REPO_ROOT
+    return base / REGISTRY_DIRNAME / ALIGNMENTS_FILENAME
+
+
+def load_alignments(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    document = json.loads(path.read_text(encoding="utf-8"))
+    return list(document.get("alignments", []))
+
+
+def save_alignments(path: Path, alignments: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"version": 1, "alignments": alignments}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def cmd_align_add(args: argparse.Namespace) -> int:
+    """Record one semantic alignment; source term must exist in the modules."""
+    path = alignments_file()
+    alignments = load_alignments(path)
+    key = (args.source, args.target, args.relation)
+    if any((a["source"], a["target"], a["relation"]) == key for a in alignments):
+        print(f"[error] alignment already recorded: {args.source} {args.relation} {args.target}")
+        return 1
+    if args.source not in collect_defined_term_iris(find_module_files()):
+        print(f"[error] source term is not defined in any module: {args.source}")
+        return 1
+    alignments.append(
+        {
+            "source": args.source,
+            "target": args.target,
+            "relation": args.relation,
+            "note": args.note,
+            "added": utc_now_iso(),
+        }
+    )
+    save_alignments(path, alignments)
+    print(f"Aligned {args.source} {args.relation} {args.target}")
+    return 0
+
+
+def cmd_align_list(_args: argparse.Namespace) -> int:
+    alignments = load_alignments(alignments_file())
+    if not alignments:
+        print("No alignments recorded.")
+        return 0
+    for alignment in alignments:
+        note = f"  # {alignment['note']}" if alignment.get("note") else ""
+        print(
+            f"{local_name(alignment['source'])} {alignment['relation']} {alignment['target']}{note}"
+        )
+    return 0
+
+
+def cmd_align_check(_args: argparse.Namespace) -> int:
+    """Fail if any recorded alignment points at a term the modules no longer define."""
+    alignments = load_alignments(alignments_file())
+    term_iris = collect_defined_term_iris(find_module_files())
+    errors: list[str] = []
+    for alignment in alignments:
+        if alignment["relation"] not in ALIGNMENT_RELATIONS:
+            errors.append(f"unknown relation '{alignment['relation']}' on {alignment['source']}")
+        if alignment["source"] not in term_iris:
+            errors.append(f"source term no longer defined: {alignment['source']}")
+    if errors:
+        for error in errors:
+            print(f"[error] {error}")
+        return 1
+    print(f"Alignment check passed ({len(alignments)} alignments).")
+    return 0
+
+
+def generate_migration_script(
+    module: str,
+    old_version: str,
+    new_version: str,
+    changes: list[Change],
+    out_dir: Path | None = None,
+) -> Path:
+    """Emit a reviewable SPARQL Update script for the MAJOR changes in `changes`.
+
+    Removed properties become DELETE statements (assertions of a term that no
+    longer exists are garbage and must go). Removed classes only produce a
+    commented investigation query — dropping class assertions silently would
+    destroy typing that may need remapping first. Domain/range changes become
+    revalidation notes. Raises ValueError when there is nothing breaking.
+    """
+    breaking = [change for change in changes if change.severity == SEVERITY_MAJOR]
+    if not breaking:
+        raise ValueError("no MAJOR changes detected; nothing to migrate")
+
+    base = out_dir if out_dir is not None else REPO_ROOT / MIGRATIONS_DIRNAME / module
+    base.mkdir(parents=True, exist_ok=True)
+    script_path = base / f"{old_version}_to_{new_version}.rq"
+
+    lines = [
+        f"# Migration: {module} {old_version} -> {new_version}",
+        "# Generated by `manage_ontology.py migrate` — REVIEW BEFORE APPLYING.",
+        "# Apply against the canonical data store; take a backup or rely on event replay.",
+        "",
+    ]
+    for change in breaking:
+        if change.kind == "removed" and "property" in change.detail:
+            lines += [
+                f"# {change.detail}: {change.target}",
+                f"DELETE {{ ?s <{change.target}> ?o }} WHERE {{ ?s <{change.target}> ?o }} ;",
+                "",
+            ]
+        elif change.kind == "removed":
+            lines += [
+                f"# {change.detail}: {change.target}",
+                "# Investigate and remap instances before deleting class assertions:",
+                f"# SELECT ?instance WHERE {{ ?instance a <{change.target}> }}",
+                "",
+            ]
+    for change in breaking:
+        if change.kind != "changed":
+            continue
+        fields = " ".join(change.field_changes)
+        if "domain" in fields or "range" in fields:
+            lines += [
+                f"# NOTE {local_name(change.target)}: {'; '.join(change.field_changes)}.",
+                "# Existing data may violate the new constraint.",
+                "# Re-run SHACL validation after applying this script.",
+                "",
+            ]
+    script_path.write_text("\n".join(lines), encoding="utf-8")
+    return script_path
+
+
+def _display_path(path: Path) -> str:
+    """Path relative to repo root when possible (files may live outside it, e.g. tests)."""
+    try:
+        return path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def cmd_migrate(args: argparse.Namespace) -> int:
+    """Generate a migration script for the breaking changes since latest release."""
+    registry = registry_dir()
+    releases = load_releases(registry)
+    for path in find_module_files():
+        graph = load_graph(path)
+        iri, declared = module_identity(graph)
+        if args.module not in {local_name(iri), path.stem, _display_path(path)}:
+            continue
+        module = local_name(iri)
+        latest = latest_release(releases, iri)
+        if latest is None:
+            print(f"[error] {module}: never released; no baseline to migrate from")
+            return 1
+        old_terms = load_snapshot_terms(registry, module, latest["version"])
+        changes = diff_snapshots(old_terms, snapshot(graph))
+        breaking = [change for change in changes if change.severity == SEVERITY_MAJOR]
+        if not breaking:
+            print(f"{module}: no MAJOR changes since {latest['version']}; nothing to migrate")
+            return 1
+        script_path = generate_migration_script(module, latest["version"], declared, changes)
+        print(f"Generated {script_path}")
+        for change in breaking:
+            print(f"  [{change.severity}] {local_name(change.target)}: {change.detail}")
+        print(
+            "Review the script, then: release "
+            f"{module} --migration '...' --migration-script {script_path}"
+        )
+        return 0
+    print(f"No module matches '{args.module}'.")
+    return 1
+
+
 def main() -> int:
     """CLI entrypoint dispatching subcommands."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -885,6 +1104,11 @@ def main() -> int:
         help="migration note; REQUIRED for MAJOR releases",
     )
     release_parser.add_argument(
+        "--migration-script",
+        default=None,
+        help="path to a migration script (from 'migrate') recorded on MAJOR releases",
+    )
+    release_parser.add_argument(
         "--dry-run", action="store_true", help="preview changes and blast radius only"
     )
     release_parser.set_defaults(func=cmd_release)
@@ -895,6 +1119,25 @@ def main() -> int:
 
     sub.add_parser("stability", help="stability per module vs thresholds").set_defaults(
         func=cmd_stability
+    )
+
+    migrate_parser = sub.add_parser(
+        "migrate", help="generate a SPARQL Update migration for breaking changes"
+    )
+    migrate_parser.add_argument("module", help="module name (e.g. 'core') or repo path")
+    migrate_parser.set_defaults(func=cmd_migrate)
+
+    align_parser = sub.add_parser("align", help="semantic alignment registry")
+    align_sub = align_parser.add_subparsers(dest="align_cmd", required=True)
+    align_add = align_sub.add_parser("add", help="record one alignment")
+    align_add.add_argument("source", help="source term IRI (must be defined in a module)")
+    align_add.add_argument("target", help="target term IRI (external allowed)")
+    align_add.add_argument("--relation", default="closeMatch", choices=ALIGNMENT_RELATIONS)
+    align_add.add_argument("--note", default=None, help="why this alignment holds")
+    align_add.set_defaults(func=cmd_align_add)
+    align_sub.add_parser("list", help="show recorded alignments").set_defaults(func=cmd_align_list)
+    align_sub.add_parser("check", help="validate alignments against current modules").set_defaults(
+        func=cmd_align_check
     )
 
     args = parser.parse_args()

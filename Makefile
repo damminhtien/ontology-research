@@ -1,4 +1,4 @@
-.PHONY: setup validate dag test lint fmt check clean docs-setup docs-sync docs-serve docs-build
+.PHONY: setup validate dag align test lint fmt check clean docs-setup docs-sync docs-serve docs-build
 
 PY := .venv/bin/python
 
@@ -47,7 +47,11 @@ benchmark:
 slo:
 	$(PY) tools/check_slo.py
 
-check: lint versions validate dag test slo
+align:
+	$(PY) tools/manage_ontology.py align check
+
+
+check: lint versions align validate dag test slo
 
 
 clean:
