@@ -5,3 +5,5 @@ ruff>=0.16
 fastapi>=0.115
 uvicorn>=0.30
 httpx2>=2.12
+pyarrow>=25.0
+duckdb>=1.4
