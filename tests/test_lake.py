@@ -11,7 +11,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from foundry.events import SCHEMA_VERSION, SemanticEvent
-from foundry.lake import LakeError, LakeWriter, lake_query, parse_occurred_at
+from foundry.lake import LakeError, LakeWriter, lake_query, parse_occurred_at, persist_events
 
 
 def _events(n: int, day: str = "2026-01-15") -> list[SemanticEvent]:
@@ -177,3 +177,24 @@ class TestDefaults:
         env_root = tmp_path / "env-lake"
         monkeypatch.setenv("FOUNDRY_LAKE_ROOT", str(env_root))
         assert lake.default_lake_root() == env_root
+
+
+class TestPersistEvents:
+    def test_persist_events_writes_files_and_manifest(self, tmp_path: Path) -> None:
+        """Regression: callers must not be able to drop events by forgetting flush()."""
+        files = persist_events(_events(5), tmp_path)
+        assert len(files) == 1
+        assert sum(f.rows for f in files) == 5
+        writer = LakeWriter(tmp_path)
+        assert writer.manifest_path().exists()
+        assert writer.verify() == 5
+
+    def test_persist_events_second_batch_appends(self, tmp_path: Path) -> None:
+        persist_events(_events(3), tmp_path)
+        files = persist_events(_events(2, day="2026-01-16"), tmp_path)
+        assert [f.rows for f in files] == [2]
+        assert LakeWriter(tmp_path).verify() == 5
+
+    def test_persist_events_empty_batch_is_noop(self, tmp_path: Path) -> None:
+        assert persist_events([], tmp_path) == []
+        assert LakeWriter(tmp_path).verify() == 0

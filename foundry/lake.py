@@ -264,6 +264,22 @@ class LakeWriter:
         return total
 
 
+def persist_events(events: list[SemanticEvent], root: Path) -> list[LakeFile]:
+    """Buffer, flush and verify one batch of events into the lake.
+
+    Single entry point for callers (CLI, seeders) so the write→flush→manifest
+    sequence cannot be half-done: forgetting ``flush()`` silently drops events
+    because ``write_events`` only buffers.
+    """
+    writer = LakeWriter(root)
+    writer.write_events(events)
+    files = writer.flush()
+    expected = sum(entry.rows for entry in writer.read_manifest())
+    if files and writer.verify() != expected:
+        raise LakeError("manifest verification failed right after flush")
+    return files
+
+
 def lake_query(sql: str, root: Path | None = None) -> list[dict[str, Any]]:
     """Run one DuckDB SQL query over the whole lake; returns rows as dicts.
 
