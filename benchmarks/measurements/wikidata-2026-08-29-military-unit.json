@@ -1,0 +1,34 @@
+{
+  "measured_at": "2026-08-29T07:27:25Z",
+  "wikidata_total_items": 128802159,
+  "dump_compressed_bytes": 155690403548,
+  "class_counts": {
+    "Q176799": 64588
+  },
+  "batches": [
+    {
+      "class": "Q176799",
+      "limit": 300,
+      "fetch_seconds": 2.79,
+      "records": 10,
+      "mapped": 10,
+      "mapped_rate": 1.0,
+      "accepted": 5,
+      "new_entities": 5,
+      "merged": 0,
+      "rejected": 1,
+      "skipped_no_type": 4,
+      "unresolved_rate": 0.1,
+      "rejection_reasons": {
+        "name matches candidate entities ('urn:world:entity:e5368483b7014895ad86d990bf4b0": 1
+      },
+      "ingest_seconds": 0.002,
+      "events": 5,
+      "ingest_events_per_sec": 3262.5,
+      "lake_seconds": 0.33,
+      "lake_bytes": 2942,
+      "lake_bytes_per_event": 588.4,
+      "json_bytes_per_event": 330.4
+    }
+  ]
+}

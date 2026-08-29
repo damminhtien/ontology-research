@@ -143,3 +143,9 @@ class TestIngestRecords:
         assert receipts[0].accepted is False
         assert receipts[0].reason  # structured reason, not silent drop
         assert stats.rejection_reasons
+
+
+def test_military_unit_qid_mapping_is_the_real_item():
+    """Regression: Q1767992 is a temple, military unit is Q176799."""
+    assert wd.QID_TO_ENTITY_TYPE.get("Q176799") == "Organization"
+    assert "Q1767992" not in wd.QID_TO_ENTITY_TYPE

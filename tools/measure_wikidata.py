@@ -40,8 +40,7 @@ from foundry.lake import persist_events  # noqa: E402
 
 DUMP_URL = "https://dumps.wikimedia.org/wikidatawiki/entities/latest-all.json.gz"
 STATS_URL = (
-    "https://www.wikidata.org/w/api.php?action=query&meta=siteinfo"
-    "&siprop=statistics&format=json"
+    "https://www.wikidata.org/w/api.php?action=query&meta=siteinfo&siprop=statistics&format=json"
 )
 
 
@@ -74,8 +73,7 @@ def _content_length(url: str, timeout: float = 30.0) -> int | None:
 def count_class(class_qid: str, timeout: float = 55.0) -> int:
     """COUNT DISTINCT items below the class through P31/P279*."""
     query = (
-        f"SELECT (COUNT(DISTINCT ?item) AS ?c) WHERE {{ "
-        f"?item wdt:P31/wdt:P279* wd:{class_qid} . }}"
+        f"SELECT (COUNT(DISTINCT ?item) AS ?c) WHERE {{ ?item wdt:P31/wdt:P279* wd:{class_qid} . }}"
     )
     url = f"{wd.WIKIDATA_ENDPOINT}?{urllib.parse.urlencode({'query': query, 'format': 'json'})}"
     data = _get_json(url, timeout=timeout)
@@ -175,6 +173,8 @@ def main() -> int:
             result = run_batch(qid, int(lim or 500), REPO_ROOT / "data" / "measure")
         except wd.WikidataError as exc:
             result = {"class": qid, "error": str(exc)[:120]}
+        except Exception as exc:  # one failed batch must not kill the report
+            result = {"class": qid, "error": f"{type(exc).__name__}: {exc}"[:120]}
         batches.append(result)
         print(json.dumps(result, ensure_ascii=False))
         time.sleep(args.delay)

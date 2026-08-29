@@ -39,7 +39,7 @@ QID_TO_ENTITY_TYPE: dict[str, str] = {
     "Q43229": "Organization",  # organization
     "Q4830453": "Organization",  # business
     "Q79913": "Organization",  # non-governmental organization
-    "Q1767992": "Organization",  # military unit
+    "Q176799": "Organization",  # military unit
 }
 
 DEFAULT_QUERY_TEMPLATE = """

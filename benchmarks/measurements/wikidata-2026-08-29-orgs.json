@@ -1,0 +1,82 @@
+{
+  "measured_at": "2026-08-29T07:23:17Z",
+  "wikidata_total_items": 128802151,
+  "dump_compressed_bytes": 155690403548,
+  "class_counts": {
+    "Q43229": 4896968,
+    "Q1767992": 0
+  },
+  "batches": [
+    {
+      "class": "Q43229",
+      "limit": 300,
+      "fetch_seconds": 5.71,
+      "records": 11,
+      "mapped": 11,
+      "mapped_rate": 1.0,
+      "accepted": 6,
+      "new_entities": 6,
+      "merged": 0,
+      "rejected": 4,
+      "skipped_no_type": 1,
+      "unresolved_rate": 0.3636,
+      "rejection_reasons": {
+        "name matches candidate entities ('urn:world:entity:83000c35952842149d846e05df3f3": 2,
+        "name matches candidate entities ('urn:world:entity:b37bc74ea4dd49e7b9c557ae1736b": 2
+      },
+      "ingest_seconds": 0.003,
+      "events": 6,
+      "ingest_events_per_sec": 2013.0,
+      "lake_seconds": 0.718,
+      "lake_bytes": 3053,
+      "lake_bytes_per_event": 508.8,
+      "json_bytes_per_event": 337.2
+    },
+    {
+      "class": "Q4830453",
+      "limit": 300,
+      "fetch_seconds": 5.91,
+      "records": 9,
+      "mapped": 9,
+      "mapped_rate": 1.0,
+      "accepted": 4,
+      "new_entities": 4,
+      "merged": 0,
+      "rejected": 1,
+      "skipped_no_type": 4,
+      "unresolved_rate": 0.1111,
+      "rejection_reasons": {
+        "name matches candidate entities ('urn:world:entity:dc666f865cf8450db1c8c1e17ea73": 1
+      },
+      "ingest_seconds": 0.005,
+      "events": 4,
+      "ingest_events_per_sec": 848.3,
+      "lake_seconds": 0.012,
+      "lake_bytes": 2937,
+      "lake_bytes_per_event": 734.2,
+      "json_bytes_per_event": 338.8
+    },
+    {
+      "class": "Q1767992",
+      "limit": 300,
+      "fetch_seconds": 0.27,
+      "records": 0,
+      "mapped": 0,
+      "mapped_rate": 0.0,
+      "accepted": 0,
+      "new_entities": 0,
+      "merged": 0,
+      "rejected": 0,
+      "skipped_no_type": 0,
+      "unresolved_rate": 0.0,
+      "rejection_reasons": {},
+      "ingest_seconds": 0.0,
+      "events": 0,
+      "ingest_events_per_sec": 0.0,
+      "lake_seconds": 0.0,
+      "lake_bytes": 0,
+      "lake_bytes_per_event": 0.0,
+      "json_bytes_per_event": 0.0
+    }
+  ]
+}
