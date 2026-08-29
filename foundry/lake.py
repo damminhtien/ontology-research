@@ -39,21 +39,25 @@ LAKE_VERSION = 1
 
 MANIFEST_NAME = "manifest.json"
 
-# Fallback when the archival volume is unavailable (e.g. no /data mount).
+# Fallback when the archival volume is unavailable (e.g. unmounted external
+# disk) — keeps tests and CI self-contained inside the repo.
 FALLBACK_ROOT_PARENT = "data"
+
+# Preferred archival root: the external "Data" volume with the largest free
+# space on the deployment machine.
+PREFERRED_ROOT = Path("/Volumes/Data/ontology-lake")
 
 
 def default_lake_root() -> Path:
-    """Resolve the lake root: env override, else /data, else repo ``data/``."""
+    """Resolve the lake root: env override, else /Volumes/Data, else repo ``data/``."""
     env = os.environ.get("FOUNDRY_LAKE_ROOT")
     if env:
         return Path(env)
-    preferred = Path("/data/ontology-lake")
     try:
-        preferred.mkdir(parents=True, exist_ok=True)
+        PREFERRED_ROOT.mkdir(parents=True, exist_ok=True)
     except OSError:
         return Path(FALLBACK_ROOT_PARENT) / "lake"
-    return preferred
+    return PREFERRED_ROOT
 
 
 def parse_occurred_at(value: str) -> datetime:
@@ -105,7 +109,7 @@ class LakeWriter:
 
     Usage::
 
-        writer = LakeWriter(Path("/data/ontology-lake"))
+        writer = LakeWriter()          # defaults to /Volumes/Data/ontology-lake
         writer.write_events(events)   # buffers in memory
         writer.flush()                # writes one file per affected partition
     """
