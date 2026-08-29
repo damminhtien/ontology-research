@@ -59,6 +59,8 @@ class IngestResult:
     canonical_id: str
     event_id: str | None = None
     reason: str = ""
+    event: SemanticEvent | None = None
+    is_new: bool = False
 
 
 def _reject(canonical_id: str, reason: str) -> IngestResult:
@@ -66,9 +68,15 @@ def _reject(canonical_id: str, reason: str) -> IngestResult:
     return IngestResult(accepted=False, canonical_id=canonical_id, reason=reason)
 
 
-def _accept(canonical_id: str, event: SemanticEvent) -> IngestResult:
+def _accept(canonical_id: str, event: SemanticEvent, *, is_new: bool = True) -> IngestResult:
     """Build an acceptance receipt."""
-    return IngestResult(accepted=True, canonical_id=canonical_id, event_id=event.event_id)
+    return IngestResult(
+        accepted=True,
+        canonical_id=canonical_id,
+        event_id=event.event_id if event is not None else None,
+        event=event,
+        is_new=is_new,
+    )
 
 
 class IngestionPipeline:
@@ -103,8 +111,12 @@ class IngestionPipeline:
         source_id: str,
         external_source: str | None = None,
         external_id: str | None = None,
+        aliases: list[str] | None = None,
     ) -> IngestResult:
         """Ingest one slowly-changing structured entity record.
+
+        ``aliases`` are bound to the resolved canonical identity so future
+        references by alternate names resolve exactly instead of fuzzily.
 
         Raises:
             ValueError: On malformed input (empty name/source).
@@ -129,6 +141,13 @@ class IngestionPipeline:
                 f"(score={resolution.confidence}); needs human review before merge",
             )
 
+        if aliases:
+            self._identity.register(
+                entity_id=resolution.canonical_id,
+                entity_type=entity_type,
+                aliases=[a for a in aliases if a != name],
+            )
+
         if resolution.is_new:
             event = make_event(
                 "EntityCreated",
@@ -143,7 +162,7 @@ class IngestionPipeline:
             self._log.append(event)
             return _accept(resolution.canonical_id, event)
 
-        return IngestResult(accepted=True, canonical_id=resolution.canonical_id)
+        return _accept(resolution.canonical_id, event=None, is_new=False)
 
     # -- high-rate observations ---------------------------------------------
 
