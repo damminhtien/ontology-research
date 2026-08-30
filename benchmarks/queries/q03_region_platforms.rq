@@ -1,7 +1,7 @@
 # CQ-006 (Q3 2-3 hop traversal): platforms operated by organizations located
 # inside region Khanh Hoa (transitive partOf). Target p95 < 300ms.
 # Exercises: operates hop + locatedAt hop + transitive partOf* path.
-PREFIX core: <https://ontology.example/core#>
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
 PREFIX ex: <https://data.example/entity/>
 
 SELECT DISTINCT ?platformName WHERE {

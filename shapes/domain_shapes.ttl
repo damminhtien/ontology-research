@@ -1,8 +1,8 @@
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix core: <https://ontology.example/core#> .
-@prefix sensor: <https://ontology.example/domain/sensor#> .
-@prefix tracking: <https://ontology.example/domain/tracking#> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
+@prefix sensor: <https://damminhtien.github.io/ontology-research/ontology/domain/sensor#> .
+@prefix tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#> .
 
 # A Track is a derived information product: it MUST resolve to exactly one
 # entity, cite at least one supporting observation, and carry exactly one

@@ -77,13 +77,13 @@ MODULE_TEMPLATE = """@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> 
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
 @prefix vann: <http://purl.org/vocab/vann/> .
-@prefix core: <https://ontology.example/core#> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
 
 <{module_iri}> a owl:Ontology ;
     dcterms:title "{title}"@en ;
     dcterms:description "TODO: scope of this module."@en ;
     dcterms:version "0.1.0" ;
-    owl:imports <https://ontology.example/core> ;
+    owl:imports <https://damminhtien.github.io/ontology-research/ontology/core> ;
     vann:preferredNamespacePrefix "{prefix}" ;
     vann:preferredNamespaceUri "{module_iri}#" .
 
@@ -560,7 +560,9 @@ def cmd_new_module(args: argparse.Namespace) -> int:
         print(f"Module already exists: {target}")
         return 1
     target_dir.mkdir(parents=True, exist_ok=True)
-    module_iri = f"https://ontology.example/{args.layer}/{args.name}"
+    module_iri = (
+        f"https://damminhtien.github.io/ontology-research/ontology/{args.layer}/{args.name}"
+    )
     target.write_text(
         MODULE_TEMPLATE.format(
             module_iri=module_iri,

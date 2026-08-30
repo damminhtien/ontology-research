@@ -1,8 +1,8 @@
 # CQ-015 (Q3): Tracks whose tracked entity is operated by an organization
 # located inside region Khanh Hoa (transitive core:partOf* containment).
 # Full vertical: Track -> Entity <- operates <- Org -> locatedAt -> partOf* -> Region.
-PREFIX core: <https://ontology.example/core#>
-PREFIX tracking: <https://ontology.example/domain/tracking#>
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#>
 
 SELECT DISTINCT ?trackId ?platformName ?orgName WHERE {
   ?track tracking:hasTrackId ?trackId ;

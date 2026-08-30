@@ -1,361 +1,361 @@
 {
   "date": "2026-08-26T07:05:33Z",
   "file": "ontology/core/core.ttl",
-  "module_iri": "https://ontology.example/core",
+  "module_iri": "https://damminhtien.github.io/ontology-research/ontology/core",
   "snapshot_version": 1,
   "terms": {
-    "https://ontology.example/core#Activity": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Activity": {
       "comment": "",
       "kind": "class",
       "label": "Activity",
       "parents": [
-        "https://ontology.example/core#Event"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Event"
       ]
     },
-    "https://ontology.example/core#Agent": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Agent": {
       "comment": "",
       "kind": "class",
       "label": "Agent",
       "parents": [
-        "https://ontology.example/core#Entity"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
       ]
     },
-    "https://ontology.example/core#Artifact": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Artifact": {
       "comment": "",
       "kind": "class",
       "label": "Artifact",
       "parents": [
-        "https://ontology.example/core#PhysicalObject"
+        "https://damminhtien.github.io/ontology-research/ontology/core#PhysicalObject"
       ]
     },
-    "https://ontology.example/core#Capability": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Capability": {
       "comment": "",
       "kind": "class",
       "label": "Capability",
       "parents": [
-        "https://ontology.example/core#Entity"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
       ]
     },
-    "https://ontology.example/core#Entity": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Entity": {
       "comment": "Root of all things with identity.",
       "kind": "class",
       "label": "Entity",
       "parents": []
     },
-    "https://ontology.example/core#Event": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Event": {
       "comment": "",
       "kind": "class",
       "label": "Event",
       "parents": [
-        "https://ontology.example/core#Entity"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
       ]
     },
-    "https://ontology.example/core#Facility": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Facility": {
       "comment": "",
       "kind": "class",
       "label": "Facility",
       "parents": [
-        "https://ontology.example/core#Artifact"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Artifact"
       ]
     },
-    "https://ontology.example/core#InformationObject": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#InformationObject": {
       "comment": "",
       "kind": "class",
       "label": "Information Object",
       "parents": [
-        "https://ontology.example/core#Entity"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
       ]
     },
-    "https://ontology.example/core#Location": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Location": {
       "comment": "",
       "kind": "class",
       "label": "Location",
       "parents": [
-        "https://ontology.example/core#Entity"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
       ]
     },
-    "https://ontology.example/core#LocationAssertion": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#LocationAssertion": {
       "comment": "Reified claim that an entity was located somewhere from some time.",
       "kind": "class",
       "label": "Location Assertion",
       "parents": [
-        "https://ontology.example/core#Event"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Event"
       ]
     },
-    "https://ontology.example/core#Observation": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Observation": {
       "comment": "An act of observing, anchored in time and to a source.",
       "kind": "class",
       "label": "Observation",
       "parents": [
-        "https://ontology.example/core#Event"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Event"
       ]
     },
-    "https://ontology.example/core#Organization": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Organization": {
       "comment": "",
       "kind": "class",
       "label": "Organization",
       "parents": [
-        "https://ontology.example/core#Agent"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Agent"
       ]
     },
-    "https://ontology.example/core#Person": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Person": {
       "comment": "",
       "kind": "class",
       "label": "Person",
       "parents": [
-        "https://ontology.example/core#Agent"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Agent"
       ]
     },
-    "https://ontology.example/core#PhysicalObject": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#PhysicalObject": {
       "comment": "",
       "kind": "class",
       "label": "Physical Object",
       "parents": [
-        "https://ontology.example/core#Entity"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
       ]
     },
-    "https://ontology.example/core#Platform": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Platform": {
       "comment": "",
       "kind": "class",
       "label": "Platform",
       "parents": [
-        "https://ontology.example/core#Artifact"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Artifact"
       ]
     },
-    "https://ontology.example/core#Quality": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Quality": {
       "comment": "",
       "kind": "class",
       "label": "Quality",
       "parents": [
-        "https://ontology.example/core#Entity"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
       ]
     },
-    "https://ontology.example/core#Role": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Role": {
       "comment": "",
       "kind": "class",
       "label": "Role",
       "parents": [
-        "https://ontology.example/core#Entity"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
       ]
     },
-    "https://ontology.example/core#Source": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#Source": {
       "comment": "Provenance anchor for assertions and observations.",
       "kind": "class",
       "label": "Source",
       "parents": [
-        "https://ontology.example/core#InformationObject"
+        "https://damminhtien.github.io/ontology-research/ontology/core#InformationObject"
       ]
     },
-    "https://ontology.example/core#State": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#State": {
       "comment": "",
       "kind": "class",
       "label": "State",
       "parents": [
-        "https://ontology.example/core#Entity"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
       ]
     },
-    "https://ontology.example/core#System": {
+    "https://damminhtien.github.io/ontology-research/ontology/core#System": {
       "comment": "Engineered system of interacting components.",
       "kind": "class",
       "label": "System",
       "parents": [
-        "https://ontology.example/core#Entity"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
       ]
     },
-    "https://ontology.example/core#alias": {
-      "domain": "https://ontology.example/core#Entity",
+    "https://damminhtien.github.io/ontology-research/ontology/core#alias": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Entity",
       "kind": "data-property",
       "label": "alias",
       "range": "http://www.w3.org/2001/XMLSchema#string"
     },
-    "https://ontology.example/core#atTime": {
-      "domain": "https://ontology.example/core#Event",
+    "https://damminhtien.github.io/ontology-research/ontology/core#atTime": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Event",
       "kind": "data-property",
       "label": "at time",
       "range": "http://www.w3.org/2001/XMLSchema#dateTime"
     },
-    "https://ontology.example/core#connectedTo": {
-      "domain": "https://ontology.example/core#Entity",
+    "https://damminhtien.github.io/ontology-research/ontology/core#connectedTo": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Entity",
       "kind": "object-property",
       "label": "connected to",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     },
-    "https://ontology.example/core#consumes": {
-      "domain": "https://ontology.example/core#Agent",
+    "https://damminhtien.github.io/ontology-research/ontology/core#consumes": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Agent",
       "kind": "object-property",
       "label": "consumes",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     },
-    "https://ontology.example/core#controls": {
-      "domain": "https://ontology.example/core#Agent",
+    "https://damminhtien.github.io/ontology-research/ontology/core#controls": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Agent",
       "kind": "object-property",
       "label": "controls",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     },
-    "https://ontology.example/core#currentLocation": {
-      "domain": "https://ontology.example/core#Entity",
+    "https://damminhtien.github.io/ontology-research/ontology/core#currentLocation": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Entity",
       "kind": "object-property",
       "label": "current location",
-      "range": "https://ontology.example/core#Location"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Location"
     },
-    "https://ontology.example/core#dependsOn": {
-      "domain": "https://ontology.example/core#Entity",
+    "https://damminhtien.github.io/ontology-research/ontology/core#dependsOn": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Entity",
       "kind": "object-property",
       "label": "depends on",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     },
-    "https://ontology.example/core#describedBy": {
-      "domain": "https://ontology.example/core#Entity",
+    "https://damminhtien.github.io/ontology-research/ontology/core#describedBy": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Entity",
       "kind": "object-property",
       "label": "described by",
-      "range": "https://ontology.example/core#InformationObject"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#InformationObject"
     },
-    "https://ontology.example/core#describes": {
-      "domain": "https://ontology.example/core#InformationObject",
+    "https://damminhtien.github.io/ontology-research/ontology/core#describes": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#InformationObject",
       "kind": "object-property",
       "label": "describes",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     },
-    "https://ontology.example/core#endTime": {
-      "domain": "https://ontology.example/core#Event",
+    "https://damminhtien.github.io/ontology-research/ontology/core#endTime": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Event",
       "kind": "data-property",
       "label": "end time",
       "range": "http://www.w3.org/2001/XMLSchema#dateTime"
     },
-    "https://ontology.example/core#externalId": {
-      "domain": "https://ontology.example/core#Entity",
+    "https://damminhtien.github.io/ontology-research/ontology/core#externalId": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Entity",
       "kind": "data-property",
       "label": "external id",
       "range": "http://www.w3.org/2001/XMLSchema#string"
     },
-    "https://ontology.example/core#hasCapability": {
-      "domain": "https://ontology.example/core#Entity",
+    "https://damminhtien.github.io/ontology-research/ontology/core#hasCapability": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Entity",
       "kind": "object-property",
       "label": "has capability",
-      "range": "https://ontology.example/core#Capability"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Capability"
     },
-    "https://ontology.example/core#hasConfidence": {
-      "domain": "https://ontology.example/core#Event",
+    "https://damminhtien.github.io/ontology-research/ontology/core#hasConfidence": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Event",
       "kind": "data-property",
       "label": "has confidence",
       "range": "http://www.w3.org/2001/XMLSchema#decimal"
     },
-    "https://ontology.example/core#hasLocation": {
-      "domain": "https://ontology.example/core#Location",
+    "https://damminhtien.github.io/ontology-research/ontology/core#hasLocation": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Location",
       "kind": "object-property",
       "label": "has located entity",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     },
-    "https://ontology.example/core#hasMember": {
-      "domain": "https://ontology.example/core#Agent",
+    "https://damminhtien.github.io/ontology-research/ontology/core#hasMember": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Agent",
       "kind": "object-property",
       "label": "has member",
-      "range": "https://ontology.example/core#Agent"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Agent"
     },
-    "https://ontology.example/core#hasPart": {
-      "domain": "https://ontology.example/core#Entity",
+    "https://damminhtien.github.io/ontology-research/ontology/core#hasPart": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Entity",
       "kind": "object-property",
       "label": "has part",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     },
-    "https://ontology.example/core#hasParticipant": {
-      "domain": "https://ontology.example/core#Event",
+    "https://damminhtien.github.io/ontology-research/ontology/core#hasParticipant": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Event",
       "kind": "object-property",
       "label": "has participant",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     },
-    "https://ontology.example/core#hasRole": {
-      "domain": "https://ontology.example/core#Agent",
+    "https://damminhtien.github.io/ontology-research/ontology/core#hasRole": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Agent",
       "kind": "object-property",
       "label": "has role",
-      "range": "https://ontology.example/core#Role"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Role"
     },
-    "https://ontology.example/core#hasSource": {
-      "domain": "https://ontology.example/core#Event",
+    "https://damminhtien.github.io/ontology-research/ontology/core#hasSource": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Event",
       "kind": "object-property",
       "label": "has source",
-      "range": "https://ontology.example/core#Source"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Source"
     },
-    "https://ontology.example/core#locatedAt": {
-      "domain": "https://ontology.example/core#Entity",
+    "https://damminhtien.github.io/ontology-research/ontology/core#locatedAt": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Entity",
       "kind": "object-property",
       "label": "located at",
-      "range": "https://ontology.example/core#Location"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Location"
     },
-    "https://ontology.example/core#memberOf": {
-      "domain": "https://ontology.example/core#Agent",
+    "https://damminhtien.github.io/ontology-research/ontology/core#memberOf": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Agent",
       "kind": "object-property",
       "label": "member of",
-      "range": "https://ontology.example/core#Agent"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Agent"
     },
-    "https://ontology.example/core#name": {
-      "domain": "https://ontology.example/core#Entity",
+    "https://damminhtien.github.io/ontology-research/ontology/core#name": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Entity",
       "kind": "data-property",
       "label": "name",
       "range": "http://www.w3.org/2001/XMLSchema#string"
     },
-    "https://ontology.example/core#observedBy": {
-      "domain": "https://ontology.example/core#Entity",
+    "https://damminhtien.github.io/ontology-research/ontology/core#observedBy": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Entity",
       "kind": "object-property",
       "label": "observed by",
-      "range": "https://ontology.example/core#Observation"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Observation"
     },
-    "https://ontology.example/core#observes": {
-      "domain": "https://ontology.example/core#Observation",
+    "https://damminhtien.github.io/ontology-research/ontology/core#observes": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Observation",
       "kind": "object-property",
       "label": "observes",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     },
-    "https://ontology.example/core#operates": {
-      "domain": "https://ontology.example/core#Organization",
+    "https://damminhtien.github.io/ontology-research/ontology/core#operates": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Organization",
       "kind": "object-property",
       "label": "operates",
-      "range": "https://ontology.example/core#Artifact"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Artifact"
     },
-    "https://ontology.example/core#owns": {
-      "domain": "https://ontology.example/core#Agent",
+    "https://damminhtien.github.io/ontology-research/ontology/core#owns": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Agent",
       "kind": "object-property",
       "label": "owns",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     },
-    "https://ontology.example/core#partOf": {
-      "domain": "https://ontology.example/core#Entity",
+    "https://damminhtien.github.io/ontology-research/ontology/core#partOf": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Entity",
       "kind": "object-property",
       "label": "part of",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     },
-    "https://ontology.example/core#participatesIn": {
-      "domain": "https://ontology.example/core#Entity",
+    "https://damminhtien.github.io/ontology-research/ontology/core#participatesIn": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Entity",
       "kind": "object-property",
       "label": "participates in",
-      "range": "https://ontology.example/core#Event"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Event"
     },
-    "https://ontology.example/core#produces": {
-      "domain": "https://ontology.example/core#Agent",
+    "https://damminhtien.github.io/ontology-research/ontology/core#produces": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Agent",
       "kind": "object-property",
       "label": "produces",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     },
-    "https://ontology.example/core#startTime": {
-      "domain": "https://ontology.example/core#Event",
+    "https://damminhtien.github.io/ontology-research/ontology/core#startTime": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Event",
       "kind": "data-property",
       "label": "start time",
       "range": "http://www.w3.org/2001/XMLSchema#dateTime"
     },
-    "https://ontology.example/core#uses": {
-      "domain": "https://ontology.example/core#Agent",
+    "https://damminhtien.github.io/ontology-research/ontology/core#uses": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Agent",
       "kind": "object-property",
       "label": "uses",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     },
-    "https://ontology.example/core#validFrom": {
-      "domain": "https://ontology.example/core#Event",
+    "https://damminhtien.github.io/ontology-research/ontology/core#validFrom": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Event",
       "kind": "data-property",
       "label": "valid from",
       "range": "http://www.w3.org/2001/XMLSchema#dateTime"
     },
-    "https://ontology.example/core#validUntil": {
-      "domain": "https://ontology.example/core#Event",
+    "https://damminhtien.github.io/ontology-research/ontology/core#validUntil": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Event",
       "kind": "data-property",
       "label": "valid until",
       "range": "http://www.w3.org/2001/XMLSchema#dateTime"

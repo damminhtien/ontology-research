@@ -2,7 +2,7 @@
 # Latest location assertion valid at or before 2026-08-21.
 # Canonical answer must come from LocationAssertion history, not projections.
 # Target p95 < 500ms.
-PREFIX core: <https://ontology.example/core#>
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 PREFIX ex: <https://data.example/entity/>
 

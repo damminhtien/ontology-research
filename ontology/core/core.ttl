@@ -4,14 +4,14 @@
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
 @prefix vann: <http://purl.org/vocab/vann/> .
-@prefix core: <https://ontology.example/core#> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
 
-<https://ontology.example/core> a owl:Ontology ;
+<https://damminhtien.github.io/ontology-research/ontology/core> a owl:Ontology ;
     dcterms:title "Semantic Core Kernel"@en ;
     dcterms:description "Semantic kernel v0.1: only stable, cross-domain classes and predicates."@en ;
     dcterms:version "0.1.0" ;
     vann:preferredNamespacePrefix "core" ;
-    vann:preferredNamespaceUri "https://ontology.example/core#" .
+    vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/core#" .
 
 #################################################################
 # Classes (20) — Entity taxonomy, max depth kept shallow

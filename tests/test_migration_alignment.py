@@ -41,7 +41,7 @@ class TestGenerateMigrationScript:
         removed = mgmt.Change(
             kind="removed",
             severity=mgmt.SEVERITY_MAJOR,
-            target="https://ontology.example/core#operates",
+            target="https://damminhtien.github.io/ontology-research/ontology/core#operates",
             detail="removed object property",
             field_changes=[],
         )
@@ -54,7 +54,7 @@ class TestGenerateMigrationScript:
         removed = mgmt.Change(
             kind="removed",
             severity=mgmt.SEVERITY_MAJOR,
-            target="https://ontology.example/core#Facility",
+            target="https://damminhtien.github.io/ontology-research/ontology/core#Facility",
             detail="removed class",
             field_changes=[],
         )
@@ -67,7 +67,7 @@ class TestGenerateMigrationScript:
         changed = mgmt.Change(
             kind="changed",
             severity=mgmt.SEVERITY_MAJOR,
-            target="https://ontology.example/core#operates",
+            target="https://damminhtien.github.io/ontology-research/ontology/core#operates",
             detail="changed property definition",
             field_changes=["domain: Artifact -> Entity"],
         )
@@ -86,7 +86,7 @@ class TestCmdMigrate:
                     "registry_version": 1,
                     "releases": [
                         {
-                            "module_iri": "https://ontology.example/core",
+                            "module_iri": "https://damminhtien.github.io/ontology-research/ontology/core",
                             "version": "0.1.0",
                             "severity": "NONE",
                             "changes": [],
@@ -166,7 +166,7 @@ class TestAlignmentRegistry:
             path,
             [
                 {
-                    "source": "https://ontology.example/core#Ghost",
+                    "source": "https://damminhtien.github.io/ontology-research/ontology/core#Ghost",
                     "target": "https://schema.org/Thing",
                     "relation": "closeMatch",
                     "note": "",
@@ -184,7 +184,7 @@ class TestAlignmentRegistry:
         monkeypatch.setattr(mgmt, "alignments_file", lambda: path)
         monkeypatch.setattr(mgmt, "find_module_files", lambda: [CORE_ONTOLOGY])
         args = argparse_namespace(
-            source="https://ontology.example/core#NoSuchTerm",
+            source="https://damminhtien.github.io/ontology-research/ontology/core#NoSuchTerm",
             target="https://schema.org/Thing",
             relation="closeMatch",
             note="",
@@ -197,7 +197,7 @@ class TestAlignmentRegistry:
         monkeypatch.setattr(mgmt, "alignments_file", lambda: path)
         monkeypatch.setattr(mgmt, "find_module_files", lambda: [CORE_ONTOLOGY])
         args = argparse_namespace(
-            source="https://ontology.example/core#Person",
+            source="https://damminhtien.github.io/ontology-research/ontology/core#Person",
             target="https://schema.org/Person",
             relation="exactMatch",
             note="dup",

@@ -66,7 +66,7 @@ Bây giờ thử dữ liệu vi phạm — observation thiếu `atTime` và `has
 
 ```bash
 cat > /tmp/bad_obs.ttl << 'EOF'
-@prefix core: <https://ontology.example/core#> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
 @prefix ex: <https://data.example/entity/> .
 ex:obs-x a core:Observation ; core:observes ex:patrol-01 .
 EOF

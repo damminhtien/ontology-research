@@ -1,6 +1,6 @@
 # CQ-010 (Q5 Provenance): which sources support the fact
 # "patrol-01 was located at Cam Ranh Bay"? Target p95 < 500ms.
-PREFIX core: <https://ontology.example/core#>
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
 PREFIX ex: <https://data.example/entity/>
 
 SELECT ?sourceLabel WHERE {

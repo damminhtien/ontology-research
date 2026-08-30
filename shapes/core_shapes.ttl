@@ -1,6 +1,6 @@
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix core: <https://ontology.example/core#> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
 
 # An Observation MUST be anchored in time, to at least one source,
 # and point at the entity it observed.

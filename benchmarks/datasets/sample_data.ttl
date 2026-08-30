@@ -1,7 +1,7 @@
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix core: <https://ontology.example/core#> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
 @prefix ex: <https://data.example/entity/> .
 @prefix src: <https://data.example/source/> .
 

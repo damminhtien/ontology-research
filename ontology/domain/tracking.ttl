@@ -3,16 +3,16 @@
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
 @prefix vann: <http://purl.org/vocab/vann/> .
-@prefix core: <https://ontology.example/core#> .
-@prefix tracking: <https://ontology.example/domain/tracking#> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
+@prefix tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#> .
 
-<https://ontology.example/domain/tracking> a owl:Ontology ;
+<https://damminhtien.github.io/ontology-research/ontology/domain/tracking> a owl:Ontology ;
     dcterms:title "Domain Layer: Tracking"@en ;
     dcterms:description "Tracks correlate observations into hypotheses about entities. A Track is a derived information product (InformationObject), never an Event; see ADR-0005."@en ;
     dcterms:version "0.1.0" ;
-    owl:imports <https://ontology.example/core> ;
+    owl:imports <https://damminhtien.github.io/ontology-research/ontology/core> ;
     vann:preferredNamespacePrefix "tracking" ;
-    vann:preferredNamespaceUri "https://ontology.example/domain/tracking#" .
+    vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#" .
 
 #################################################################
 # Classes

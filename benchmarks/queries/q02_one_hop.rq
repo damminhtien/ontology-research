@@ -1,6 +1,6 @@
 # CQ-003 (Q2 1-hop relationship): which organization operates platform patrol-01?
 # Target p95 < 100ms.
-PREFIX core: <https://ontology.example/core#>
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
 PREFIX ex: <https://data.example/entity/>
 
 SELECT ?orgName WHERE {

@@ -1,7 +1,7 @@
 # CQ-014 (Q2): Which real-world entity does track T-101 resolve to?
 # Identity: the track-of link is the ER system's hypothesis (ADR-0003).
-PREFIX core: <https://ontology.example/core#>
-PREFIX tracking: <https://ontology.example/domain/tracking#>
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#>
 
 SELECT ?trackId ?entityName WHERE {
   ?track tracking:hasTrackId ?trackId ;

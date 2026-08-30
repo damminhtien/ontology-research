@@ -21,7 +21,7 @@ SAMPLE_DATA = REPO_ROOT / "benchmarks" / "datasets" / "sample_data.ttl"
 QUERIES_DIR = REPO_ROOT / "benchmarks" / "queries"
 EXPECTED_DIR = REPO_ROOT / "benchmarks" / "expected_results"
 
-CORE = "https://ontology.example/core#"
+CORE = "https://damminhtien.github.io/ontology-research/ontology/core#"
 
 
 def type_closure(graph: Graph, subject: URIRef) -> set[URIRef]:

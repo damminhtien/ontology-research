@@ -3,16 +3,16 @@
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
 @prefix vann: <http://purl.org/vocab/vann/> .
-@prefix core: <https://ontology.example/core#> .
-@prefix location: <https://ontology.example/middle/location#> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
+@prefix location: <https://damminhtien.github.io/ontology-research/ontology/middle/location#> .
 
-<https://ontology.example/middle/location> a owl:Ontology ;
+<https://damminhtien.github.io/ontology-research/ontology/middle/location> a owl:Ontology ;
     dcterms:title "Middle Layer: Geography"@en ;
     dcterms:description "Administrative geography on top of core:Location. Containment reuses core:partOf; this module adds administrative region types only."@en ;
     dcterms:version "0.1.0" ;
-    owl:imports <https://ontology.example/core> ;
+    owl:imports <https://damminhtien.github.io/ontology-research/ontology/core> ;
     vann:preferredNamespacePrefix "location" ;
-    vann:preferredNamespaceUri "https://ontology.example/middle/location#" .
+    vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/middle/location#" .
 
 #################################################################
 # Classes

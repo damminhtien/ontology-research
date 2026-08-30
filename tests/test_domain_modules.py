@@ -25,9 +25,9 @@ DOMAIN = {
     "tracking": REPO_ROOT / "ontology" / "domain" / "tracking.ttl",
 }
 
-LOCATION = "https://ontology.example/middle/location#"
-ORG = "https://ontology.example/middle/organization#"
-CORE = "https://ontology.example/core#"
+LOCATION = "https://damminhtien.github.io/ontology-research/ontology/middle/location#"
+ORG = "https://damminhtien.github.io/ontology-research/ontology/middle/organization#"
+CORE = "https://damminhtien.github.io/ontology-research/ontology/core#"
 EX = "https://data.example/entity/"
 
 
@@ -47,7 +47,10 @@ class TestMiddleModules:
             ("organization", MIDDLE["organization"]),
         ):
             iri, version = mgmt.module_identity(mgmt.load_graph(path))
-            assert iri == f"https://ontology.example/middle/{iri_suffix}"
+            assert (
+                iri
+                == f"https://damminhtien.github.io/ontology-research/ontology/middle/{iri_suffix}"
+            )
             assert version == "0.1.0"
 
     def test_geography_classes_subclass_location(self):
@@ -85,8 +88,8 @@ class TestMiddleModules:
         assert result.returncode == 0, result.stdout + result.stderr
 
 
-DOMAIN_SENSOR = "https://ontology.example/domain/sensor#"
-DOMAIN_TRACKING = "https://ontology.example/domain/tracking#"
+DOMAIN_SENSOR = "https://damminhtien.github.io/ontology-research/ontology/domain/sensor#"
+DOMAIN_TRACKING = "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#"
 
 
 class TestDomainModules:
@@ -98,7 +101,10 @@ class TestDomainModules:
             ("tracking", DOMAIN["tracking"]),
         ):
             iri, version = mgmt.module_identity(mgmt.load_graph(path))
-            assert iri == f"https://ontology.example/domain/{iri_suffix}"
+            assert (
+                iri
+                == f"https://damminhtien.github.io/ontology-research/ontology/domain/{iri_suffix}"
+            )
             assert version == "0.1.0"
 
     def test_sensor_closure_reaches_entity(self):
@@ -227,7 +233,7 @@ class TestDomainShaclConformance:
 
     def test_track_without_track_id_violates(self):
         graph = self._stripped_violation_graph(
-            "https://ontology.example/domain/tracking#hasTrackId",
+            "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#hasTrackId",
             "https://data.example/entity/track-t101",
         )
         conforms, _ = self._validate(graph)
@@ -235,7 +241,7 @@ class TestDomainShaclConformance:
 
     def test_sensor_without_mount_violates(self):
         graph = self._stripped_violation_graph(
-            "https://ontology.example/domain/sensor#mountedOn",
+            "https://damminhtien.github.io/ontology-research/ontology/domain/sensor#mountedOn",
             "https://data.example/entity/radar-01",
         )
         conforms, _ = self._validate(graph)

@@ -1,9 +1,9 @@
 # CQ-016 (Q5): Which sensors produced the observations behind track T-101?
 # Provenance over the physical-detection chain (sensor:detectedBy), separate
 # from canonical source provenance (core:hasSource).
-PREFIX core: <https://ontology.example/core#>
-PREFIX sensor: <https://ontology.example/domain/sensor#>
-PREFIX tracking: <https://ontology.example/domain/tracking#>
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX sensor: <https://damminhtien.github.io/ontology-research/ontology/domain/sensor#>
+PREFIX tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#>
 
 SELECT DISTINCT ?trackId ?sensorName WHERE {
   ?track tracking:hasTrackId ?trackId ;

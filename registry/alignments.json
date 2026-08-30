@@ -2,21 +2,21 @@
   "version": 1,
   "alignments": [
     {
-      "source": "https://ontology.example/core#Person",
+      "source": "https://damminhtien.github.io/ontology-research/ontology/core#Person",
       "target": "https://schema.org/Person",
       "relation": "exactMatch",
       "note": "core Person covers the same notion as schema.org Person",
       "added": "2026-08-28T05:50:01Z"
     },
     {
-      "source": "https://ontology.example/core#Organization",
+      "source": "https://damminhtien.github.io/ontology-research/ontology/core#Organization",
       "target": "https://schema.org/Organization",
       "relation": "closeMatch",
       "note": "schema.org Organization lacks the membership semantics of core",
       "added": "2026-08-28T05:50:01Z"
     },
     {
-      "source": "https://ontology.example/middle/location#Country",
+      "source": "https://damminhtien.github.io/ontology-research/ontology/middle/location#Country",
       "target": "https://schema.org/Country",
       "relation": "closeMatch",
       "note": "geopolitical country",

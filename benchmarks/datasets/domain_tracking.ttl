@@ -1,10 +1,10 @@
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix core: <https://ontology.example/core#> .
-@prefix location: <https://ontology.example/middle/location#> .
-@prefix organization: <https://ontology.example/middle/organization#> .
-@prefix sensor: <https://ontology.example/domain/sensor#> .
-@prefix tracking: <https://ontology.example/domain/tracking#> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
+@prefix location: <https://damminhtien.github.io/ontology-research/ontology/middle/location#> .
+@prefix organization: <https://damminhtien.github.io/ontology-research/ontology/middle/organization#> .
+@prefix sensor: <https://damminhtien.github.io/ontology-research/ontology/domain/sensor#> .
+@prefix tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#> .
 @prefix ex: <https://data.example/entity/> .
 @prefix src: <https://data.example/source/> .
 

@@ -1,28 +1,28 @@
 {
   "date": "2026-08-27T14:02:27Z",
   "file": "ontology/domain/sensor.ttl",
-  "module_iri": "https://ontology.example/domain/sensor",
+  "module_iri": "https://damminhtien.github.io/ontology-research/ontology/domain/sensor",
   "snapshot_version": 1,
   "terms": {
-    "https://ontology.example/domain/sensor#Sensor": {
+    "https://damminhtien.github.io/ontology-research/ontology/domain/sensor#Sensor": {
       "comment": "Physical device that detects entities and produces observations.",
       "kind": "class",
       "label": "Sensor",
       "parents": [
-        "https://ontology.example/core#Artifact"
+        "https://damminhtien.github.io/ontology-research/ontology/core#Artifact"
       ]
     },
-    "https://ontology.example/domain/sensor#detectedBy": {
-      "domain": "https://ontology.example/core#Observation",
+    "https://damminhtien.github.io/ontology-research/ontology/domain/sensor#detectedBy": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Observation",
       "kind": "object-property",
       "label": "detected by",
-      "range": "https://ontology.example/domain/sensor#Sensor"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/domain/sensor#Sensor"
     },
-    "https://ontology.example/domain/sensor#mountedOn": {
-      "domain": "https://ontology.example/domain/sensor#Sensor",
+    "https://damminhtien.github.io/ontology-research/ontology/domain/sensor#mountedOn": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/domain/sensor#Sensor",
       "kind": "object-property",
       "label": "mounted on",
-      "range": "https://ontology.example/core#Platform"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Platform"
     }
   },
   "version": "0.1.0"

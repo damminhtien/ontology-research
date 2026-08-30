@@ -92,8 +92,10 @@ class TestNewModuleScaffold:
 
         scaffolded = tmp_path / "ontology" / "middle" / "organization.ttl"
         content = scaffolded.read_text(encoding="utf-8")
-        assert "owl:imports <https://ontology.example/core>" in content
-        assert "<https://ontology.example/middle/organization>" in content
+        core_iri = "https://damminhtien.github.io/ontology-research/ontology/core"
+        module_iri = "https://damminhtien.github.io/ontology-research/ontology/middle/organization"
+        assert f"owl:imports <{core_iri}>" in content
+        assert f"<{module_iri}>" in content
 
     def test_scaffold_refuses_existing_and_bad_layer(self, tmp_path, monkeypatch):
         monkeypatch.setattr(mgmt, "REPO_ROOT", tmp_path)
@@ -125,7 +127,7 @@ class TestVisualizationModel:
         assert {"Agent", "PhysicalObject", "Event"} <= children
 
     def test_properties_grouped_under_domain(self, core_model):
-        core = "https://ontology.example/core#"
+        core = "https://damminhtien.github.io/ontology-research/ontology/core#"
         org_props = {p["name"] for p in core_model["classes"][core + "Organization"]["properties"]}
         agent_props = {p["name"] for p in core_model["classes"][core + "Agent"]["properties"]}
         assert {"operates"} <= org_props

@@ -37,7 +37,7 @@ class TestSemverHelpers:
 class TestModuleIdentity:
     def test_reads_core_module(self):
         iri, version = mgmt.module_identity(mgmt.load_graph(CORE_ONTOLOGY))
-        assert iri == "https://ontology.example/core"
+        assert iri == "https://damminhtien.github.io/ontology-research/ontology/core"
         assert version == "0.1.0"
 
     def test_rejects_missing_version_header(self, tmp_path):
@@ -310,11 +310,12 @@ class TestStability:
 
     def test_cmd_stability_enforces_core_threshold(self, tmp_path, monkeypatch):
         registry = _make_registry(tmp_path)
+        core_iri = "https://damminhtien.github.io/ontology-research/ontology/core"
         mgmt.save_releases(
             registry,
             [
-                {"module_iri": "https://ontology.example/core", "severity": mgmt.SEVERITY_NONE},
-                {"module_iri": "https://ontology.example/core", "severity": mgmt.SEVERITY_MAJOR},
+                {"module_iri": core_iri, "severity": mgmt.SEVERITY_NONE},
+                {"module_iri": core_iri, "severity": mgmt.SEVERITY_MAJOR},
             ],
         )
         monkeypatch.setattr(mgmt, "REPO_ROOT", tmp_path)

@@ -63,7 +63,9 @@ class TestRegistryEndpoints:
     def test_releases_grouped_by_module(self, client):
         data = client.get("/api/releases").json()
         assert data["total"] >= 1
-        core_entries = data["modules"]["https://ontology.example/core"]
+        core_entries = data["modules"][
+            "https://damminhtien.github.io/ontology-research/ontology/core"
+        ]
         assert core_entries[0]["version"] == "0.1.0"
 
     def test_pending_with_no_changes_is_clean(self, client):
@@ -102,7 +104,9 @@ class TestImpactEndpoint:
     def test_full_iri_accepted(self, client):
         data = client.get(
             "/api/impact",
-            params={"term": "https://ontology.example/core#Platform"},
+            params={
+                "term": "https://damminhtien.github.io/ontology-research/ontology/core#Platform"
+            },
         ).json()
         assert data["term"] == "Platform"
 

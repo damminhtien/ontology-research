@@ -3,16 +3,16 @@
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
 @prefix vann: <http://purl.org/vocab/vann/> .
-@prefix core: <https://ontology.example/core#> .
-@prefix sensor: <https://ontology.example/domain/sensor#> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
+@prefix sensor: <https://damminhtien.github.io/ontology-research/ontology/domain/sensor#> .
 
-<https://ontology.example/domain/sensor> a owl:Ontology ;
+<https://damminhtien.github.io/ontology-research/ontology/domain/sensor> a owl:Ontology ;
     dcterms:title "Domain Layer: Sensors"@en ;
     dcterms:description "Sensor artifacts that observe entities and produce observations. Sensors are Artifacts mounted on platforms; Observations link back to their detecting sensor."@en ;
     dcterms:version "0.1.0" ;
-    owl:imports <https://ontology.example/core> ;
+    owl:imports <https://damminhtien.github.io/ontology-research/ontology/core> ;
     vann:preferredNamespacePrefix "sensor" ;
-    vann:preferredNamespaceUri "https://ontology.example/domain/sensor#" .
+    vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/domain/sensor#" .
 
 #################################################################
 # Classes

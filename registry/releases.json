@@ -7,7 +7,7 @@
       "date": "2026-08-26T07:05:33Z",
       "file": "ontology/core/core.ttl",
       "migration": null,
-      "module_iri": "https://ontology.example/core",
+      "module_iri": "https://damminhtien.github.io/ontology-research/ontology/core",
       "severity": "NONE",
       "version": "0.1.0"
     },
@@ -17,7 +17,7 @@
       "date": "2026-08-27T14:02:26Z",
       "file": "ontology/middle/location.ttl",
       "migration": null,
-      "module_iri": "https://ontology.example/middle/location",
+      "module_iri": "https://damminhtien.github.io/ontology-research/ontology/middle/location",
       "severity": "NONE",
       "version": "0.1.0"
     },
@@ -27,7 +27,7 @@
       "date": "2026-08-27T14:02:26Z",
       "file": "ontology/middle/organization.ttl",
       "migration": null,
-      "module_iri": "https://ontology.example/middle/organization",
+      "module_iri": "https://damminhtien.github.io/ontology-research/ontology/middle/organization",
       "severity": "NONE",
       "version": "0.1.0"
     },
@@ -37,7 +37,7 @@
       "date": "2026-08-27T14:02:27Z",
       "file": "ontology/domain/sensor.ttl",
       "migration": null,
-      "module_iri": "https://ontology.example/domain/sensor",
+      "module_iri": "https://damminhtien.github.io/ontology-research/ontology/domain/sensor",
       "severity": "NONE",
       "version": "0.1.0"
     },
@@ -47,7 +47,7 @@
       "date": "2026-08-27T14:02:27Z",
       "file": "ontology/domain/tracking.ttl",
       "migration": null,
-      "module_iri": "https://ontology.example/domain/tracking",
+      "module_iri": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking",
       "severity": "NONE",
       "version": "0.1.0"
     }

@@ -1,34 +1,34 @@
 {
   "date": "2026-08-27T14:02:27Z",
   "file": "ontology/domain/tracking.ttl",
-  "module_iri": "https://ontology.example/domain/tracking",
+  "module_iri": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking",
   "snapshot_version": 1,
   "terms": {
-    "https://ontology.example/domain/tracking#Track": {
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#Track": {
       "comment": "Derived hypothesis correlating observations about one entity over time. Not an Event (ADR-0005).",
       "kind": "class",
       "label": "Track",
       "parents": [
-        "https://ontology.example/core#InformationObject"
+        "https://damminhtien.github.io/ontology-research/ontology/core#InformationObject"
       ]
     },
-    "https://ontology.example/domain/tracking#derivedFrom": {
-      "domain": "https://ontology.example/domain/tracking#Track",
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#derivedFrom": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#Track",
       "kind": "object-property",
       "label": "derived from",
-      "range": "https://ontology.example/core#Observation"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Observation"
     },
-    "https://ontology.example/domain/tracking#hasTrackId": {
-      "domain": "https://ontology.example/domain/tracking#Track",
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#hasTrackId": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#Track",
       "kind": "data-property",
       "label": "has track id",
       "range": "http://www.w3.org/2001/XMLSchema#string"
     },
-    "https://ontology.example/domain/tracking#trackOf": {
-      "domain": "https://ontology.example/domain/tracking#Track",
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#trackOf": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#Track",
       "kind": "object-property",
       "label": "track of",
-      "range": "https://ontology.example/core#Entity"
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
     }
   },
   "version": "0.1.0"

@@ -29,7 +29,7 @@ from rdflib.namespace import XSD
 from foundry.events import EventLog, SemanticEvent, make_event
 from foundry.identity import IdentityService
 
-CORE = "https://ontology.example/core#"
+CORE = "https://damminhtien.github.io/ontology-research/ontology/core#"
 
 # Entity types allowed at ingestion; every entry is a subclass of core:Entity.
 ALLOWED_ENTITY_TYPES = frozenset(
