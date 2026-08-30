@@ -77,6 +77,12 @@ class IdentityService:
         self._records: dict[str, _Record] = {}
         self._by_alias: dict[str, str] = {}
         self._by_external: dict[str, str] = {}
+        # Blocking index: token -> normalized aliases containing it. Candidate
+        # generation for fuzzy matching only visits aliases sharing at least
+        # one token with the query; a zero-token-overlap pair always scores 0
+        # under the overlap coefficient, so blocking is exact (no false
+        # negatives) and turns the O(aliases) scan into O(shared candidates).
+        self._token_to_norms: dict[str, set[str]] = {}
 
     def register(
         self,
@@ -178,6 +184,9 @@ class IdentityService:
         owner = self._by_alias.get(norm)
         if owner is not None and owner != entity_id:
             return  # first registration wins; conflicts surface via review flow
+        if norm not in self._by_alias:
+            for token in norm.split():
+                self._token_to_norms.setdefault(token, set()).add(norm)
         self._by_alias.setdefault(norm, entity_id)
         self._records[entity_id].aliases.add(alias)
 
@@ -193,20 +202,22 @@ class IdentityService:
         """Return candidate (canonical_id, score) pairs above the review threshold.
 
         Scoring uses the overlap coefficient |A intersect B| / min(|A|, |B|),
-        which suits subset-style name variants. Results are proposals only:
-        callers must route them to review instead of auto-merging.
+        which suits subset-style name variants. Candidate generation is blocked
+        through the token index: only aliases sharing at least one token with
+        the query can score above zero, so the index prunes without changing
+        results. Results are proposals only: callers must route them to review
+        instead of auto-merging.
         """
         tokens = set(norm.split())
+        if not tokens:
+            return []
+        shared: dict[str, int] = {}
+        for token in tokens:
+            for alias_norm in self._token_to_norms.get(token, ()):
+                shared[alias_norm] = shared.get(alias_norm, 0) + 1
         found: list[tuple[str, float]] = []
-        for alias_norm, cid in self._by_alias.items():
-            score = _token_overlap(tokens, set(alias_norm.split()))
+        for alias_norm, overlap in shared.items():
+            score = overlap / min(len(tokens), len(alias_norm.split()))
             if score >= REVIEW_THRESHOLD:
-                found.append((cid, score))
+                found.append((self._by_alias[alias_norm], score))
         return found
-
-
-def _token_overlap(left: set[str], right: set[str]) -> float:
-    """Overlap coefficient |A intersect B| / min(|A|, |B|); 0.0 on empty input."""
-    if not left or not right:
-        return 0.0
-    return len(left & right) / min(len(left), len(right))

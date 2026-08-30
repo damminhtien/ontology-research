@@ -100,3 +100,86 @@ class TestResolution:
         canonical = service.resolve(name="USS Gerald R. Ford", entity_type="Platform").canonical_id
         with pytest.raises(ValueError, match="type conflict"):
             service.register(entity_id=canonical, entity_type="Person")
+
+
+class TestFuzzyBlockingIndex:
+    """The token blocking index must be an exact match for a full scan."""
+
+    @staticmethod
+    def _brute_force_candidates(service: IdentityService, query: str) -> list[tuple[str, float]]:
+        tokens = set(normalize_name(query).split())
+        found = []
+        for alias_norm, cid in service._by_alias.items():
+            alias_tokens = set(alias_norm.split())
+            if not tokens or not alias_tokens:
+                continue
+            score = len(tokens & alias_tokens) / min(len(tokens), len(alias_tokens))
+            if score >= 0.50:
+                found.append((cid, score))
+        return sorted(found)
+
+    @pytest.fixture()
+    def registry(self) -> IdentityService:
+        names = [
+            "Hội Chữ thập đỏ Việt Nam",
+            "Red Cross of Viet Nam",
+            "Viet Nam Red Cross Society",
+            "Australian National University",
+            "National University of Singapore",
+            "National University Hospital",
+            "Trường Đại học Quốc gia Hà Nội",
+            "Vietnam National University Hanoi",
+            "Alpha Patrol Unit One",
+            "Alpha Patrol Unit Two",
+            "Bravo Recon Team Three",
+            "USS Gerald R. Ford",
+            "Gerald R. Ford Carrier",
+            "USS Gerald R Ford Jr",
+            "Kilo-class submarine 42",
+            "Kilo-class submarine 43",
+            " Ministry of National Defence ",
+            "Bộ Quốc phòng",
+            "Ministry of Public Security!!!",
+            "7th Naval Region",
+            "Naval Region 7 Command",
+            "Hải quân nhân dân Việt Nam",
+            "Vietnam People's Navy",
+            "Đại học Quốc gia Úc",
+        ]
+        svc = IdentityService()
+        for i, name in enumerate(names):
+            svc.register(
+                entity_id=f"urn:world:entity:{i:032x}",
+                entity_type="Organization",
+                aliases=[name],
+            )
+        return svc
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "Viet Nam Red Cross",
+            "Red Cross of Viet Nam Society",
+            "National University",
+            "University Hospital Singapore",
+            "Alpha Patrol Unit",
+            "USS Gerald Ford",
+            "Gerald Ford",
+            "Kilo-class submarine",
+            "Ministry of Defence",
+            "Naval Region",
+            "Vietnam People's Navy Command",
+            "Đại học Quốc gia",
+            "completely unrelated words",
+            "Xyz",
+        ],
+    )
+    def test_candidates_match_brute_force_scan(self, registry, query):
+        expected = self._brute_force_candidates(registry, query)
+        actual = sorted(registry._fuzzy_candidates(normalize_name(query)))
+        assert actual == expected
+
+    def test_empty_query_returns_no_candidates(self):
+        svc = IdentityService()
+        svc.register(entity_id="urn:world:entity:a", entity_type="Person", aliases=["..."])
+        assert svc._fuzzy_candidates("") == []
