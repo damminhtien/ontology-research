@@ -65,6 +65,14 @@ class _Record:
     external_ids: dict[str, str] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class MergeOutcome:
+    """Bindings moved from a duplicate entity onto its survivor."""
+
+    moved_aliases: tuple[str, ...]
+    moved_external_ids: tuple[tuple[str, str], ...]
+
+
 class IdentityService:
     """In-memory identity registry with deterministic resolution rules.
 
@@ -83,6 +91,8 @@ class IdentityService:
         # under the overlap coefficient, so blocking is exact (no false
         # negatives) and turns the O(aliases) scan into O(shared candidates).
         self._token_to_norms: dict[str, set[str]] = {}
+        # duplicate id -> surviving id, recorded by merge_entities.
+        self._merged_into: dict[str, str] = {}
 
     def register(
         self,
@@ -172,12 +182,84 @@ class IdentityService:
             raise ValueError(f"unknown canonical id {entity_id}")
         self._bind_external(entity_id, source, external_id)
 
+    def merge_entities(self, survivor_id: str, duplicate_id: str) -> MergeOutcome:
+        """Collapse ``duplicate_id`` into ``survivor_id`` (under-merge repair).
+
+        Moves every alias and external-id binding owned by the duplicate to the
+        survivor, so future exact lookups resolve to the survivor, and records
+        a permanent redirect. The duplicate keeps its (now empty) record so its
+        type stays introspectable but owns nothing of its own. Callers must
+        persist the merge as an ``EntityMerged`` event so replays reproduce it.
+
+        Returns:
+            The bindings that were moved (for the event payload).
+
+        Raises:
+            ValueError: On self-merge, unknown ids, an already-merged
+                duplicate, or an entity-type conflict.
+        """
+        if survivor_id == duplicate_id:
+            raise ValueError("cannot merge an entity into itself")
+        duplicate = self._records.get(duplicate_id)
+        survivor = self._records.get(survivor_id)
+        if duplicate is None:
+            raise ValueError(f"unknown canonical id {duplicate_id}")
+        if survivor is None:
+            raise ValueError(f"unknown canonical id {survivor_id}")
+        if duplicate_id in self._merged_into:
+            raise ValueError(f"{duplicate_id} has already been merged")
+        if duplicate.entity_type != survivor.entity_type:
+            raise ValueError(
+                f"type conflict on merge: {survivor.entity_type!r} vs {duplicate.entity_type!r}"
+            )
+
+        moved_aliases = sorted(duplicate.aliases)
+        moved_external_ids = sorted(duplicate.external_ids.items())
+        for alias in moved_aliases:
+            self._unbind_alias(normalize_name(alias), duplicate_id)
+        for source, ext in moved_external_ids:
+            self._by_external.pop(f"{source}::{ext}", None)
+        duplicate.aliases.clear()
+        duplicate.external_ids.clear()
+        for alias in moved_aliases:
+            self._bind_alias(survivor_id, alias)
+        for source, ext in moved_external_ids:
+            self._bind_external(survivor_id, source, ext)
+        self._merged_into[duplicate_id] = survivor_id
+        return MergeOutcome(
+            moved_aliases=tuple(moved_aliases),
+            moved_external_ids=tuple(moved_external_ids),
+        )
+
+    def merged_into(self, entity_id: str) -> str:
+        """Return the final survivor for a merged id, or '' when not merged."""
+        seen = {entity_id}
+        current = entity_id
+        while current in self._merged_into:
+            current = self._merged_into[current]
+            if current in seen:
+                break  # defensive; cycles cannot be constructed via merge_entities
+            seen.add(current)
+        return current if current != entity_id else ""
+
     def identity(self, entity_id: str) -> tuple[str, frozenset[str], dict[str, str]]:
         """Return (entity_type, aliases, external_ids) for a canonical id."""
         record = self._records[entity_id]
         return record.entity_type, frozenset(record.aliases), dict(record.external_ids)
 
     # -- internals ---------------------------------------------------------
+
+    def _unbind_alias(self, norm: str, owner: str) -> None:
+        """Remove an alias binding (merge-only; ingestion never unbinds)."""
+        if self._by_alias.get(norm) != owner:
+            return
+        del self._by_alias[norm]
+        for token in norm.split():
+            bucket = self._token_to_norms.get(token)
+            if bucket is not None:
+                bucket.discard(norm)
+                if not bucket:
+                    del self._token_to_norms[token]
 
     def _bind_alias(self, entity_id: str, alias: str) -> None:
         norm = normalize_name(alias)

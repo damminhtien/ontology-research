@@ -56,6 +56,12 @@ class Projector:
                 source_ids=tuple(payload.get("source_ids") or ()),
                 event_id=event.event_id,
             )
+        elif event.event_type == "EntityMerged":
+            self._model.merge_entities(
+                survivor_id=payload["survivor_id"],
+                duplicate_id=payload["duplicate_id"],
+                event_time=occurred,
+            )
         else:
             return False
 

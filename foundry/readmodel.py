@@ -88,6 +88,7 @@ class ReadModel:
         self._entities: dict[str, _EntityRecord] = {}
         self._location_history: dict[str, list[_LocationEntry]] = {}
         self._by_location: dict[str, set[str]] = {}
+        self._merged_into: dict[str, str] = {}
         self._last_event_time: datetime | None = None
 
     # -- write surface (called by the projector only) -----------------------
@@ -126,6 +127,24 @@ class ReadModel:
         history.append(entry)
         history.sort(key=lambda e: (e.valid_from, e.event_id))
 
+    def merge_entities(self, survivor_id: str, duplicate_id: str, event_time: datetime) -> None:
+        """Fold a merged duplicate into its survivor (``EntityMerged`` projection).
+
+        Moves the duplicate's location history onto the survivor, removes the
+        duplicate from the entity index and records a redirect so point
+        lookups on the old id can be chased. Idempotent: re-applying a merge
+        is a no-op. The reverse location index is rebuilt at the end of
+        replay, so it stays consistent after merges.
+        """
+        history = self._location_history.pop(duplicate_id, None)
+        if history:
+            target = self._location_history.setdefault(survivor_id, [])
+            target.extend(history)
+            target.sort(key=lambda e: (e.valid_from, e.event_id))
+        self._entities.pop(duplicate_id, None)
+        self._merged_into[duplicate_id] = survivor_id
+        self.touch(event_time)
+
     def touch(self, event_time: datetime) -> None:
         """Track the newest event time seen for lag calculation."""
         if self._last_event_time is None or event_time > self._last_event_time:
@@ -145,6 +164,10 @@ class ReadModel:
             first_seen=record.first_seen,
             last_event_time=record.last_event_time,
         )
+
+    def merged_into(self, entity_id: str) -> str | None:
+        """Survivor id when ``entity_id`` was merged away, else ``None``."""
+        return self._merged_into.get(entity_id)
 
     def find_by_name(self, name: str) -> list[EntityView]:
         """Exact-name lookup (case-insensitive) - used by the demo query API."""
