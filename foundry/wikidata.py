@@ -42,10 +42,14 @@ QID_TO_ENTITY_TYPE: dict[str, str] = {
     "Q176799": "Organization",  # military unit
 }
 
+# The entity type is derived from class_qid itself: every returned item is in
+# the P279* closure of the queried class by construction, so the expensive
+# ``?item wdt:P31/wdt:P279* ?type`` join is unnecessary. Keeping it made LIMIT
+# burn on duplicate ancestor-type rows (3000 rows -> 32 entities) and made
+# large closure queries time out on the endpoint (HTTP 504).
 DEFAULT_QUERY_TEMPLATE = """
-SELECT ?item ?type ?labelVi ?labelEn WHERE {
+SELECT ?item ?labelVi ?labelEn WHERE {
   ?item wdt:P31/wdt:P279* wd:%(class)s .
-  ?item wdt:P31/wdt:P279* ?type .
   ?item rdfs:label ?labelVi .
   FILTER(LANG(?labelVi) = "vi")
   OPTIONAL { ?item rdfs:label ?labelEn . FILTER(LANG(?labelEn) = "en") }
@@ -160,6 +164,10 @@ def fetch_entities(
     results = data["results"]
     bindings = results.get("bindings", []) if isinstance(results, dict) else []
     records: dict[str, WikidataRecord] = {}
+    # Every returned item is inside the queried class's P279* closure, so the
+    # class's own mapped core type is a sound fallback when a row carries no
+    # explicit ancestor type (the template no longer joins types at all).
+    fallback_type = QID_TO_ENTITY_TYPE.get(class_qid)
     for binding in bindings:
         qid = binding.get("item", {}).get("value", "").rsplit("/", 1)[-1]
         if not qid.startswith("Q"):
@@ -177,7 +185,7 @@ def fetch_entities(
             records[qid] = WikidataRecord(
                 qid=qid,
                 name=name,
-                entity_type=map_type(type_qids),
+                entity_type=map_type(type_qids) or fallback_type,
                 aliases=aliases,
                 type_qids=type_qids,
             )
@@ -186,7 +194,7 @@ def fetch_entities(
             records[qid] = WikidataRecord(
                 qid=qid,
                 name=existing.name,
-                entity_type=map_type(merged_types),
+                entity_type=map_type(merged_types) or fallback_type,
                 aliases=tuple(dict.fromkeys((*existing.aliases, *aliases))),
                 type_qids=merged_types,
             )

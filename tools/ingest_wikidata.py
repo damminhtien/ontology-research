@@ -36,7 +36,8 @@ def main() -> int:
     """Run one live Wikidata ingestion pass."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--class", dest="class_qid", default="Q43229", help="root Wikidata class")
-    parser.add_argument("--limit", type=int, default=500, help="max SPARQL rows")
+    parser.add_argument("--limit", type=int, default=500, help="max distinct entities to fetch")
+    parser.add_argument("--timeout", type=float, default=60.0, help="SPARQL request timeout (s)")
     parser.add_argument("--log", default="data/events.jsonl", help="event log path")
     parser.add_argument(
         "--lake", default=None, help="lake root (default $FOUNDRY_LAKE_ROOT or repo)"
@@ -45,7 +46,7 @@ def main() -> int:
     args = parser.parse_args()
 
     print(f"fetching P31/{args.class_qid} entities from Wikidata (limit={args.limit}) ...")
-    records = wd.fetch_entities(class_qid=args.class_qid, limit=args.limit)
+    records = wd.fetch_entities(class_qid=args.class_qid, limit=args.limit, timeout=args.timeout)
     mapped = sum(1 for r in records if r.entity_type is not None)
     print(f"normalized: {len(records)} records ({mapped} type-mapped)")
 

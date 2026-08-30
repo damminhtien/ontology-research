@@ -145,6 +145,52 @@ class TestIngestRecords:
         assert stats.rejection_reasons
 
 
+def test_query_limits_items_not_ancestor_type_rows():
+    """Regression: the query must not join ``?item P31/P279* ?type``.
+
+    That join multiplied rows per item so LIMIT was consumed by duplicate
+    ancestor-type rows (3000 rows -> 32 entities) and heavy closure queries
+    timed out on the endpoint (HTTP 504). Entity type is instead derived from
+    the queried class itself.
+    """
+    query = wd.DEFAULT_QUERY_TEMPLATE % {"class": "Q43229", "limit": 5000}
+    assert "LIMIT 5000" in query
+    assert "?item wdt:P31/wdt:P279* ?type" not in query
+    assert "?labelVi" in query and '?labelVi) = "vi"' in query
+
+
+def test_rows_without_type_fall_back_to_queried_class_type():
+    """Regression: rows without an explicit type still map via class_qid."""
+    payload = sparql_response(
+        [
+            {
+                "item": {"value": "http://www.wikidata.org/entity/Q77"},
+                "labelVi": {"value": "Tổ chức Không loại"},
+                "labelEn": {"value": "Typeless Org"},
+            }
+        ]
+    )
+    records = wd.fetch_entities(fetcher=fake_fetcher(payload))
+    assert len(records) == 1
+    assert records[0].entity_type == "Organization"  # from class_qid=Q43229
+    assert records[0].aliases == ("Typeless Org",)
+
+
+def test_unmapped_class_leaves_type_unresolved():
+    """Rows for a class with no core-type mapping are still skipped, not guessed."""
+    payload = sparql_response(
+        [
+            {
+                "item": {"value": "http://www.wikidata.org/entity/Q78"},
+                "labelVi": {"value": "Hành tinh"},
+            }
+        ]
+    )
+    records = wd.fetch_entities(class_qid="Q6999", fetcher=fake_fetcher(payload))
+    assert len(records) == 1
+    assert records[0].entity_type is None
+
+
 def test_military_unit_qid_mapping_is_the_real_item():
     """Regression: Q1767992 is a temple, military unit is Q176799."""
     assert wd.QID_TO_ENTITY_TYPE.get("Q176799") == "Organization"
