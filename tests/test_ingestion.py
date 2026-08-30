@@ -73,6 +73,26 @@ class TestEntityIngestion:
         assert "Patrol Vessel 01" not in event.payload["name_aliases"]
         assert event.payload["name_aliases"] == ["PV-01"]
 
+    def test_external_ids_are_persisted_on_entity_created(self, pipeline):
+        result = pipeline.ingest_entity(
+            name="Hội Chữ thập đỏ Việt Nam",
+            entity_type="Organization",
+            source_id="s1",
+            external_source="wikidata",
+            external_id="Q10832632",
+        )
+        assert result.accepted
+        event = pipeline._log.read_all()[0]
+        assert event.payload["external_ids"] == [{"source": "wikidata", "external_id": "Q10832632"}]
+
+    def test_entity_without_external_id_persists_empty_bindings(self, pipeline):
+        result = pipeline.ingest_entity(
+            name="Patrol Vessel 02", entity_type="Platform", source_id="s1"
+        )
+        assert result.accepted
+        event = pipeline._log.read_all()[0]
+        assert event.payload["external_ids"] == []
+
     def test_unknown_type_is_rejected_not_raised(self, pipeline):
         result = pipeline.ingest_entity(name="X", entity_type="Tank", source_id="s")
         assert not result.accepted

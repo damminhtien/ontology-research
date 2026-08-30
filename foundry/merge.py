@@ -79,11 +79,12 @@ def merge_entities(
 def rebuild_identity(log: EventLog) -> IdentityService:
     """Rebuild the in-memory identity registry from an event log.
 
-    Restores entity types, names and aliases from ``EntityCreated`` events and
-    replays ``EntityMerged`` corrections so offline tools (merge CLI, review
-    queue) validate against real canonical state. External-id bindings are not
-    persisted on ``EntityCreated`` payloads yet, so they are absent after a
-    rebuild; exact alias resolution and merge validation are intact.
+    Restores entity types, names, aliases and external-id bindings from
+    ``EntityCreated`` events and replays ``EntityMerged`` corrections so
+    offline tools (merge CLI, review queue) validate against real canonical
+    state. Logs written before external ids were persisted carry an empty or
+    absent ``external_ids`` payload; those bindings simply stay unrecovered,
+    which is indistinguishable from "never bound" for validation purposes.
 
     Raises:
         ValueError: If the log contains records that violate the registry
@@ -98,6 +99,12 @@ def rebuild_identity(log: EventLog) -> IdentityService:
                 entity_type=payload["entity_type"],
                 aliases=[payload["name"], *payload.get("name_aliases", [])],
             )
+            for binding in payload.get("external_ids") or []:
+                identity.add_external_id(
+                    payload["entity_id"],
+                    binding["source"],
+                    binding["external_id"],
+                )
         elif event.event_type == EVENT_TYPE_ENTITY_MERGED:
             identity.merge_entities(payload["survivor_id"], payload["duplicate_id"])
     return identity

@@ -153,6 +153,7 @@ class TestRebuildIdentity:
                     "entity_type": "Organization",
                     "name": "Trường Đại học Bách khoa",
                     "name_aliases": [],
+                    "external_ids": [{"source": "wikidata", "external_id": "Q1000001"}],
                     "source_id": "s",
                     "confidence": 1.0,
                 },
@@ -166,6 +167,7 @@ class TestRebuildIdentity:
                     "entity_type": "Organization",
                     "name": "ĐH Bách khoa Hà Nội",
                     "name_aliases": ["Bach Khoa Hanoi"],
+                    "external_ids": [{"source": "wikidata", "external_id": "Q2000002"}],
                     "source_id": "s",
                     "confidence": 1.0,
                 },
@@ -179,6 +181,50 @@ class TestRebuildIdentity:
         assert rebuilt.merged_into(duplicate) == survivor
         with pytest.raises(ValueError, match="already been merged"):
             rebuilt.merge_entities(survivor, duplicate)
+
+    def test_rebuild_restores_external_id_bindings(self, tmp_path):
+        log = EventLog(tmp_path / "events.jsonl")
+        log.append(
+            make_event(
+                "EntityCreated",
+                {
+                    "entity_id": E1,
+                    "entity_type": "Organization",
+                    "name": "Hội Chữ thập đỏ Việt Nam",
+                    "name_aliases": ["Red Cross of Viet Nam"],
+                    "external_ids": [{"source": "wikidata", "external_id": "Q10832632"}],
+                    "source_id": "s",
+                    "confidence": 1.0,
+                },
+            )
+        )
+        rebuilt = rebuild_identity(log)
+        # exact external-id hit after a restart, resolving to the same entity
+        resolution = rebuilt.resolve(
+            external_source="wikidata",
+            external_id="Q10832632",
+            entity_type="Organization",
+        )
+        assert resolution.canonical_id == E1
+        assert not resolution.is_new
+
+    def test_rebuild_tolerates_legacy_payloads_without_external_ids(self, tmp_path):
+        log = EventLog(tmp_path / "events.jsonl")
+        log.append(
+            make_event(
+                "EntityCreated",
+                {
+                    "entity_id": E1,
+                    "entity_type": "Platform",
+                    "name": "Legacy Vessel",
+                    "name_aliases": [],
+                    "source_id": "s",
+                    "confidence": 1.0,
+                },
+            )
+        )
+        rebuilt = rebuild_identity(log)
+        assert rebuilt.resolve(name="Legacy Vessel", entity_type="Platform").canonical_id == E1
 
 
 def _sequenced_event(seq: int, event_type: str, payload: dict):

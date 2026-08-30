@@ -158,6 +158,11 @@ class IngestionPipeline:
                     "entity_type": entity_type,
                     "name": name,
                     "name_aliases": [a for a in aliases if a != name] if aliases else [],
+                    "external_ids": (
+                        [{"source": external_source, "external_id": external_id}]
+                        if external_source and external_id
+                        else []
+                    ),
                     "source_id": source_id,
                     "confidence": resolution.confidence,
                 },
