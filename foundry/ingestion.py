@@ -116,7 +116,9 @@ class IngestionPipeline:
         """Ingest one slowly-changing structured entity record.
 
         ``aliases`` are bound to the resolved canonical identity so future
-        references by alternate names resolve exactly instead of fuzzily.
+        references by alternate names resolve exactly instead of fuzzily, and
+        are persisted on the emitted ``EntityCreated`` event as ``name_aliases``
+        so downstream projections (read model, lake) can serve bilingual data.
 
         Raises:
             ValueError: On malformed input (empty name/source).
@@ -155,6 +157,7 @@ class IngestionPipeline:
                     "entity_id": resolution.canonical_id,
                     "entity_type": entity_type,
                     "name": name,
+                    "name_aliases": [a for a in aliases if a != name] if aliases else [],
                     "source_id": source_id,
                     "confidence": resolution.confidence,
                 },

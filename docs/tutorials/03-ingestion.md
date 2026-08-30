@@ -63,6 +63,12 @@ Mỗi dòng là một JSON object: `event_id`, `event_type` (`EntityCreated` /
 `LocationObserved`), `schema_version`, `occurred_at`, `payload`. Đây là **write
 model** — canonical truth của hệ thống.
 
+Với `EntityCreated`, payload chứa `name` (tên chính) và `name_aliases` (các tên
+phụ — ví dụ nhãn tiếng Anh khi ingesting dữ liệu Wikidata song ngữ Việt–Anh).
+Alias được bind vào canonical identity để các tham chiếu sau này resolve chính
+xác, và được persist cùng event nên read model/lake đều phục vụ được dữ liệu
+đa ngôn ngữ.
+
 ## Bước 4 — Quan sát trong Console
 
 ```bash

@@ -46,6 +46,33 @@ class TestEntityIngestion:
         assert first.canonical_id == second.canonical_id
         assert len(pipeline._log.read_all()) == 1
 
+    def test_aliases_are_persisted_on_entity_created(self, pipeline):
+        result = pipeline.ingest_entity(
+            name="Ủy ban An toàn Hàng hải",
+            entity_type="Organization",
+            source_id="https://data.example/source/gov-registry",
+            aliases=["Maritime Safety Committee"],
+        )
+        assert result.accepted
+        event = pipeline._log.read_all()[0]
+        # the primary name is the Vietnamese label; the English label must be
+        # persisted so downstream projections (read model, lake) can serve
+        # bilingual data instead of dropping it.
+        assert event.payload["name"] == "Ủy ban An toàn Hàng hải"
+        assert event.payload["name_aliases"] == ["Maritime Safety Committee"]
+
+    def test_aliases_excluding_primary_name_are_not_repeated(self, pipeline):
+        result = pipeline.ingest_entity(
+            name="Patrol Vessel 01",
+            entity_type="Platform",
+            source_id="s1",
+            aliases=["Patrol Vessel 01", "PV-01"],
+        )
+        assert result.accepted
+        event = pipeline._log.read_all()[0]
+        assert "Patrol Vessel 01" not in event.payload["name_aliases"]
+        assert event.payload["name_aliases"] == ["PV-01"]
+
     def test_unknown_type_is_rejected_not_raised(self, pipeline):
         result = pipeline.ingest_entity(name="X", entity_type="Tank", source_id="s")
         assert not result.accepted
