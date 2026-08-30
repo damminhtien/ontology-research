@@ -16,7 +16,6 @@ via LLM extraction plug in ahead of the same gate.
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +27,7 @@ from rdflib.namespace import XSD
 
 from foundry.events import EventLog, SemanticEvent, make_event
 from foundry.identity import IdentityService
+from foundry.namespaces import new_fact_iri
 
 CORE = "https://damminhtien.github.io/ontology-research/ontology/core#"
 
@@ -260,7 +260,7 @@ class IngestionPipeline:
         graph = Graph()
         graph.parse(self._ontology_path.as_posix(), format="turtle")
 
-        subject = URIRef("urn:fact:" + uuid.uuid4().hex)
+        subject = URIRef(new_fact_iri())
         entity = URIRef(canonical_id)
         location = URIRef(location_uri)
 

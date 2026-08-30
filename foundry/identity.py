@@ -21,9 +21,10 @@ Canonical ids use ``urn:world:entity:<uuid>`` - never database auto-increment.
 from __future__ import annotations
 
 import re
-import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+
+from foundry.namespaces import new_entity_id
 
 CONFIDENCE_EXTERNAL_ID = 1.0
 CONFIDENCE_ALIAS = 0.95
@@ -168,7 +169,7 @@ class IdentityService:
                     tuple(sorted(cid for cid, _ in candidates)),
                 )
 
-        canonical_id = f"urn:world:entity:{uuid.uuid4().hex}"
+        canonical_id = new_entity_id()
         self.register(entity_id=canonical_id, entity_type=entity_type)
         if name:
             self._bind_alias(canonical_id, name)
