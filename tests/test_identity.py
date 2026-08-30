@@ -45,6 +45,29 @@ class TestResolution:
         original = service.resolve(name="USS Gerald R. Ford", entity_type="Platform")
         assert original.canonical_id in result.candidates
 
+    def test_trusted_external_id_creates_new_entity_on_fuzzy_hit(self, service):
+        """ADR-0006: a supplied external id asserts identity — no fuzzy review.
+
+        Two records with distinct external ids are distinct entities even when
+        their names lexically overlap; each binds to its own canonical id.
+        """
+        result = service.resolve(
+            name="Gerald Ford Carrier",
+            external_source="naval-registry",
+            external_id="NVR-77",
+            entity_type="Platform",
+        )
+        assert result.method == "new"
+        assert result.is_new
+        assert result.candidates == ()
+
+        # the new entity is resolvable by its external id from now on
+        again = service.resolve(
+            external_source="naval-registry", external_id="NVR-77", entity_type="Platform"
+        )
+        assert again.method == "external_id"
+        assert again.canonical_id == result.canonical_id
+
     def test_unrelated_name_creates_new_entity(self, service):
         result = service.resolve(name="Kilo-class submarine 42", entity_type="Platform")
         assert result.method == "new"

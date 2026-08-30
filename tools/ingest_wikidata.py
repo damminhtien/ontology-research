@@ -11,7 +11,8 @@ Usage:
                                               [--lake /data/lake] [--no-lake]
 
 Rates to watch (roadmap KPIs):
-    unresolved_rate  — fraction sent to review (precision-first, ADR-0003)
+    unresolved_rate  — fraction sent to review (precision-first, ADR-0003;
+                       trusted external ids bypass review per ADR-0006)
     shape violations — records the SHACL gate rejected, never silently dropped
 """
 

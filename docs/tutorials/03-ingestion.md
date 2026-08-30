@@ -53,6 +53,13 @@ Seeded 4 events into .../data/events.jsonl
     "Vessel 02" rất có thể là đơn vị khác "Vessel 01". Merge nhầm hai entity là lỗi
     đắt nhất trong hệ thống knowledge — pipeline thà chuyển sang review queue.
 
+!!! note "Ngoại lệ: nguồn có external id có thẩm quyền (ADR-0006)"
+    Khi record mang `external_id` toàn cục từ nguồn có thẩm quyền (ví dụ Wikidata
+    QID) và external id đó miss, danh tính đã được nguồn khẳng định: fuzzy match
+    **không** ép review nữa — pipeline tạo entity mới và bind external id. Hai
+    record QID khác nhau luôn là hai entity, dù tên gần giống nhau. Luồng review
+    chỉ còn áp dụng cho nguồn không có external id (như seed console phía trên).
+
 ## Bước 3 — Xem event log
 
 ```bash

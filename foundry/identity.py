@@ -11,6 +11,9 @@ implements a precision-first resolution service:
    can confirm the merge. Lexical similarity alone cannot distinguish a
    genuine variant ("Gerald R. Ford Carrier") from a different unit
    ("Alpha Patrol Unit Two"), so recall here must never bypass review.
+   Exception (ADR-0006): when the caller supplies an ``external_id`` and it
+   misses, the external id itself asserts identity, so fuzzy candidates do
+   not force review — a new canonical entity is created instead.
 
 Canonical ids use ``urn:world:entity:<uuid>`` - never database auto-increment.
 """
@@ -112,8 +115,11 @@ class IdentityService:
         """Resolve one reference to a canonical identity, creating one if needed.
 
         Lookup order: external id, exact alias, fuzzy token overlap, then a new
-        canonical entity. Ambiguous fuzzy matches are returned with
-        method=``ambiguous`` and are never auto-merged.
+        canonical entity. A supplied ``external_id`` asserts an externally
+        unique identity (ADR-0006): when it misses, fuzzy name similarity is
+        not merge evidence, so a new canonical entity is created instead of
+        routing to review. Fuzzy review applies only when no external id is
+        given; ambiguous fuzzy matches are never auto-merged.
 
         Raises:
             ValueError: If neither ``name`` nor ``external_id`` is provided.
@@ -134,7 +140,9 @@ class IdentityService:
                 return Resolution(alias_hit, CONFIDENCE_ALIAS, "alias", False)
 
             candidates = self._fuzzy_candidates(norm)
-            if candidates:
+            if candidates and external_id is None:
+                # No externally asserted identity: fuzzy similarity is the only
+                # evidence, so route to review instead of guessing (ADR-0003).
                 best = max(score for _, score in candidates)
                 return Resolution(
                     "",

@@ -123,26 +123,29 @@ class TestIngestRecords:
         assert stats.rejected == 0
         assert receipts == [] and events == []
 
-    def test_review_gate_counts_as_rejected_with_reason(self, tmp_path: Path) -> None:
+    def test_distinct_qids_with_similar_names_auto_create(self, tmp_path: Path) -> None:
+        """Trusted external QIDs override fuzzy review (ADR-0006).
+
+        Two Wikidata items with lexically overlapping names are distinct
+        entities by source definition: each QID binds to its own canonical id
+        instead of being blocked in the review queue. Review (ADR-0003)
+        still applies to sources without external ids — covered in
+        tests/test_identity.py.
+        """
         pipeline = make_pipeline(tmp_path)
-        # No external_id shared and no alias overlap -> fuzzy match requires review
         records = [
-            wd.WikidataRecord(qid="Q12", name="Alpha Patrol Unit Two", entity_type="Organization")
+            wd.WikidataRecord(qid="Q12", name="Alpha Patrol Unit One", entity_type="Organization"),
+            wd.WikidataRecord(qid="Q13", name="Alpha Patrol Unit Two", entity_type="Organization"),
         ]
-        wd.ingest_records(
-            pipeline,
-            [
-                wd.WikidataRecord(
-                    qid="Q13", name="Alpha Patrol Unit One", entity_type="Organization"
-                )
-            ],
-        )
-        stats, receipts, _events = wd.ingest_records(pipeline, records)
-        assert stats.rejected == 1
-        assert stats.unresolved_rate == 1.0  # per-run: 1 of 1 went to review
-        assert receipts[0].accepted is False
-        assert receipts[0].reason  # structured reason, not silent drop
-        assert stats.rejection_reasons
+        stats, _receipts, events = wd.ingest_records(pipeline, records)
+        assert stats.accepted == 2
+        assert stats.new_entities == 2
+        assert stats.rejected == 0
+        assert stats.unresolved_rate == 0.0
+        assert len(events) == 2
+        # two distinct canonical ids, one per QID
+        ids = {e.payload["entity_id"] for e in events}
+        assert len(ids) == 2
 
 
 def test_query_limits_items_not_ancestor_type_rows():

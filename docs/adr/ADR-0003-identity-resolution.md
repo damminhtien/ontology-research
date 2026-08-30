@@ -2,6 +2,9 @@
 
 - Status: accepted
 - Date: 2026-08-26
+- Amendment (2026-08-30): khi record có external id từ nguồn có thẩm quyền và
+  external id miss, fuzzy match không còn ép review — xem
+  [ADR-0006](ADR-0006-trusted-external-id-overrides-fuzzy-review.md).
 
 ## Context
 
