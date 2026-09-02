@@ -185,6 +185,16 @@ class TestAliasMultimap:
         assert svc.lookup(name="Region 7", entity_type="Organization").canonical_id == a
         assert svc.lookup(name="Region 7", entity_type="Platform").canonical_id == b
 
+    def test_len_excludes_merged_away_entities(self):
+        a = "urn:world:entity:" + "a" * 32
+        b = "urn:world:entity:" + "b" * 32
+        svc = IdentityService()
+        svc.register(entity_id=a, entity_type="Organization", aliases=["Alpha"])
+        svc.register(entity_id=b, entity_type="Organization", aliases=["Beta"])
+        assert len(svc) == 2
+        svc.merge_entities(a, b)
+        assert len(svc) == 1  # b is a redirect, not a live entity
+
 
 class TestMultiValuedExternalIds:
     def test_entity_holds_several_ids_per_source(self):

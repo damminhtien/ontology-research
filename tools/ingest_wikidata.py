@@ -39,7 +39,7 @@ def main() -> int:
     parser.add_argument("--class", dest="class_qid", default="Q43229", help="root Wikidata class")
     parser.add_argument("--limit", type=int, default=500, help="max distinct entities to fetch")
     parser.add_argument("--timeout", type=float, default=60.0, help="SPARQL request timeout (s)")
-    parser.add_argument("--log", default="data/events.jsonl", help="event log path")
+    parser.add_argument("--log", default="data/wikidata-events.jsonl", help="event log path")
     parser.add_argument(
         "--lake", default=None, help="lake root (default $FOUNDRY_LAKE_ROOT or repo)"
     )

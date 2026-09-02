@@ -133,8 +133,8 @@ class IdentityService:
         self._merged_into: dict[str, str] = {}
 
     def __len__(self) -> int:
-        """Number of canonical entities known to the registry."""
-        return len(self._records)
+        """Number of live canonical entities (merged-away ids excluded)."""
+        return sum(1 for rid in self._records if rid not in self._merged_into)
 
     def register(
         self,
