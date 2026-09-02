@@ -8,6 +8,7 @@ from conftest import CORE_ONTOLOGY, SHAPES_FILE
 from foundry.events import EventLog
 from foundry.identity import IdentityService
 from foundry.ingestion import IngestionPipeline
+from foundry.merge import rebuild_identity
 
 LOCATION_URI = "https://data.example/entity/loc-cam-ranh"
 SOURCE_URI = "https://data.example/source/sat-pass-0820"
@@ -169,3 +170,101 @@ class TestObservationIngestion:
                 source_ids=[SOURCE_URI],
                 confidence=1.5,
             )
+
+
+class TestExternalIdBinding:
+    """Trusted ids arriving after an alias-hit are recorded as durable facts."""
+
+    @staticmethod
+    def _pipeline(log_path) -> IngestionPipeline:
+        return IngestionPipeline(
+            identity=IdentityService(),
+            log=EventLog(log_path),
+            ontology_path=CORE_ONTOLOGY,
+            shapes_path=SHAPES_FILE,
+        )
+
+    def test_alias_hit_binds_missing_external_id(self, tmp_path):
+        log_path = tmp_path / "events.jsonl"
+        pipeline = self._pipeline(log_path)
+        created = pipeline.ingest_entity(
+            name="Org A",
+            entity_type="Organization",
+            source_id="wikidata:Q1",
+            external_source="wikidata",
+            external_id="Q1",
+        )
+        assert created.is_new
+
+        # Same surface name, different registry: alias hit, and the trusted
+        # id that missed must be bound and recorded as ExternalIdBound.
+        bound = pipeline.ingest_entity(
+            name="Org A",
+            entity_type="Organization",
+            source_id="reg:B",
+            external_source="reg",
+            external_id="B",
+        )
+        assert bound.accepted and not bound.is_new
+        assert bound.event is not None
+        assert bound.event.event_type == "ExternalIdBound"
+
+        events = EventLog(log_path).read_all()
+        assert [e.event_type for e in events] == ["EntityCreated", "ExternalIdBound"]
+        assert events[1].payload == {
+            "entity_id": created.canonical_id,
+            "source": "reg",
+            "external_id": "B",
+        }
+
+    def test_binding_is_idempotent(self, tmp_path):
+        log_path = tmp_path / "events.jsonl"
+        pipeline = self._pipeline(log_path)
+        pipeline.ingest_entity(
+            name="Org A",
+            entity_type="Organization",
+            source_id="wikidata:Q1",
+            external_source="wikidata",
+            external_id="Q1",
+        )
+        pipeline.ingest_entity(
+            name="Org A",
+            entity_type="Organization",
+            source_id="reg:B",
+            external_source="reg",
+            external_id="B",
+        )
+        repeat = pipeline.ingest_entity(
+            name="Org A",
+            entity_type="Organization",
+            source_id="reg:B",
+            external_source="reg",
+            external_id="B",
+        )
+        assert repeat.accepted and repeat.event is None  # now an external-id hit
+        assert len(EventLog(log_path).read_all()) == 2
+
+    def test_rebuild_applies_binding_events(self, tmp_path):
+        log_path = tmp_path / "events.jsonl"
+        pipeline = self._pipeline(log_path)
+        created = pipeline.ingest_entity(
+            name="Org A",
+            entity_type="Organization",
+            source_id="wikidata:Q1",
+            external_source="wikidata",
+            external_id="Q1",
+        )
+        pipeline.ingest_entity(
+            name="Org A",
+            entity_type="Organization",
+            source_id="reg:B",
+            external_source="reg",
+            external_id="B",
+        )
+        rebuilt = rebuild_identity(EventLog(log_path))
+        for source, ext in (("wikidata", "Q1"), ("reg", "B")):
+            hit = rebuilt.lookup(
+                external_source=source, external_id=ext, entity_type="Organization"
+            )
+            assert hit.method == "external_id"
+            assert hit.canonical_id == created.canonical_id

@@ -132,6 +132,10 @@ class IdentityService:
         # duplicate id -> surviving id, recorded by merge_entities.
         self._merged_into: dict[str, str] = {}
 
+    def __len__(self) -> int:
+        """Number of canonical entities known to the registry."""
+        return len(self._records)
+
     def register(
         self,
         *,

@@ -18,6 +18,7 @@ from typing import Any
 from foundry.events import (
     EVENT_TYPE_ENTITY_CREATED,
     EVENT_TYPE_ENTITY_MERGED,
+    EVENT_TYPE_EXTERNAL_ID_BOUND,
     EventLog,
     SemanticEvent,
     make_event,
@@ -80,15 +81,17 @@ def rebuild_identity(log: EventLog) -> IdentityService:
     """Rebuild the in-memory identity registry from an event log.
 
     Restores entity types, names, aliases and external-id bindings from
-    ``EntityCreated`` events and replays ``EntityMerged`` corrections so
-    offline tools (merge CLI, review queue) validate against real canonical
-    state. Logs written before external ids were persisted carry an empty or
-    absent ``external_ids`` payload; those bindings simply stay unrecovered,
-    which is indistinguishable from "never bound" for validation purposes.
+    ``EntityCreated`` events, replays ``ExternalIdBound`` binding facts and
+    ``EntityMerged`` corrections so offline tools (merge CLI, ingestion
+    restarts, review queue) validate against real canonical state. Logs
+    written before external ids were persisted carry an empty or absent
+    ``external_ids`` payload; those bindings stay unrecovered unless a
+    backfill recorded them as ``ExternalIdBound`` events.
 
     Raises:
         ValueError: If the log contains records that violate the registry
-            contract (type conflicts across events, unknown merge ids).
+            contract (type conflicts across events, unknown merge or
+            binding ids).
     """
     identity = IdentityService()
     for event in log.read_all():
@@ -107,4 +110,8 @@ def rebuild_identity(log: EventLog) -> IdentityService:
                 )
         elif event.event_type == EVENT_TYPE_ENTITY_MERGED:
             identity.merge_entities(payload["survivor_id"], payload["duplicate_id"])
+        elif event.event_type == EVENT_TYPE_EXTERNAL_ID_BOUND:
+            identity.add_external_id(
+                payload["entity_id"], payload["source"], payload["external_id"]
+            )
     return identity

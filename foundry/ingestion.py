@@ -170,6 +170,26 @@ class IngestionPipeline:
             self._log.append(event)
             return _accept(resolution.canonical_id, event)
 
+        # Resolved by exact alias while the caller supplied an external id that
+        # missed: bind the trusted id to the existing entity and record the
+        # binding as a first-class fact (ExternalIdBound) so restarts recover
+        # it from the log instead of re-deriving it every run.
+        if resolution.method == "alias" and external_source and external_id:
+            _, _, bound = self._identity.identity(resolution.canonical_id)
+            if external_id not in bound.get(external_source, frozenset()):
+                self._identity.add_external_id(
+                    resolution.canonical_id, external_source, external_id
+                )
+                binding_event = make_event(
+                    "ExternalIdBound",
+                    {
+                        "entity_id": resolution.canonical_id,
+                        "source": external_source,
+                        "external_id": external_id,
+                    },
+                )
+                self._log.append(binding_event)
+                return _accept(resolution.canonical_id, binding_event, is_new=False)
         return _accept(resolution.canonical_id, event=None, is_new=False)
 
     # -- high-rate observations ---------------------------------------------

@@ -62,6 +62,8 @@ class Projector:
                 duplicate_id=payload["duplicate_id"],
                 event_time=occurred,
             )
+        elif event.event_type == "ExternalIdBound":
+            pass  # identity-level fact; the read model holds no binding state
         else:
             return False
 
