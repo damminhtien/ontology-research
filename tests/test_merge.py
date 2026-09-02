@@ -208,6 +208,38 @@ class TestRebuildIdentity:
         assert resolution.canonical_id == E1
         assert not resolution.is_new
 
+    def test_rebuild_restores_multivalued_external_ids(self, tmp_path):
+        """Registry is a log projection: multi-valued bindings survive restart."""
+        log = EventLog(tmp_path / "events.jsonl")
+        log.append(
+            make_event(
+                "EntityCreated",
+                {
+                    "entity_id": E1,
+                    "entity_type": "Organization",
+                    "name": "Hội Chữ thập đỏ Việt Nam",
+                    "name_aliases": ["Red Cross of Viet Nam"],
+                    "external_ids": [
+                        {"source": "wikidata", "external_id": "Q10832632"},
+                        {"source": "wikidata", "external_id": "Q999999"},
+                    ],
+                    "source_id": "s",
+                    "confidence": 1.0,
+                },
+            )
+        )
+        rebuilt = rebuild_identity(log)
+        _, aliases, external_ids = rebuilt.identity(E1)
+        assert aliases == frozenset({"Hội Chữ thập đỏ Việt Nam", "Red Cross of Viet Nam"})
+        assert external_ids["wikidata"] == frozenset({"Q10832632", "Q999999"})
+        for qid in ("Q10832632", "Q999999"):
+            assert (
+                rebuilt.lookup(
+                    external_source="wikidata", external_id=qid, entity_type="Organization"
+                ).canonical_id
+                == E1
+            )
+
     def test_rebuild_tolerates_legacy_payloads_without_external_ids(self, tmp_path):
         log = EventLog(tmp_path / "events.jsonl")
         log.append(

@@ -102,21 +102,140 @@ class TestResolution:
             service.register(entity_id=canonical, entity_type="Person")
 
 
+class TestPureLookup:
+    def test_lookup_miss_does_not_mutate_registry(self):
+        svc = IdentityService()
+        result = svc.lookup(name="Never Seen Before", entity_type="Platform")
+        assert result.method == "miss"
+        assert result.canonical_id == ""
+        assert svc._records == {}  # pure: no entity minted, nothing bound
+        # resolve() afterwards still creates the entity
+        resolved = svc.resolve(name="Never Seen Before", entity_type="Platform")
+        assert resolved.method == "new" and resolved.is_new
+
+    def test_lookup_requires_name_or_external_id(self):
+        with pytest.raises(ValueError, match="requires a name or an external_id"):
+            IdentityService().lookup()
+
+    def test_lookup_reports_hit_methods_without_minting(self):
+        svc = IdentityService()
+        created = svc.resolve(
+            name="USS Gerald R. Ford",
+            external_source="usn-hull",
+            external_id="CVN-78",
+            entity_type="Platform",
+        )
+        external = svc.lookup(
+            external_source="usn-hull", external_id="CVN-78", entity_type="Platform"
+        )
+        assert external.method == "external_id"
+        assert external.canonical_id == created.canonical_id
+        alias = svc.lookup(name="USS Gerald R. Ford", entity_type="Platform")
+        assert alias.method == "alias"
+        assert alias.canonical_id == created.canonical_id
+        # without a type filter the alias still resolves (introspection use)
+        untyped = svc.lookup(name="USS Gerald R. Ford")
+        assert untyped.canonical_id == created.canonical_id
+
+
+class TestTypeAwareLookup:
+    def test_same_name_across_types_are_distinct_entities(self):
+        svc = IdentityService()
+        org = svc.resolve(
+            name="Hải quân nhân dân Việt Nam", entity_type="Organization"
+        ).canonical_id
+        # the same surface name as a Platform must NOT hit the Organization
+        platform = svc.resolve(name="Hải quân nhân dân Việt Nam", entity_type="Platform")
+        assert platform.method == "new"
+        assert platform.canonical_id != org
+        # each type resolves back to its own entity
+        assert (
+            svc.lookup(name="Hải quân nhân dân Việt Nam", entity_type="Organization").canonical_id
+            == org
+        )
+        assert (
+            svc.lookup(name="Hải quân nhân dân Việt Nam", entity_type="Platform").canonical_id
+            == platform.canonical_id
+        )
+
+
+class TestAliasMultimap:
+    def test_alias_collision_is_ambiguous_not_first_wins(self):
+        a = "urn:world:entity:" + "a" * 32
+        b = "urn:world:entity:" + "b" * 32
+        svc = IdentityService()
+        svc.register(entity_id=a, entity_type="Organization", aliases=["Trung đoàn 101"])
+        svc.register(entity_id=b, entity_type="Organization", aliases=["Trung đoàn 101"])
+
+        found = svc.lookup(name="Trung đoàn 101", entity_type="Organization")
+        assert found.method == "ambiguous"
+        assert found.canonical_id == ""
+        assert set(found.candidates) == {a, b}
+        # resolve() routes the collision to review instead of guessing
+        resolved = svc.resolve(name="Trung đoàn 101", entity_type="Organization")
+        assert resolved.method == "review"
+        assert set(resolved.candidates) == {a, b}
+
+    def test_typed_lookup_disambiguates_cross_type_sharing(self):
+        a = "urn:world:entity:" + "a" * 32
+        b = "urn:world:entity:" + "b" * 32
+        svc = IdentityService()
+        svc.register(entity_id=a, entity_type="Organization", aliases=["Region 7"])
+        svc.register(entity_id=b, entity_type="Platform", aliases=["Region 7"])
+        assert svc.lookup(name="Region 7", entity_type="Organization").canonical_id == a
+        assert svc.lookup(name="Region 7", entity_type="Platform").canonical_id == b
+
+
+class TestMultiValuedExternalIds:
+    def test_entity_holds_several_ids_per_source(self):
+        svc = IdentityService()
+        entity = svc.resolve(
+            name="Hội Chữ thập đỏ Việt Nam",
+            external_source="wikidata",
+            external_id="Q108321",
+            entity_type="Organization",
+        ).canonical_id
+        svc.add_external_id(entity, "wikidata", "Q999999")  # cross-walk/reassignment
+
+        _, _, external_ids = svc.identity(entity)
+        assert external_ids["wikidata"] == frozenset({"Q108321", "Q999999"})
+        for qid in ("Q108321", "Q999999"):
+            hit = svc.lookup(
+                external_source="wikidata", external_id=qid, entity_type="Organization"
+            )
+            assert hit.method == "external_id"
+            assert hit.canonical_id == entity
+
+    def test_register_accepts_iterable_values(self):
+        svc = IdentityService()
+        entity = "urn:world:entity:" + "c" * 32
+        svc.register(
+            entity_id=entity,
+            entity_type="Person",
+            external_ids={"mnis": ["1234", "5678"]},
+        )
+        _, _, external_ids = svc.identity(entity)
+        assert external_ids["mnis"] == frozenset({"1234", "5678"})
+
+
 class TestFuzzyBlockingIndex:
     """The token blocking index must be an exact match for a full scan."""
 
     @staticmethod
     def _brute_force_candidates(service: IdentityService, query: str) -> list[tuple[str, float]]:
         tokens = set(normalize_name(query).split())
-        found = []
-        for alias_norm, cid in service._by_alias.items():
+        best: dict[str, float] = {}
+        for alias_norm, owners in service._by_alias.items():
             alias_tokens = set(alias_norm.split())
             if not tokens or not alias_tokens:
                 continue
             score = len(tokens & alias_tokens) / min(len(tokens), len(alias_tokens))
-            if score >= 0.50:
-                found.append((cid, score))
-        return sorted(found)
+            if score < 0.50:
+                continue
+            for owner in owners:
+                if score > best.get(owner, 0.0):
+                    best[owner] = score
+        return sorted(best.items())
 
     @pytest.fixture()
     def registry(self) -> IdentityService:
