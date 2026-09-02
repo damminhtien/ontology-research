@@ -28,9 +28,9 @@ if REPO_ROOT.as_posix() not in sys.path:
 
 from foundry import wikidata as wd
 from foundry.events import EventLog
-from foundry.identity import IdentityService
 from foundry.ingestion import IngestionPipeline
 from foundry.lake import default_lake_root, persist_events
+from foundry.merge import rebuild_identity
 
 
 def main() -> int:
@@ -53,9 +53,12 @@ def main() -> int:
 
     log_path = Path(args.log)
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    log = EventLog(log_path)
+    identity = rebuild_identity(log)  # dedupe against everything already ingested
+    print(f"registry: {len(identity)} known canonical entit(ies) from {log_path}")
     pipeline = IngestionPipeline(
-        identity=IdentityService(),
-        log=EventLog(log_path),
+        identity=identity,
+        log=log,
         ontology_path=REPO_ROOT / "ontology" / "core" / "core.ttl",
         shapes_path=REPO_ROOT / "shapes" / "core_shapes.ttl",
     )

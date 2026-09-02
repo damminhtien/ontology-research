@@ -40,6 +40,11 @@ QID_TO_ENTITY_TYPE: dict[str, str] = {
     "Q4830453": "Organization",  # business
     "Q79913": "Organization",  # non-governmental organization
     "Q176799": "Organization",  # military unit
+    "Q3918": "Organization",  # university
+    "Q16917": "Facility",  # hospital
+    "Q41176": "Facility",  # museum building
+    "Q33506": "Organization",  # museum
+    "Q23691": "Facility",  # airport
 }
 
 # The entity type is derived from class_qid itself: every returned item is in
