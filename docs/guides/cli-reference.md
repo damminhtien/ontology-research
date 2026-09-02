@@ -35,6 +35,9 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 | Lệnh | Chức năng |
 |------|-----------|
 | `.venv/bin/python tools/seed_console_data.py [--force]` | Seed event log demo qua ingestion pipeline thật |
+| `.venv/bin/python tools/ingest_wikidata.py [--class QID] [--limit N] [--timeout S] [--log PATH] [--lake PATH] [--no-lake]` | Nạp entity thật từ Wikidata SPARQL qua pipeline chuẩn (identity + SHACL + lake). Registry derive từ log nên chạy lặp lại là dedupe |
+| `.venv/bin/python tools/merge_entities.py --survivor ID --duplicate ID [--reason TEXT] [--log PATH] [--lake PATH]` | Repair under-merge: append `EntityMerged` sau khi validate trên registry rebuild từ log; exit 1 không ghi gì nếu bị từ chối |
+| `.venv/bin/python tools/backfill_external_ids.py [--log PATH] [--no-lake]` | Khôi phục QID binding của log cũ (quy ước `source_id: wikidata:QID`) thành `ExternalIdBound` events; idempotent |
 
 ## Visualization & Console
 

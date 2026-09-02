@@ -162,5 +162,11 @@ graphify update .                                  # rebuild sau khi sửa code 
 
 - [x] Phase 0: requirements + benchmark harness (correctness regression)
 - [x] Phase 1: semantic-core v0.1 + SHACL + CI tests
-- [ ] Phase 2: ingestion pipeline + identity service + append-only event log
-- [ ] Phase 3: projector + read models + latency benchmark dashboard
+- [x] Phase 2: ingestion pipeline + identity service + append-only event log
+- [x] Phase 3: projector + read models + latency benchmark dashboard
+- [x] Phase 4: nạp dữ liệu thật — 24.217 canonical entities từ Wikidata trong
+      lake Parquet; namespace freeze (ADR-0008); event contract v2 (ADR-0009);
+      registry = log projection (ADR-0010)
+- [ ] Phase 5: merge/review tooling hoàn chỉnh, streaming/checkpointed projector,
+      reference lane (Wikipedia), Document/Assertion model
+- [ ] Phase 6: vector-based candidate generation qua cùng review gate

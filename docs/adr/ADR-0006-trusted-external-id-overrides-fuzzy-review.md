@@ -3,6 +3,10 @@
 - Status: accepted
 - Date: 2026-08-30
 - Amends: [ADR-0003](ADR-0003-identity-resolution.md) (một phần)
+- Amendment (2026-09-02): under-merge repair đã có sẵn —
+  [ADR-0007](ADR-0007-under-merge-repair-via-append-only-merge-events.md);
+  binding external id bây giờ là fact bền vững trên log
+  ([ADR-0010](ADR-0010-registry-as-log-projection.md)).
 
 ## Context
 
@@ -31,6 +35,9 @@ luồng nào auto-merge hai canonical entity.
 - (+) Dữ liệu thật từ nguồn có định danh không bị kẹt review queue; KPI
   `unresolved_rate` tiệm cận 0 cho nguồn đó.
 - (+) Không có auto-merge: lỗi đắt nhất theo ADR-0003 vẫn không xảy ra.
-- (-) Hai QID mô tả cùng một thực thể thật (duplicate hiếm của chính nguồn)
+- ~~(-) Hai QID mô tả cùng một thực thể thật (duplicate hiếm của chính nguồn)
   cho hai canonical entity — under-merge, rẻ hơn false-merge; gộp dồn xử lý
-  bằng merge-tool + audit trail ở Phase 5 như kế hoạch của ADR-0003.
+  bằng merge-tool + audit trail ở Phase 5 như kế hoạch của ADR-0003.~~ Under-merge
+  giờ repair được bằng `EntityMerged`
+  ([ADR-0007](ADR-0007-under-merge-repair-via-append-only-merge-events.md)) —
+  đã chạy thật với 185 cặp QID trùng.

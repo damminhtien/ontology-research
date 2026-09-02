@@ -32,7 +32,7 @@ Kết quả mong đợi:
 ```text
 All checks passed!
 ...
-121 passed
+254 passed
 SLO regression gate PASSED
 ```
 
@@ -43,19 +43,21 @@ Nếu gặp lỗi, bắt đầu với [Tutorial 01 — Getting started](tutorial
 | Bạn muốn… | Đọc |
 |-----------|-----|
 | Hiểu cách hệ thống chạy end-to-end | [Tutorials 01–06](tutorials/01-getting-started.md) |
+| Nạp dữ liệu thật từ Wikidata vào lake | [Tutorial 03 — Ingestion](tutorials/03-ingestion.md) |
 | Tra cứu lệnh CLI | [CLI reference](guides/cli-reference.md) |
 | Biết kế hoạch 12 tháng | [Roadmap](generated/roadmap.md) |
-| Hiểu các quyết định kiến trúc | [ADRs](adr/ADR-0001-polyglot-persistence.md) |
+| Hiểu các quyết định kiến trúc | [ADRs 0001–0010](adr/ADR-0001-polyglot-persistence.md) |
 | Xem SLO / targets | [Performance SLOs](generated/performance_slo.md) · [Scale targets](generated/scale_targets.md) |
 | Quy tắc đóng góp | [Coding conventions](generated/conventions.md) |
 
 ## Cấu trúc repo
 
 ```text
-ontology/core/      # semantic kernel (Turtle + RDFS)
+ontology/core/      # semantic kernel (Turtle + RDFS), namespace frozen (ADR-0008)
 shapes/             # SHACL contracts
-foundry/            # platform: events, identity, ingestion, projector, console
-tools/              # CLI: validate, DAG check, manage_ontology, benchmark, check_slo
+foundry/            # platform: events (schema v2), identity, ingestion, projector, lake, console
+tools/              # CLI: validate, DAG check, manage_ontology, benchmark, check_slo,
+                    #      ingest_wikidata, merge_entities, backfill_external_ids
 registry/           # release registry (SemVer enforcement)
 benchmarks/         # competency queries + expected results + baseline SLO
 docs/               # bộ tài liệu này

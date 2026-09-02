@@ -72,4 +72,10 @@ nav:
       - ADR-0002 Append-only event log: adr/ADR-0002-append-only-event-log.md
       - ADR-0003 Identity resolution: adr/ADR-0003-identity-resolution.md
       - ADR-0004 CQRS read model: adr/ADR-0004-cqrs-read-model.md
+      - ADR-0005 Tracking information object: adr/ADR-0005-tracking-information-object.md
+      - ADR-0006 Trusted external id: adr/ADR-0006-trusted-external-id-overrides-fuzzy-review.md
+      - ADR-0007 Under-merge repair: adr/ADR-0007-under-merge-repair-via-append-only-merge-events.md
+      - ADR-0008 Namespace freeze: adr/ADR-0008-freeze-namespace-and-identifier-schemes.md
+      - ADR-0009 Event contract v2: adr/ADR-0009-event-contract-v2-sequence-valid-time-upcasters.md
+      - ADR-0010 Registry as log projection: adr/ADR-0010-registry-as-log-projection.md
   - Changelog: CHANGELOG.md

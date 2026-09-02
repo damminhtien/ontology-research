@@ -5,6 +5,9 @@
 - Amendment (2026-08-30): khi record có external id từ nguồn có thẩm quyền và
   external id miss, fuzzy match không còn ép review — xem
   [ADR-0006](ADR-0006-trusted-external-id-overrides-fuzzy-review.md).
+- Amendment (2026-09-02): cơ chế registry — pure lookup, alias multimap,
+  type-aware, external id multi-valued, registry rebuild từ log — xem
+  [ADR-0010](ADR-0010-registry-as-log-projection.md).
 
 ## Context
 
@@ -30,6 +33,9 @@ không drop im lặng). Canonical id không bao giờ dùng DB auto-increment.
 ## Consequences
 
 - (+) EntityResolutionErrorRate giữ thấp — lỗi merge đắt hơn nhiều lỗi review.
-- (-) Throughput review queue phụ thuộc human; cần merge-tool + audit trail ở Phase 5.
+- ~~(-) Throughput review queue phụ thuộc human; cần merge-tool + audit trail ở
+  Phase 5.~~ Merge tool đã có:
+  [ADR-0007](ADR-0007-under-merge-repair-via-append-only-merge-events.md) —
+  `tools/merge_entities.py`, correction qua `EntityMerged` events.
 - Vector-based candidate generation sẽ thay token-overlap ở Phase 6 nhưng
   vẫn qua cùng review gate.
