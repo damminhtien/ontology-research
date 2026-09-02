@@ -140,9 +140,7 @@ def _upcast(data: dict[str, Any]) -> dict[str, Any]:
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"invalid schema_version {data.get('schema_version')!r}") from exc
     if version > SCHEMA_VERSION:
-        raise ValueError(
-            f"event schema version {version} is newer than supported {SCHEMA_VERSION}"
-        )
+        raise ValueError(f"event schema version {version} is newer than supported {SCHEMA_VERSION}")
     while version != SCHEMA_VERSION:
         upcast = UPCASTERS.get(version)
         if upcast is None:

@@ -18,7 +18,10 @@ CORE_TTL = REPO_ROOT / "ontology" / "core" / "core.ttl"
 
 def test_pinned_namespace_values():
     assert namespaces.ONTOLOGY_BASE == "https://damminhtien.github.io/ontology-research/ontology"
-    assert namespaces.CORE_ONTOLOGY_NS == "https://damminhtien.github.io/ontology-research/ontology/core#"
+    assert (
+        namespaces.CORE_ONTOLOGY_NS
+        == "https://damminhtien.github.io/ontology-research/ontology/core#"
+    )
     assert namespaces.ENTITY_URN_PREFIX == "urn:world:entity:"
     assert namespaces.FACT_URN_PREFIX == "urn:fact:"
 
