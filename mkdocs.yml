@@ -60,6 +60,7 @@ nav:
       - 05. Versioning & governance: tutorials/05-versioning.md
       - 06. Console UI: tutorials/06-console.md
   - Guides:
+      - Kiến trúc hệ thống: architecture.md
       - CLI reference: guides/cli-reference.md
   - Engineering docs:
       - Roadmap 12 tháng: generated/roadmap.md
