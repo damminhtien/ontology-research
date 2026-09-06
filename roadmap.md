@@ -160,7 +160,8 @@ Chỉ ingest 3 loại data để chứng minh architecture:
 Yêu cầu cốt lõi:
 
 - **Immutable append-only event log**: `EntityCreated`, `LocationObserved`,
-  `AffiliationAssessed`, `RelationshipObserved`… không overwrite history.
+  `AffiliationAssessed`, `EntityMerged`, `ExternalIdBound`,
+  `RelationshipObserved`… không overwrite history.
 - **identity-service** riêng: `canonical_id`, `aliases[]`, `external_ids[]`,
   `confidence`, `source`. Ontology không giải quyết identity resolution
   ("USS Gerald R. Ford" / "CVN-78" / "Gerald Ford Carrier" → một canonical id).
@@ -316,7 +317,8 @@ R5 Benchmark không đo thật -> KPI thành con số trên giấy (Phase 3 ph�
 
 Việc còn mở cần quyết định trước khi vào Phase 3:
 
-- [ ] Event supersede/correction semantics (Phase 5 nhưng schema nên chốt sớm)
+- [x] Event supersede/correction semantics — chốt: correction là event mới,
+  không rewrite log (`EntityMerged`, upcasters — ADR-0007, ADR-0009)
 - [ ] Định dạng mapping config (YAML/RML?) khi số nguồn tăng lên
 - [ ] Access control ở query API layer (ai được thấy provenance nào)
 
@@ -329,6 +331,8 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
   - [x] Identity service precision-first (`foundry/identity.py`, ADR-0003)
   - [x] Ingestion pipeline với SHACL gate (`foundry/ingestion.py`) — structured records + location observations
   - [x] Throughput benchmark 10^4-10^5 events/s (synthetic) (`tools/benchmark.py`)
+  - [x] Nạp dữ liệu thật: 24.217 canonical entities từ Wikidata trong lake
+        Parquet (47.628 events, song ngữ Việt–Anh) qua `tools/ingest_wikidata.py`
   - [ ] Unstructured documents (LLM extraction trước cùng gate đó)
 - [~] Phase 5 (bắt đầu sớm): version governance
   - [x] Release registry (`registry/`) + SemVer enforcement trong `make check`
@@ -347,6 +351,16 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
   - [x] Domain SHACL contracts (`shapes/domain_shapes.ttl`) trong `make validate`
   - [x] Baseline releases 0.1.0 cho 4 module; SemVer enforcement áp dụng toàn registry
   - [ ] Ingestion mapping cho domain types (khi có data source thật)
+- [x] Nền móng production facts (kéo sớm, trước khi nhân rộng nguồn — 2026-08-31…09-02):
+  - [x] Freeze namespace + identifier schemes, freeze guards trong CI (ADR-0008)
+  - [x] Event contract v2: sequence/offset, valid-time, upcaster chain (ADR-0009)
+  - [x] Registry = log projection: pure lookup, alias multimap, type-aware,
+        external id multi-valued, binding bền vững qua `ExternalIdBound` (ADR-0010)
+  - [x] Under-merge repair qua `EntityMerged` + merge CLI (ADR-0007) — đã repair
+        185 cặp QID trùng trên dữ liệu thật
+  - [ ] Reference lane (Wikidata/Wikipedia typed Parquet) tách khỏi runtime fetch
+  - [ ] Document + Assertion/Statement model, provenance/time/confidence generic
+  - [ ] Streaming/checkpointed projector; lake manifest-authoritative query
 - [ ] Phase 5+: xem bảng phase ở trên
 
 

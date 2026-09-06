@@ -96,7 +96,7 @@ Kernel không được import module khác; middle/domain chỉ được import 
 ```
 
 ```text
-Dependency DAG check PASSED (1 files, 0 import edges, no upward deps, no cycles).
+Dependency DAG check PASSED (5 files, 4 import edges, no upward deps, no cycles).
 ```
 
 ## Bài tập

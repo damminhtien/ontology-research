@@ -50,8 +50,8 @@ All checks passed!
 
 Version check passed.
 RESULT: PASS (32 subclass-closure triples materialized)
-Dependency DAG check PASSED (1 files, 0 import edges, no upward deps, no cycles).
-121 passed, 1 warning in 3.08s
+Dependency DAG check PASSED (5 files, 4 import edges, no upward deps, no cycles).
+254 passed in 8.19s
 SLO regression gate PASSED
 ```
 
