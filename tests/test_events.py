@@ -7,12 +7,12 @@ import json
 import pytest
 
 from foundry.events import (
-    SCHEMA_VERSION,
     EventLog,
     event_from_dict,
     event_to_dict,
     make_event,
 )
+from foundry.versioning import EVENT_SCHEMA_VERSION as SCHEMA_VERSION
 
 
 class TestEventContract:

@@ -10,8 +10,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from foundry.events import SCHEMA_VERSION, SemanticEvent
+from foundry.events import SemanticEvent
 from foundry.lake import LakeError, LakeWriter, lake_query, parse_occurred_at, persist_events
+from foundry.versioning import EVENT_SCHEMA_VERSION as SCHEMA_VERSION
 
 
 def _events(n: int, day: str = "2026-01-15") -> list[SemanticEvent]:

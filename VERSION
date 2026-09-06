@@ -1,0 +1,5 @@
+# Data contract versions — single source of truth.
+# History: CHANGELOG-DATA.md. Code reads these via foundry/versioning.py;
+# never hardcode a version number in source files.
+event_schema = 2
+lake = 1

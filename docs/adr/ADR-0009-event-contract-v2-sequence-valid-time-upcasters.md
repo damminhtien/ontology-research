@@ -38,8 +38,12 @@ Schema v2 (`foundry/events.py`):
 
 ## Amendment (2026-09-02)
 
-Event types hiện tại: `EntityCreated`, `LocationObserved`,
-`AffiliationAssessed`, `EntityMerged`
-([ADR-0007](ADR-0007-under-merge-repair-via-append-only-merge-events.md)),
-`ExternalIdBound`
-([ADR-0010](ADR-0010-registry-as-log-projection.md)).
+- Event types hiện tại: `EntityCreated`, `LocationObserved`,
+  `AffiliationAssessed`, `EntityMerged`
+  ([ADR-0007](ADR-0007-under-merge-repair-via-append-only-merge-events.md)),
+  `ExternalIdBound`
+  ([ADR-0010](ADR-0010-registry-as-log-projection.md)).
+- Số phiên bản hợp đồng dữ liệu không còn hardcode trong source: quản lý bằng
+  file `VERSION` (single source of truth) + `CHANGELOG-DATA.md` (lịch sử + quy
+  tắc bump) ở gốc repo; code đọc qua `foundry/versioning.py`. Bump = sửa VERSION
+  + changelog entry + upcaster (nếu là event_schema) trong cùng commit.

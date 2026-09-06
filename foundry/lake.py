@@ -33,9 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from foundry.events import EVENT_TYPES, SemanticEvent
-
-SCHEMA_VERSION = 1
-LAKE_VERSION = 1
+from foundry.versioning import LAKE_VERSION
 
 MANIFEST_NAME = "manifest.json"
 

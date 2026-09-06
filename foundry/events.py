@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 2
+from foundry.versioning import EVENT_SCHEMA_VERSION
 
 EVENT_TYPE_ENTITY_CREATED = "EntityCreated"
 EVENT_TYPE_LOCATION_OBSERVED = "LocationObserved"
@@ -96,7 +96,7 @@ def make_event(
     return SemanticEvent(
         event_id=uuid.uuid4().hex,
         event_type=event_type,
-        schema_version=SCHEMA_VERSION,
+        schema_version=EVENT_SCHEMA_VERSION,
         occurred_at=utc_now_iso(),
         payload=payload,
         valid_at=valid_at,
@@ -141,9 +141,11 @@ def _upcast(data: dict[str, Any]) -> dict[str, Any]:
         version = int(data["schema_version"])
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"invalid schema_version {data.get('schema_version')!r}") from exc
-    if version > SCHEMA_VERSION:
-        raise ValueError(f"event schema version {version} is newer than supported {SCHEMA_VERSION}")
-    while version != SCHEMA_VERSION:
+    if version > EVENT_SCHEMA_VERSION:
+        raise ValueError(
+            f"event schema version {version} is newer than supported {EVENT_SCHEMA_VERSION}"
+        )
+    while version != EVENT_SCHEMA_VERSION:
         upcast = UPCASTERS.get(version)
         if upcast is None:
             raise ValueError(f"no upcast path from schema version {version}")
