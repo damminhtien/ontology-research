@@ -81,7 +81,7 @@ persist cùng event nên read model/lake đều phục vụ được dữ liệu
 ## Bước 4 — Nạp dữ liệu thật từ Wikidata
 
 Nguồn production chính hiện nay là Wikidata SPARQL (song ngữ Việt–Anh), ghi vào
-log riêng `data/wikidata-events.jsonl`:
+log riêng `data/production.jsonl`:
 
 ```bash
 # nạp tổ chức (mặc định Q43229); các lớp khác: Q3918 university,

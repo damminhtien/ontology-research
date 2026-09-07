@@ -39,6 +39,7 @@ convention = "google"
 "tools/ingest_wikidata.py" = ["E402"]
 "tools/merge_entities.py" = ["E402"]
 "tools/backfill_external_ids.py" = ["E402"]
+"tools/import_events.py" = ["E402"]
 # visualize_ontology embeds an HTML/D3 template string; JS lines may exceed.
 "tools/visualize_ontology.py" = ["E501"]
 

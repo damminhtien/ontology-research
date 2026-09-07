@@ -37,7 +37,7 @@ def main() -> int:
     parser.add_argument("--survivor", required=True, help="canonical id to keep")
     parser.add_argument("--duplicate", required=True, help="canonical id to fold away")
     parser.add_argument("--reason", default="", help="why the merge was confirmed")
-    parser.add_argument("--log", default="data/events.jsonl", help="event log path")
+    parser.add_argument("--log", default="data/production.jsonl", help="event log path")
     parser.add_argument(
         "--lake", default=None, help="lake root (default $FOUNDRY_LAKE_ROOT or repo)"
     )

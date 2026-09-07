@@ -21,7 +21,7 @@ Mọi thiết kế dưới đây phục tùng bốn nguyên tắc này — chún
   Nguồn dữ liệu     │              FOUNDRY (write path)            │
   ─────────────     │                                              │
   Wikidata SPARQL ─►│ fetch/normalize ─► IdentityService ─► SHACL ─┼─► EventLog (JSONL, schema v2)
-  (tools/ingest_    │ (foundry/wikidata.py)  (foundry/identity.py) │    data/wikidata-events.jsonl
+  (tools/ingest_    │ (foundry/wikidata.py)  (foundry/identity.py) │    data/production.jsonl
    wikidata.py)     │                        pure lookup + mint    │    = WRITE MODEL (sự thật duy nhất)
   Console seed ────►│ seed_console_data.py ──► IngestionPipeline ──┤
   (data/events.jsonl│                                              │
@@ -58,7 +58,7 @@ không phải dự đoán.
 
 | # | Nợ | Bằng chứng | Mức độ |
 |---|-----|-----------|--------|
-| D1 | **Nhiều log song song, không có log "chính thức" duy nhất** | Sự cố thật: một lượt chạy ghi vào `data/events.jsonl` thay vì `data/wikidata-events.jsonl` → 185 entity trùng, phải repair tay bằng 185 `EntityMerged` | **Cao** |
+| D1 | **Nhiều log song song, không có log "chính thức" duy nhất** | Sự cố thật: một lượt chạy ghi vào `data/events.jsonl` thay vì `data/production.jsonl` → 185 entity trùng, phải repair tay bằng 185 `EntityMerged` | **Cao** |
 | D2 | **EventLog không có bảo vệ single-writer, không fsync** | `append()` ghi thẳng vào file; 2 tiến trình chạy cùng lúc sẽ tính trùng `_next_sequence` (đều đếm từ disk) và xen kẽ dòng — log hỏng im lặng | **Cao** |
 | D3 | **Projector sắp replay theo `(occurred_at, event_id)` thay vì thứ tự log** | `occurred_at` độ phân giải giây; trong cùng một giây, thứ tự = uuid ngẫu nhiên ≠ thứ tự append nhân quả. Test helper `_sequenced_event` trong chính repo đã phải làm việc quanh điều này | **Cao** |
 | D4 | **Assertion không phải first-class** | `LocationObserved` trộn 3 vai trò: event "ta biết điều này", assertion "entity ở X từ T", record provenance. Không có assertion id → không correct/retract được một mệnh đề cụ thể; history chỉ append, "latest wins" là ngầm định | **Cao** |

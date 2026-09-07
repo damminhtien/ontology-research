@@ -8,7 +8,7 @@ as an append-only ``ExternalIdBound`` fact so future restarts recover the
 full registry from the log alone (ADR-0002: the log is never rewritten).
 
 Usage:
-    .venv/bin/python tools/backfill_external_ids.py [--log data/wikidata-events.jsonl]
+    .venv/bin/python tools/backfill_external_ids.py [--log data/production.jsonl]
                                                     [--lake /path/to/lake | --no-lake]
 
 Idempotent: a second run finds every binding already present and appends
@@ -66,7 +66,7 @@ def collect_missing_binding_events(log: EventLog) -> list[SemanticEvent]:
 def main() -> int:
     """Append one ExternalIdBound fact per missing Wikidata source binding."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--log", default="data/wikidata-events.jsonl", help="event log path")
+    parser.add_argument("--log", default="data/production.jsonl", help="event log path")
     parser.add_argument(
         "--lake", default=None, help="lake root (default $FOUNDRY_LAKE_ROOT or repo)"
     )

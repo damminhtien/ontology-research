@@ -8,6 +8,7 @@ import pytest
 
 from foundry.events import (
     EventLog,
+    EventLogLocked,
     event_from_dict,
     event_to_dict,
     make_event,
@@ -119,6 +120,67 @@ class TestSequenceStamping:
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         with pytest.raises(ValueError, match="sequence discontinuity"):
             log.read_all()
+
+
+class TestSegmentedTransport:
+    def test_roll_preserves_order_and_global_sequence(self, tmp_path):
+        path = tmp_path / "log.jsonl"
+        log = EventLog(path, max_segment_bytes=1)  # roll after every batch
+        log.extend([make_event("EntityCreated", {"n": i}) for i in range(5)])
+        log.append(make_event("EntityCreated", {"n": 5}))
+
+        archives = sorted(tmp_path.glob("log-*.jsonl"))
+        assert len(archives) == 2  # one roll per finished batch that crossed the limit
+        replayed = EventLog(path).read_all()
+        assert [e.payload["n"] for e in replayed] == list(range(6))
+        assert [e.sequence for e in replayed] == [1, 2, 3, 4, 5, 6]
+
+    def test_sequence_continues_across_instances_and_rolls(self, tmp_path):
+        path = tmp_path / "log.jsonl"
+        EventLog(path, max_segment_bytes=1).extend(
+            [make_event("EntityCreated", {"n": i}) for i in range(3)]
+        )
+        EventLog(path, max_segment_bytes=1).append(make_event("EntityCreated", {"n": 3}))
+        replayed = EventLog(path).read_all()
+        assert [e.sequence for e in replayed] == [1, 2, 3, 4]
+
+    def test_uncommitted_tail_is_skipped_on_read_and_truncated_on_append(self, tmp_path):
+        path = tmp_path / "log.jsonl"
+        log = EventLog(path)
+        log.append(make_event("EntityCreated", {"n": 1}))
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write('{"event_id": "partial"')  # crash mid-write, no newline
+
+        # read: the partial tail is not a committed record
+        replayed = log.read_all()
+        assert len(replayed) == 1
+
+        # append: the partial tail is truncated, never concatenated onto
+        log.append(make_event("EntityCreated", {"n": 2}))
+        replayed = log.read_all()
+        assert [e.payload["n"] for e in replayed] == [1, 2]
+        assert [e.sequence for e in replayed] == [1, 2]
+
+    def test_concurrent_writer_is_rejected_not_interleaved(self, tmp_path):
+        import fcntl
+
+        path = tmp_path / "log.jsonl"
+        log = EventLog(path)
+        lock_handle = log.lock_path.open("a+")
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            with pytest.raises(EventLogLocked, match="another writer holds"):
+                log.append(make_event("EntityCreated", {"n": 1}))
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+            lock_handle.close()
+        # after the lock is released, appending works
+        log.append(make_event("EntityCreated", {"n": 1}))
+        assert len(log.read_all()) == 1
+
+    def test_max_segment_bytes_must_be_positive(self, tmp_path):
+        with pytest.raises(ValueError, match="max_segment_bytes"):
+            EventLog(tmp_path / "log.jsonl", max_segment_bytes=0)
 
 
 class TestUpcasters:
