@@ -15,13 +15,13 @@ from foundry.lake import LakeError, LakeWriter, lake_query, parse_occurred_at, p
 from foundry.versioning import EVENT_SCHEMA_VERSION as SCHEMA_VERSION
 
 
-def _events(n: int, day: str = "2026-01-15") -> list[SemanticEvent]:
+def _events(n: int, day: str = "2026-01-15", prefix: str = "test") -> list[SemanticEvent]:
     events = []
     for i in range(n):
         etype = "EntityCreated" if i % 2 == 0 else "LocationObserved"
         events.append(
             SemanticEvent(
-                event_id=f"test-{day}-{i:04d}",
+                event_id=f"{prefix}-{day}-{i:04d}",
                 event_type=etype,
                 schema_version=SCHEMA_VERSION,
                 occurred_at=f"{day}T0{i % 10}:00:00Z",
@@ -199,3 +199,49 @@ class TestPersistEvents:
     def test_persist_events_empty_batch_is_noop(self, tmp_path: Path) -> None:
         assert persist_events([], tmp_path) == []
         assert LakeWriter(tmp_path).verify() == 0
+
+
+class TestDedupAndCompaction:
+    """B3: idempotent persistence, compaction, manifest-authoritative queries."""
+
+    def test_repersisting_the_same_events_is_idempotent(self, tmp_path: Path) -> None:
+        events = _events(5)
+        persist_events(events, tmp_path)
+        assert LakeWriter(tmp_path).verify() == 5
+
+        files = persist_events(events, tmp_path)
+        assert files == []  # every id already registered
+        assert LakeWriter(tmp_path).verify() == 5
+
+    def test_duplicates_within_one_batch_are_dropped(self, tmp_path: Path) -> None:
+        events = _events(3)
+        files = persist_events([*events, *events], tmp_path)
+        assert sum(f.rows for f in files) == 3
+        assert LakeWriter(tmp_path).verify() == 3
+
+    def test_compaction_merges_files_per_partition(self, tmp_path: Path) -> None:
+        persist_events(_events(4), tmp_path)  # partition 2026-01-15
+        persist_events(
+            _events(2, day="2026-01-15", prefix="extra"), tmp_path
+        )  # same partition, new ids
+        persist_events(_events(3, day="2026-01-16"), tmp_path)
+
+        writer = LakeWriter(tmp_path)
+        assert len(writer.read_manifest()) == 3
+        new_entries = writer.compact()
+        assert [f.rows for f in new_entries] == [6, 3]  # one file per partition
+        assert writer.verify() == 9
+
+        # content survived the merge; queries see one file per partition
+        rows = lake_query("SELECT count(*) AS n FROM events", root=tmp_path)
+        assert rows[0]["n"] == 9
+        # second compaction is a no-op
+        assert writer.compact() == new_entries
+
+    def test_query_ignores_files_outside_the_manifest(self, tmp_path: Path) -> None:
+        persist_events(_events(3), tmp_path)
+        # an orphan parquet (crashed writer) must never leak into queries
+        orphan = tmp_path / "event_date=2026-01-15" / "events-orphan.parquet"
+        orphan.write_bytes(b"not really parquet, but the glob would try")
+        rows = lake_query("SELECT count(*) AS n FROM events", root=tmp_path)
+        assert rows[0]["n"] == 3

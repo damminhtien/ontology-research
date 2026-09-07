@@ -102,6 +102,21 @@ class LakeFile:
         )
 
 
+def _row_schema():
+    """Arrow schema of a lake row (lazy import: pyarrow is optional)."""
+    import pyarrow as pa
+
+    return pa.schema(
+        [
+            ("event_id", pa.string()),
+            ("event_type", pa.string()),
+            ("schema_version", pa.int8()),
+            ("occurred_at", pa.string()),
+            ("payload_json", pa.string()),
+        ]
+    )
+
+
 class LakeWriter:
     """Buffer events and flush them as compressed Parquet partitions.
 
@@ -146,13 +161,36 @@ class LakeWriter:
         self._buffer.extend(events)
         return len(events)
 
+    def existing_event_ids(self) -> set[str]:
+        """Every event id already registered in the lake (dedup key)."""
+        import pyarrow.parquet as pq
+
+        ids: set[str] = set()
+        for entry in self.read_manifest():
+            table = pq.read_table(self._root / entry.path, columns=["event_id"])
+            ids.update(table.column("event_id").to_pylist())
+        return ids
+
     def flush(self) -> list[LakeFile]:
         """Write buffered events to partitioned Parquet files; update manifest.
 
         Splitting happens per partition (event_date) and per
         ``max_rows_per_file`` so files stay compact and independently
-        compressible. An empty buffer is a no-op.
+        compressible. An empty buffer is a no-op. Dedup: events whose
+        ``event_id`` is already registered — or duplicated within the batch —
+        are skipped, so persisting the same batch twice is idempotent.
         """
+        if not self._buffer:
+            return []
+
+        seen = self.existing_event_ids()
+        deduped: list[SemanticEvent] = []
+        for event in self._buffer:
+            if event.event_id in seen:
+                continue
+            seen.add(event.event_id)
+            deduped.append(event)
+        self._buffer = deduped
         if not self._buffer:
             return []
 
@@ -164,15 +202,7 @@ class LakeWriter:
             by_date.setdefault(event.occurred_at[:10], []).append(event)
         self._buffer.clear()
 
-        schema = pa.schema(
-            [
-                ("event_id", pa.string()),
-                ("event_type", pa.string()),
-                ("schema_version", pa.int8()),
-                ("occurred_at", pa.string()),
-                ("payload_json", pa.string()),
-            ]
-        )
+        schema = _row_schema()
         manifest = self._read_manifest()
         written: list[LakeFile] = []
         now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -211,6 +241,62 @@ class LakeWriter:
 
         self._write_manifest(manifest)
         return written
+
+    def compact(self) -> list[LakeFile]:
+        """Rewrite the lake as one file per partition; returns the new entries.
+
+        Old files are merged per ``event_date`` partition, the manifest is
+        swapped atomically (write tmp → rename), and superseded files are
+        deleted only after the new manifest names the replacements — a crash
+        before the swap leaves the old lake fully intact. A no-op when every
+        partition already has exactly one file. Integrity is verified after
+        the swap.
+        """
+        entries = self.read_manifest()
+        per_partition: dict[str, list[LakeFile]] = {}
+        for entry in entries:
+            day = entry.path.split("/", 1)[0].removeprefix("event_date=")
+            per_partition.setdefault(day, []).append(entry)
+        if all(len(files) == 1 for files in per_partition.values()):
+            return entries
+
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        new_entries: list[LakeFile] = []
+        old_paths: list[Path] = []
+        for day in sorted(per_partition):
+            files = per_partition[day]
+            table = pa.concat_tables([pq.read_table(self._root / e.path) for e in files])
+            rel_path = f"event_date={day}/events-{uuid.uuid4().hex[:12]}.parquet"
+            abs_path = self._root / rel_path
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            pq.write_table(table, abs_path, compression="zstd", compression_level=self._level)
+            timestamps = table.column("occurred_at").to_pylist()
+            new_entries.append(
+                LakeFile(
+                    path=rel_path,
+                    rows=table.num_rows,
+                    bytes=abs_path.stat().st_size,
+                    min_occurred_at=min(timestamps),
+                    max_occurred_at=max(timestamps),
+                    written_at=now,
+                )
+            )
+            old_paths.extend(self._root / e.path for e in files)
+
+        self._write_manifest(
+            {"lake_version": LAKE_VERSION, "files": [e.to_dict() for e in new_entries]}
+        )
+        for path in old_paths:
+            path.unlink()
+        # full integrity check only after the old files are gone — otherwise
+        # they would legitimately read as "unregistered parquet files"
+        expected = sum(e.rows for e in new_entries)
+        if self.verify() != expected:
+            raise LakeError("verification failed right after compaction")
+        return new_entries
 
     # -- manifest ---------------------------------------------------------
 
@@ -297,13 +383,15 @@ def lake_query(sql: str, root: Path | None = None) -> list[dict[str, Any]]:
         ) from exc
 
     writer = LakeWriter(root) if root is not None else LakeWriter(default_lake_root())
-    files = [entry.path for entry in writer.read_manifest()]
+    # Manifest-authoritative: only files the manifest registers are visible to
+    # queries — a crashed/partial writer file or an orphan never leaks in.
+    files = [str(writer.root / entry.path) for entry in writer.read_manifest()]
     if not files:
         return []
-    glob = (writer.root / "**" / "*.parquet").as_posix().replace("'", "''")
+    quoted = ", ".join("'" + f.replace("'", "''") + "'" for f in files)
     con = duckdb.connect()
     con.execute(
-        f"CREATE VIEW events AS SELECT * FROM read_parquet('{glob}', "
+        f"CREATE VIEW events AS SELECT * FROM read_parquet([{quoted}], "
         f"hive_partitioning=true, union_by_name=true)"
     )
     result = con.execute(sql)
