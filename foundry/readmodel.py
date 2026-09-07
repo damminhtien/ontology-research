@@ -88,7 +88,10 @@ class ReadModel:
         self._entities: dict[str, _EntityRecord] = {}
         self._location_history: dict[str, list[_LocationEntry]] = {}
         self._by_location: dict[str, set[str]] = {}
+        self._current_location: dict[str, str] = {}
         self._merged_into: dict[str, str] = {}
+        self._applied_event_ids: set[str] = set()
+        self._checkpoint_sequence: int | None = None
         self._last_event_time: datetime | None = None
 
     # -- write surface (called by the projector only) -----------------------
@@ -126,15 +129,36 @@ class ReadModel:
         history = self._location_history.setdefault(entity_id, [])
         history.append(entry)
         history.sort(key=lambda e: (e.valid_from, e.event_id))
+        self._refresh_location_index(entity_id)
+
+    def _refresh_location_index(self, entity_id: str) -> None:
+        """Keep the reverse index correct after one entity's history changes.
+
+        Streaming-safe: safe to call after every single apply instead of only
+        at the end of a full replay.
+        """
+        history = self._location_history.get(entity_id)
+        current = history[-1].location_uri if history else None
+        previous = self._current_location.get(entity_id)
+        if previous == current:
+            return
+        if previous is not None:
+            bucket = self._by_location.get(previous)
+            if bucket is not None:
+                bucket.discard(entity_id)
+                if not bucket:
+                    del self._by_location[previous]
+        if current is not None:
+            self._by_location.setdefault(current, set()).add(entity_id)
+        self._current_location[entity_id] = current
 
     def merge_entities(self, survivor_id: str, duplicate_id: str, event_time: datetime) -> None:
         """Fold a merged duplicate into its survivor (``EntityMerged`` projection).
 
         Moves the duplicate's location history onto the survivor, removes the
-        duplicate from the entity index and records a redirect so point
-        lookups on the old id can be chased. Idempotent: re-applying a merge
-        is a no-op. The reverse location index is rebuilt at the end of
-        replay, so it stays consistent after merges.
+        duplicate from the entity and location indexes and records a redirect
+        so point lookups on the old id can be chased. Idempotent: re-applying
+        a merge is a no-op.
         """
         history = self._location_history.pop(duplicate_id, None)
         if history:
@@ -143,7 +167,34 @@ class ReadModel:
             target.sort(key=lambda e: (e.valid_from, e.event_id))
         self._entities.pop(duplicate_id, None)
         self._merged_into[duplicate_id] = survivor_id
+        self._refresh_location_index(survivor_id)
+        self._refresh_location_index(duplicate_id)
+        self._current_location.pop(duplicate_id, None)
         self.touch(event_time)
+
+    # -- apply bookkeeping (per-event idempotency + checkpoint) ---------------
+
+    def is_applied(self, event_id: str) -> bool:
+        """True when this exact event was already folded into the model."""
+        return event_id in self._applied_event_ids
+
+    def mark_applied(self, event_id: str, sequence: int | None) -> None:
+        """Record one applied event and advance the checkpoint watermark."""
+        self._applied_event_ids.add(event_id)
+        if sequence is not None and (
+            self._checkpoint_sequence is None or sequence > self._checkpoint_sequence
+        ):
+            self._checkpoint_sequence = sequence
+
+    @property
+    def checkpoint_sequence(self) -> int | None:
+        """Highest log sequence folded into the model (checkpoint anchor)."""
+        return self._checkpoint_sequence
+
+    @property
+    def applied_event_count(self) -> int:
+        """Number of distinct events applied (for checkpoint reporting)."""
+        return len(self._applied_event_ids)
 
     def touch(self, event_time: datetime) -> None:
         """Track the newest event time seen for lag calculation."""

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from foundry.events import EventLog, make_event
@@ -157,7 +159,7 @@ class TestProjectorContract:
             },
         )
         unknown = type(known)(
-            event_id=known.event_id,
+            event_id=known.event_id + "unknown",
             event_type="AffiliationAssessed",
             schema_version=known.schema_version,
             occurred_at=known.occurred_at,
@@ -180,3 +182,103 @@ class TestProjectorContract:
         assert stats.applied == 2
         assert model.get_entity(E1) is not None
         assert model.current_location(E1).location_uri == LOC_A
+
+
+class TestSequenceOrderedReplay:
+    """B2: replay follows the log sequence, dedups per event, checkpoints."""
+
+    def test_replay_orders_by_sequence_not_wall_clock(self):
+        created = _entity_event(E1, "V01", "2026-08-01T00:00:00Z")
+        observed = _location_event(E1, LOC_A, "2026-07-15T00:00:00Z")
+        created, observed = (
+            replace(created, sequence=1),
+            replace(observed, sequence=2),
+        )
+        # same second, and the list arrives in REVERSE log order
+        model = ReadModel()
+        stats = Projector(model).replay([observed, created])
+        assert stats.applied == 2
+        assert model.get_entity(E1) is not None
+        assert model.current_location(E1).location_uri == LOC_A
+
+    def test_duplicate_apply_is_counted_not_reapplied(self, tmp_path):
+        log = EventLog(tmp_path / "events.jsonl")
+        log.extend(
+            [
+                _entity_event(E1, "V01", "2026-08-01T00:00:00Z"),
+                _location_event(E1, LOC_A, "2026-07-15T00:00:00Z"),
+                _location_event(E1, LOC_B, "2026-08-20T03:00:00Z"),
+            ]
+        )
+        events = log.read_all()
+        model = ReadModel()
+        projector = Projector(model)
+        first = projector.replay(events)
+        assert first.applied == 3 and first.duplicates == 0
+
+        second = projector.replay(events)
+        assert second.applied == 0
+        assert second.duplicates == 3
+        # location history did not double: current location still the latest
+        assert model.current_location(E1).location_uri == LOC_B
+        assert model.entities_at(LOC_A) == set()  # E1 moved to LOC_B
+
+    def test_checkpoint_resume_continues_incremental_replay(self, tmp_path):
+        """Checkpoint anchors incremental replay: the prefix is skipped, not re-applied.
+
+        The in-memory model is not persisted (ADR-0004); ``after_sequence`` is
+        meaningful for a model whose state already covers the skipped prefix
+        (same model continued, or a store-backed model hydrated elsewhere).
+        """
+        log = EventLog(tmp_path / "events.jsonl")
+        log.extend(
+            [
+                _entity_event(E1, "V01", "2026-08-01T00:00:00Z"),
+                _entity_event(E2, "V02", "2026-08-01T01:00:00Z"),
+                _location_event(E1, LOC_A, "2026-07-15T00:00:00Z"),
+                _location_event(E1, LOC_B, "2026-08-20T03:00:00Z"),
+                _location_event(E2, LOC_A, "2026-08-21T03:00:00Z"),
+            ]
+        )
+        events = log.read_all()
+
+        model = ReadModel()
+        projector = Projector(model)
+        projector.replay(events[:2])
+        checkpoint = tmp_path / "checkpoint.json"
+        projector.save_checkpoint(checkpoint)
+        assert model.checkpoint_sequence == 2
+
+        after = projector.load_checkpoint(checkpoint)
+        stats = projector.replay(events, after_sequence=after)
+        assert stats.applied == 3  # only the suffix was folded in
+        assert stats.skipped == 2  # the checkpointed prefix
+        assert stats.duplicates == 0
+        assert model.checkpoint_sequence == 5
+        assert model.current_location(E1).location_uri == LOC_B
+        assert model.entities_at(LOC_A) == {E2}
+
+        # a second full pass with the checkpoint skips the prefix and dedups the rest
+        stats = projector.replay(events, after_sequence=after)
+        assert stats.applied == 0
+        assert stats.skipped == 2 and stats.duplicates == 3
+
+    def test_malformed_checkpoint_rejected(self, tmp_path):
+        path = tmp_path / "checkpoint.json"
+        path.write_text('{"last_sequence": "soon"}\n', encoding="utf-8")
+        with pytest.raises(ValueError, match="malformed checkpoint"):
+            Projector(ReadModel()).load_checkpoint(path)
+
+    def test_incremental_apply_keeps_reverse_index_current(self):
+        """Streaming apply (no full replay) keeps entities_at correct."""
+        model = ReadModel()
+        projector = Projector(model)
+        projector.apply(_entity_event(E1, "V01", "2026-08-01T00:00:00Z"))
+        observed_a = _location_event(E1, LOC_A, "2026-07-15T00:00:00Z")
+        projector.apply(observed_a)
+        assert model.entities_at(LOC_A) == {E1}
+
+        observed_b = _location_event(E1, LOC_B, "2026-08-20T03:00:00Z")
+        projector.apply(observed_b)
+        assert model.entities_at(LOC_A) == set()  # moved, index updated in place
+        assert model.entities_at(LOC_B) == {E1}
