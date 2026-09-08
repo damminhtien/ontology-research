@@ -86,6 +86,12 @@ class Projector:
             pass  # identity-level fact; the read model holds no binding state
         elif event.event_type == "ResolutionReviewQueued":
             pass  # durable review-queue fact; drained by review tooling, not the read model
+        elif event.event_type == "AssertionMade":
+            self._model.add_assertion(payload)
+        elif event.event_type == "AssertionSuperseded":
+            self._model.supersede_assertion(payload["assertion_id"])
+        elif event.event_type == "DocumentRegistered":
+            pass  # provenance source; served from the log/lake, not the read model
         else:
             return False
 

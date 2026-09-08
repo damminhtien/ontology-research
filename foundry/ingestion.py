@@ -25,6 +25,7 @@ from pyshacl import validate
 from rdflib import RDF, Graph, Literal, URIRef
 from rdflib.namespace import XSD
 
+from foundry.assertions import make_assertion
 from foundry.events import EventLog, SemanticEvent, make_event
 from foundry.identity import IdentityService
 from foundry.namespaces import new_fact_iri
@@ -281,6 +282,53 @@ class IngestionPipeline:
         )
         self._log.append(event)
         return _accept(canonical_id, event)
+
+    # -- generic assertions (docs/architecture.md §4.2) -----------------------
+
+    def ingest_assertion(
+        self,
+        *,
+        subject_id: str,
+        predicate: str,
+        object_kind: str,
+        object_value: str,
+        valid_from: str,
+        source_ids: list[str],
+        confidence: float | None = None,
+        supersedes: str | None = None,
+    ) -> IngestResult:
+        """Record one reified assertion about a known canonical entity.
+
+        Malformed input raises ``ValueError`` (caller bug); an unknown subject
+        is a data problem — it is durably queued for review like every other
+        unresolved reference and returns a rejection receipt.
+        """
+        if not source_ids:
+            raise ValueError("at least one source_id is required")
+        if not self._identity.knows(subject_id):
+            queue_event = self._queue_review(
+                reference_name=subject_id,
+                external_source=None,
+                external_id=None,
+                entity_type="",
+                candidates=(),
+                reason=f"assertion subject {subject_id} is not a known canonical entity",
+            )
+            return _reject(subject_id, "unknown assertion subject", event=queue_event)
+        # make_assertion validates everything before appending, so a ValueError
+        # here never leaves a partial write in the log
+        event = make_assertion(
+            log=self._log,
+            subject_id=subject_id,
+            predicate=predicate,
+            object_kind=object_kind,
+            object_value=object_value,
+            valid_from=valid_from,
+            source_ids=source_ids,
+            confidence=confidence,
+            supersedes=supersedes,
+        )
+        return _accept(subject_id, event)
 
     # -- internals -----------------------------------------------------------
 

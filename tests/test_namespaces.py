@@ -36,10 +36,18 @@ def test_minted_ids_use_frozen_schemes():
     entity = namespaces.new_entity_id()
     fact = namespaces.new_fact_iri()
     location = namespaces.new_location_iri()
+    assertion = namespaces.new_assertion_id()
+    document = namespaces.new_document_id()
     assert entity.startswith(namespaces.ENTITY_URN_PREFIX)
     assert len(entity) > len(namespaces.ENTITY_URN_PREFIX)
     assert fact.startswith(namespaces.FACT_URN_PREFIX)
     assert location.startswith(namespaces.LOCATION_URN_PREFIX)
+    assert assertion.startswith("urn:assert:")
+    assert len(assertion) > len("urn:assert:")
+    assert document.startswith("urn:doc:")
+    assert len(document) > len("urn:doc:")
     # uniqueness
     assert namespaces.new_entity_id() != entity
     assert namespaces.new_fact_iri() != fact
+    assert namespaces.new_assertion_id() != assertion
+    assert namespaces.new_document_id() != document

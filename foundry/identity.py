@@ -428,6 +428,10 @@ class IdentityService:
             retained_external_ids=tuple(sorted(retained_external)),
         )
 
+    def knows(self, entity_id: str) -> bool:
+        """True when the registry holds a record for this canonical id."""
+        return entity_id in self._records
+
     def identity(self, entity_id: str) -> tuple[str, frozenset[str], dict[str, frozenset[str]]]:
         """Return (entity_type, aliases, external_ids) for a canonical id."""
         record = self._records[entity_id]

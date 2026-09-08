@@ -76,6 +76,20 @@ class _LocationEntry:
     event_id: str
 
 
+@dataclass
+class _AssertionRecord:
+    """One entry in the assertion ledger (docs/architecture.md §4.2)."""
+
+    subject_id: str
+    predicate: str
+    object: dict
+    valid_from: str
+    valid_to: str | None
+    source_ids: tuple[str, ...]
+    confidence: float | None
+    status: str  # asserted | superseded
+
+
 class ReadModel:
     """In-memory read model over the canonical event stream.
 
@@ -91,6 +105,7 @@ class ReadModel:
         self._by_location: dict[str, set[str]] = {}
         self._current_location: dict[str, str] = {}
         self._merged_into: dict[str, str] = {}
+        self._assertions: dict[str, _AssertionRecord] = {}
         self._applied_event_ids: set[str] = set()
         self._checkpoint_sequence: int | None = None
         self._last_event_time: datetime | None = None
@@ -171,6 +186,10 @@ class ReadModel:
             # tombstone: an EntitySplit can restore the entity view from here
             self._merged_records[duplicate_id] = record
         self._merged_into[duplicate_id] = survivor_id
+        # assertions follow their subject through the merge
+        for record in self._assertions.values():
+            if record.subject_id == duplicate_id:
+                record.subject_id = survivor_id
         self._refresh_location_index(survivor_id)
         self._refresh_location_index(duplicate_id)
         self._current_location.pop(duplicate_id, None)
@@ -306,6 +325,66 @@ class ReadModel:
             ),
             "lag_seconds": lag_seconds,
         }
+
+    # -- assertion ledger (docs/architecture.md §4.2) -------------------------
+
+    def add_assertion(self, payload: dict) -> None:
+        """Fold one ``AssertionMade`` into the ledger."""
+        self._assertions[payload["assertion_id"]] = _AssertionRecord(
+            subject_id=payload["subject_id"],
+            predicate=payload["predicate"],
+            object=dict(payload["object"]),
+            valid_from=payload["valid_from"],
+            valid_to=payload.get("valid_to"),
+            source_ids=tuple(payload.get("source_ids") or ()),
+            confidence=payload.get("confidence"),
+            status="asserted",
+        )
+        superseded = payload.get("supersedes")
+        if superseded is not None and superseded in self._assertions:
+            self._assertions[superseded].status = "superseded"
+
+    def supersede_assertion(self, assertion_id: str) -> None:
+        """Mark one assertion superseded.
+
+        Raises:
+            ValueError: If the assertion is not in the ledger (log corruption).
+        """
+        record = self._assertions.get(assertion_id)
+        if record is None:
+            raise ValueError(f"assertion {assertion_id!r} not in ledger; log is corrupt")
+        record.status = "superseded"
+
+    def get_assertion(self, assertion_id: str) -> dict | None:
+        """Full ledger entry for one assertion (None when unknown)."""
+        record = self._assertions.get(assertion_id)
+        if record is None:
+            return None
+        return {
+            "assertion_id": assertion_id,
+            "subject_id": record.subject_id,
+            "predicate": record.predicate,
+            "object": dict(record.object),
+            "valid_from": record.valid_from,
+            "valid_to": record.valid_to,
+            "source_ids": list(record.source_ids),
+            "confidence": record.confidence,
+            "status": record.status,
+        }
+
+    def active_assertions(self, subject_id: str, predicate: str | None = None) -> list[dict]:
+        """Non-superseded assertions for a subject, optionally by predicate."""
+        return [
+            entry
+            for entry in (
+                self.get_assertion(aid)
+                for aid, record in self._assertions.items()
+                if record.subject_id == subject_id
+                and record.status == "asserted"
+                and (predicate is None or record.predicate == predicate)
+            )
+            if entry is not None
+        ]
 
     # -- internal maintenance (projector-only, keeps indexes consistent) -------
 
