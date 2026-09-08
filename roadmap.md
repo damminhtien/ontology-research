@@ -358,9 +358,21 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
         external id multi-valued, binding bền vững qua `ExternalIdBound` (ADR-0010)
   - [x] Under-merge repair qua `EntityMerged` + merge CLI (ADR-0007) — đã repair
         185 cặp QID trùng trên dữ liệu thật
+  - [x] Nạp dữ liệu thật: 24.217 canonical entities từ Wikidata trong lake
+        Parquet (47.628 events, song ngữ Việt–Anh) qua `tools/ingest_wikidata.py`
+- [x] Kiến trúc B1–B5 (2026-09-02, theo `docs/architecture.md`):
+  - [x] B1: một production log duy nhất; EventLog segmented + flock + fsync +
+        tail-recovery; `import_events`; review queue + split CLI defaults
+  - [x] B2: projector replay theo sequence (không còn wall-clock), per-event
+        idempotent, checkpoint save/load, reverse index streaming-safe
+  - [x] B3: lake manifest-authoritative query, dedup theo event_id, compaction
+  - [x] B4: review queue bền vững (`ResolutionReviewQueued`); un-merge replay-exact
+        (`EntitySplit` + `tools/split_entity.py`); identity store boundary còn mở
+  - [x] B5: Document/Assertion model nền tảng (`AssertionMade`/`AssertionSuperseded`/
+        `DocumentRegistered`, ledger trong read model, merge re-point subject);
+        SHACL mapping cho assertions còn mở
   - [ ] Reference lane (Wikidata/Wikipedia typed Parquet) tách khỏi runtime fetch
-  - [ ] Document + Assertion/Statement model, provenance/time/confidence generic
-  - [ ] Streaming/checkpointed projector; lake manifest-authoritative query
+  - [ ] Streaming projector chạy thường trực (checkpoint đã có, chưa gắn vào Console)
 - [ ] Phase 5+: xem bảng phase ở trên
 
 
