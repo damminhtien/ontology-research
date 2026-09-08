@@ -9,7 +9,7 @@ import pytest
 from foundry.events import EventLog, make_event
 from foundry.identity import IdentityService
 from foundry.lake import persist_events
-from foundry.merge import merge_entities, rebuild_identity
+from foundry.merge import merge_entities, rebuild_identity, split_entities
 from foundry.projector import replay_log
 from foundry.readmodel import ReadModel, parse_instant
 
@@ -375,3 +375,188 @@ class TestLakeAcceptsMerge:
         )
         files = persist_events([event], tmp_path / "lake")
         assert sum(f.rows for f in files) == 1
+
+
+class TestUnmerge:
+    """B4: EntitySplit undoes a recorded merge, replay-exactly."""
+
+    def test_merge_then_split_restores_pre_merge_state(self, tmp_path):
+        svc, survivor, duplicate = _undermerged_service()
+        log = EventLog(tmp_path / "events.jsonl")
+
+        merge_entities(
+            identity=svc,
+            log=log,
+            survivor_id=survivor,
+            duplicate_id=duplicate,
+            reason="looked like a duplicate",
+        )
+        assert svc.merged_into(duplicate) == survivor
+
+        result = split_entities(
+            identity=svc,
+            log=log,
+            survivor_id=survivor,
+            duplicate_id=duplicate,
+            reason="merge was a false positive",
+        )
+        assert result.restored_external_ids == (("wikidata", "Q2000002"),)
+        assert "Bach Khoa Hanoi" in result.restored_aliases
+        assert result.retained_aliases == () and result.retained_external_ids == ()
+
+        # registry is back to the pre-merge state
+        assert svc.merged_into(duplicate) == ""
+        _, dup_aliases, dup_ext = svc.identity(duplicate)
+        assert dup_ext["wikidata"] == frozenset({"Q2000002"})
+        assert "Bach Khoa Hanoi" in dup_aliases
+        assert (
+            svc.resolve(name="Bach Khoa Hanoi", entity_type="Organization").canonical_id
+            == duplicate
+        )
+        assert (
+            svc.resolve(
+                external_source="wikidata", external_id="Q2000002", entity_type="Organization"
+            ).canonical_id
+            == duplicate
+        )
+        assert (
+            svc.resolve(
+                external_source="wikidata", external_id="Q1000001", entity_type="Organization"
+            ).canonical_id
+            == survivor
+        )
+
+    def test_split_without_recorded_merge_is_rejected(self, tmp_path):
+        svc, survivor, duplicate = _undermerged_service()
+        log = EventLog(tmp_path / "events.jsonl")
+        with pytest.raises(ValueError, match="no EntityMerged event recorded"):
+            split_entities(identity=svc, log=log, survivor_id=survivor, duplicate_id=duplicate)
+        assert log.read_all() == []
+
+    def test_rebuild_replays_merge_then_split(self, tmp_path):
+        svc, survivor, duplicate = _undermerged_service()
+        log = EventLog(tmp_path / "events.jsonl")
+        log.append(
+            make_event(
+                "EntityCreated",
+                {
+                    "entity_id": survivor,
+                    "entity_type": "Organization",
+                    "name": "Trường Đại học Bách khoa",
+                    "name_aliases": [],
+                    "external_ids": [{"source": "wikidata", "external_id": "Q1000001"}],
+                    "source_id": "s",
+                    "confidence": 1.0,
+                },
+            )
+        )
+        log.append(
+            make_event(
+                "EntityCreated",
+                {
+                    "entity_id": duplicate,
+                    "entity_type": "Organization",
+                    "name": "Trường Đại học Bách khoa",
+                    "name_aliases": ["Bach Khoa Hanoi"],
+                    "external_ids": [{"source": "wikidata", "external_id": "Q2000002"}],
+                    "source_id": "s",
+                    "confidence": 1.0,
+                },
+            )
+        )
+        merge_entities(identity=svc, log=log, survivor_id=survivor, duplicate_id=duplicate)
+        split_entities(identity=svc, log=log, survivor_id=survivor, duplicate_id=duplicate)
+
+        rebuilt = rebuild_identity(log)
+        assert rebuilt.merged_into(duplicate) == ""
+        assert (
+            rebuilt.resolve(
+                external_source="wikidata", external_id="Q2000002", entity_type="Organization"
+            ).canonical_id
+            == duplicate
+        )
+        assert (
+            rebuilt.resolve(
+                external_source="wikidata", external_id="Q1000001", entity_type="Organization"
+            ).canonical_id
+            == survivor
+        )
+
+    def test_projector_restores_entity_view_from_tombstone(self, tmp_path):
+        log = EventLog(tmp_path / "events.jsonl")
+        log.append(
+            make_event(
+                "EntityCreated",
+                {
+                    "entity_id": E1,
+                    "entity_type": "Platform",
+                    "name": "V Alpha",
+                    "source_id": "s",
+                    "confidence": 1.0,
+                },
+            )
+        )
+        log.append(
+            make_event(
+                "EntityCreated",
+                {
+                    "entity_id": E2,
+                    "entity_type": "Platform",
+                    "name": "V Alpha (dup)",
+                    "source_id": "s",
+                    "confidence": 1.0,
+                },
+            )
+        )
+        log.append(
+            make_event(
+                "LocationObserved",
+                {
+                    "entity_id": E2,
+                    "location_uri": LOC_A,
+                    "valid_from": "2026-07-01T00:00:00Z",
+                    "source_ids": ["s"],
+                    "confidence": 0.9,
+                },
+            )
+        )
+        log.append(
+            make_event(
+                "EntityMerged",
+                {
+                    "survivor_id": E1,
+                    "duplicate_id": E2,
+                    "moved_aliases": [],
+                    "moved_external_ids": [],
+                    "reason": "r",
+                },
+            )
+        )
+        log.append(
+            make_event(
+                "EntitySplit",
+                {
+                    "survivor_id": E1,
+                    "duplicate_id": E2,
+                    "restored_aliases": [],
+                    "restored_external_ids": [],
+                    "retained_aliases": [],
+                    "retained_external_ids": [],
+                    "reason": "undo",
+                },
+            )
+        )
+
+        model, stats = replay_log(log)
+        assert stats.applied == 5
+        # entity view restored from the merge tombstone; redirect gone
+        assert model.get_entity(E2) is not None
+        assert model.merged_into(E2) is None
+        # documented limitation: location history stays with the survivor
+        assert model.current_location(E1).location_uri == LOC_A
+        assert model.current_location(E2) is None
+
+        # and the whole thing replays deterministically
+        model2, stats2 = replay_log(log)
+        assert stats2.applied == 5
+        assert model2.get_entity(E2) == model.get_entity(E2)

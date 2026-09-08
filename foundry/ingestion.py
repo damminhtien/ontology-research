@@ -63,9 +63,9 @@ class IngestResult:
     is_new: bool = False
 
 
-def _reject(canonical_id: str, reason: str) -> IngestResult:
-    """Build a rejection receipt."""
-    return IngestResult(accepted=False, canonical_id=canonical_id, reason=reason)
+def _reject(canonical_id: str, reason: str, event: SemanticEvent | None = None) -> IngestResult:
+    """Build a rejection receipt, optionally carrying a durable queue event."""
+    return IngestResult(accepted=False, canonical_id=canonical_id, reason=reason, event=event)
 
 
 def _accept(canonical_id: str, event: SemanticEvent, *, is_new: bool = True) -> IngestResult:
@@ -100,6 +100,9 @@ class IngestionPipeline:
         self._ontology_path = ontology_path
         self._shapes = Graph()
         self._shapes.parse(shapes_path.as_posix(), format="turtle")
+        # review-queue dedup within one process run: the same unresolved
+        # reference is queued once per run, not once per record
+        self._queued_references: set[tuple[str | None, str | None, str]] = set()
 
     # -- structured entities ------------------------------------------------
 
@@ -137,10 +140,20 @@ class IngestionPipeline:
             entity_type=entity_type,
         )
         if resolution.method == "review":
+            queue_event = self._queue_review(
+                reference_name=name,
+                external_source=external_source,
+                external_id=external_id,
+                entity_type=entity_type,
+                candidates=resolution.candidates,
+                reason=f"name matches candidate entities {resolution.candidates} "
+                f"(score={resolution.confidence}); needs human review before merge",
+            )
             return _reject(
                 "",
                 f"name matches candidate entities {resolution.candidates} "
                 f"(score={resolution.confidence}); needs human review before merge",
+                event=queue_event,
             )
 
         if aliases:
@@ -223,16 +236,21 @@ class IngestionPipeline:
 
         resolution = self._identity.resolve(name=entity_name, entity_type=entity_type)
         if resolution.method not in {"alias", "external_id"}:
-            if resolution.method == "review":
-                return _reject(
-                    "",
-                    f"entity reference matches candidates {resolution.candidates}; "
-                    "resolve via exact alias or external id first",
-                )
-            return _reject(
-                resolution.canonical_id,
-                "unresolved entity reference; ingest the entity before observing it",
+            reason = (
+                f"entity reference matches candidates {resolution.candidates}; "
+                "resolve via exact alias or external id first"
+                if resolution.method == "review"
+                else "unresolved entity reference; ingest the entity before observing it"
             )
+            queue_event = self._queue_review(
+                reference_name=entity_name,
+                external_source=None,
+                external_id=None,
+                entity_type=entity_type,
+                candidates=resolution.candidates,
+                reason=reason,
+            )
+            return _reject(resolution.canonical_id, reason, event=queue_event)
         canonical_id = resolution.canonical_id
 
         data_graph = self._build_observation_graph(
@@ -265,6 +283,42 @@ class IngestionPipeline:
         return _accept(canonical_id, event)
 
     # -- internals -----------------------------------------------------------
+
+    def _queue_review(
+        self,
+        *,
+        reference_name: str | None,
+        external_source: str | None,
+        external_id: str | None,
+        entity_type: str,
+        candidates: tuple[str, ...],
+        reason: str,
+    ) -> SemanticEvent | None:
+        """Append a durable ``ResolutionReviewQueued`` fact for a rejection.
+
+        Rejections are no longer transient stdout noise: the review queue is
+        replayable from the log, so a human review UI can drain it and a
+        re-run of the same source does not silently lose it. Within one
+        pipeline run the same reference is queued only once (cross-run
+        repeats are legitimate — the reference is still unresolved).
+        """
+        key = (reference_name, external_source, external_id or "")
+        if key in self._queued_references:
+            return None
+        self._queued_references.add(key)
+        event = make_event(
+            "ResolutionReviewQueued",
+            {
+                "reference_name": reference_name,
+                "external_source": external_source,
+                "external_id": external_id,
+                "entity_type": entity_type,
+                "candidates": list(candidates),
+                "reason": reason,
+            },
+        )
+        self._log.append(event)
+        return event
 
     def _build_observation_graph(
         self,

@@ -135,7 +135,10 @@ class TestObservationIngestion:
         )
         assert not result.accepted
         assert "unresolved entity" in result.reason
-        assert pipeline._log.read_all() == []
+        # B4: the rejection is durably queued, not just returned as a receipt
+        assert result.event is not None
+        assert result.event.event_type == "ResolutionReviewQueued"
+        assert [e.event_type for e in pipeline._log.read_all()] == ["ResolutionReviewQueued"]
 
     def test_observation_missing_source_fails_shacl_gate(self, pipeline):
         self.ingest_platform(pipeline)
@@ -170,6 +173,72 @@ class TestObservationIngestion:
                 source_ids=[SOURCE_URI],
                 confidence=1.5,
             )
+
+
+class TestReviewQueue:
+    """B4: identity-stage rejections become durable, replayable queue facts."""
+
+    @staticmethod
+    def _pipeline(log_path) -> IngestionPipeline:
+        return IngestionPipeline(
+            identity=IdentityService(),
+            log=EventLog(log_path),
+            ontology_path=CORE_ONTOLOGY,
+            shapes_path=SHAPES_FILE,
+        )
+
+    def test_review_rejection_appends_durable_queue_event(self, tmp_path):
+        log_path = tmp_path / "events.jsonl"
+        pipeline = self._pipeline(log_path)
+        pipeline.ingest_entity(
+            name="Alpha Patrol Unit One", entity_type="Organization", source_id="s1"
+        )
+        rejected = pipeline.ingest_entity(
+            name="Alpha Patrol Unit Two", entity_type="Organization", source_id="s2"
+        )
+
+        assert not rejected.accepted
+        assert rejected.event is not None
+        assert rejected.event.event_type == "ResolutionReviewQueued"
+        assert rejected.event.payload["reference_name"] == "Alpha Patrol Unit Two"
+        assert len(rejected.event.payload["candidates"]) >= 1
+        assert "needs human review" in rejected.event.payload["reason"]
+
+        events = EventLog(log_path).read_all()
+        assert [e.event_type for e in events] == ["EntityCreated", "ResolutionReviewQueued"]
+
+    def test_same_reference_queued_once_per_run(self, tmp_path):
+        log_path = tmp_path / "events.jsonl"
+        pipeline = self._pipeline(log_path)
+        pipeline.ingest_entity(
+            name="Alpha Patrol Unit One", entity_type="Organization", source_id="s1"
+        )
+        first = pipeline.ingest_entity(
+            name="Alpha Patrol Unit Two", entity_type="Organization", source_id="s2"
+        )
+        second = pipeline.ingest_entity(
+            name="Alpha Patrol Unit Two", entity_type="Organization", source_id="s3"
+        )
+
+        assert first.event is not None
+        assert second.event is None  # dedup: same unresolved reference, one queue fact
+        events = EventLog(log_path).read_all()
+        assert [e.event_type for e in events] == ["EntityCreated", "ResolutionReviewQueued"]
+
+    def test_unresolved_observation_reference_is_queued(self, tmp_path):
+        log_path = tmp_path / "events.jsonl"
+        pipeline = self._pipeline(log_path)
+        rejected = pipeline.ingest_location_observation(
+            entity_name="Never Registered Entity",
+            entity_type="Platform",
+            location_uri=LOCATION_URI,
+            valid_from="2026-08-20T03:00:00Z",
+            source_ids=[SOURCE_URI],
+        )
+        assert not rejected.accepted
+        assert rejected.event is not None
+        assert rejected.event.event_type == "ResolutionReviewQueued"
+        assert rejected.event.payload["reference_name"] == "Never Registered Entity"
 
 
 class TestExternalIdBinding:

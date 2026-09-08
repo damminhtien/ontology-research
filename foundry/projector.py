@@ -76,8 +76,16 @@ class Projector:
                 duplicate_id=payload["duplicate_id"],
                 event_time=occurred,
             )
+        elif event.event_type == "EntitySplit":
+            self._model.unmerge_entities(
+                survivor_id=payload["survivor_id"],
+                duplicate_id=payload["duplicate_id"],
+                event_time=occurred,
+            )
         elif event.event_type == "ExternalIdBound":
             pass  # identity-level fact; the read model holds no binding state
+        elif event.event_type == "ResolutionReviewQueued":
+            pass  # durable review-queue fact; drained by review tooling, not the read model
         else:
             return False
 

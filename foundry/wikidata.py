@@ -244,4 +244,8 @@ def ingest_records(
             stats.rejected += 1
             reason = result.reason.split(";")[0][:80]
             stats.rejection_reasons[reason] = stats.rejection_reasons.get(reason, 0) + 1
+            if result.event is not None:
+                # a durable ResolutionReviewQueued fact rides along with the
+                # rejection so the review queue reaches the lake too
+                events.append(result.event)
     return stats, receipts, events

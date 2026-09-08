@@ -109,6 +109,21 @@ class MergeOutcome:
     moved_external_ids: tuple[tuple[str, str], ...]
 
 
+@dataclass(frozen=True)
+class SplitOutcome:
+    """Result of undoing one merge.
+
+    ``restored_*`` bindings moved back onto the duplicate; ``retained_*``
+    bindings that a third entity claimed after the merge and therefore stay
+    where they are (multimap semantics make that visible, not silent).
+    """
+
+    restored_aliases: tuple[str, ...]
+    restored_external_ids: tuple[tuple[str, str], ...]
+    retained_aliases: tuple[str, ...]
+    retained_external_ids: tuple[tuple[str, str], ...]
+
+
 class IdentityService:
     """In-memory identity registry with deterministic resolution rules.
 
@@ -338,6 +353,80 @@ class IdentityService:
                 break  # defensive; cycles cannot be constructed via merge_entities
             seen.add(current)
         return current if current != entity_id else ""
+
+    def split_entity(
+        self,
+        survivor_id: str,
+        duplicate_id: str,
+        moved_aliases: tuple[str, ...] | list[str],
+        moved_external_ids: tuple[tuple[str, str], ...] | list[tuple[str, str]],
+    ) -> SplitOutcome:
+        """Undo one merge: move the recorded bindings back to ``duplicate_id``.
+
+        The restore set comes from the ``EntityMerged`` event payload (see
+        ``foundry.merge``), so replaying merge→split reproduces the exact
+        pre-merge registry state. Bindings that a third entity claimed after
+        the merge are *retained* where they are and reported, never silently
+        stolen back. The duplicate's location history stays merged into the
+        survivor — history re-partition belongs to the assertion model
+        (``docs/architecture.md`` §4.2), where each assertion names its
+        subject explicitly.
+
+        Raises:
+            ValueError: On unknown ids, a duplicate that is not currently
+                merged into this survivor, or an entity-type conflict.
+        """
+        duplicate = self._records.get(duplicate_id)
+        survivor = self._records.get(survivor_id)
+        if duplicate is None:
+            raise ValueError(f"unknown canonical id {duplicate_id}")
+        if survivor is None:
+            raise ValueError(f"unknown canonical id {survivor_id}")
+        if self._merged_into.get(duplicate_id) != survivor_id:
+            raise ValueError(f"{duplicate_id} has not been merged into {survivor_id}; cannot split")
+        if duplicate.entity_type != survivor.entity_type:
+            raise ValueError(
+                f"type conflict on split: {survivor.entity_type!r} vs {duplicate.entity_type!r}"
+            )
+
+        restored_aliases: list[str] = []
+        retained_aliases: list[str] = []
+        restored_external: list[tuple[str, str]] = []
+        retained_external: list[tuple[str, str]] = []
+
+        for alias in moved_aliases:
+            norm = normalize_name(alias)
+            owners = self._by_alias.get(norm)
+            if owners is not None and survivor_id in owners:
+                self._unbind_alias(norm, survivor_id)
+                survivor.aliases.discard(alias)
+                self._bind_alias(duplicate_id, alias)
+                restored_aliases.append(alias)
+            else:
+                retained_aliases.append(alias)
+
+        for source, ext in moved_external_ids:
+            key = f"{source}::{ext}"
+            owners = self._by_external.get(key)
+            if owners is not None and survivor_id in owners:
+                owners.discard(survivor_id)
+                survivor.external_ids.get(source, set()).discard(ext)
+                if not survivor.external_ids.get(source):
+                    survivor.external_ids.pop(source, None)
+                if not owners:
+                    self._by_external.pop(key, None)
+                self._bind_external(duplicate_id, source, ext)
+                restored_external.append((source, ext))
+            else:
+                retained_external.append((source, ext))
+
+        del self._merged_into[duplicate_id]
+        return SplitOutcome(
+            restored_aliases=tuple(sorted(restored_aliases)),
+            restored_external_ids=tuple(sorted(restored_external)),
+            retained_aliases=tuple(sorted(retained_aliases)),
+            retained_external_ids=tuple(sorted(retained_external)),
+        )
 
     def identity(self, entity_id: str) -> tuple[str, frozenset[str], dict[str, frozenset[str]]]:
         """Return (entity_type, aliases, external_ids) for a canonical id."""

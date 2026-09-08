@@ -86,6 +86,7 @@ class ReadModel:
     def __init__(self) -> None:
         """Start empty; the projector fills records."""
         self._entities: dict[str, _EntityRecord] = {}
+        self._merged_records: dict[str, _EntityRecord] = {}
         self._location_history: dict[str, list[_LocationEntry]] = {}
         self._by_location: dict[str, set[str]] = {}
         self._current_location: dict[str, str] = {}
@@ -165,11 +166,32 @@ class ReadModel:
             target = self._location_history.setdefault(survivor_id, [])
             target.extend(history)
             target.sort(key=lambda e: (e.valid_from, e.event_id))
-        self._entities.pop(duplicate_id, None)
+        record = self._entities.pop(duplicate_id, None)
+        if record is not None:
+            # tombstone: an EntitySplit can restore the entity view from here
+            self._merged_records[duplicate_id] = record
         self._merged_into[duplicate_id] = survivor_id
         self._refresh_location_index(survivor_id)
         self._refresh_location_index(duplicate_id)
         self._current_location.pop(duplicate_id, None)
+        self.touch(event_time)
+
+    def unmerge_entities(self, survivor_id: str, duplicate_id: str, event_time: datetime) -> None:
+        """Undo an ``EntityMerged`` projection (``EntitySplit`` event).
+
+        Restores the duplicate's entity view from the merge tombstone and
+        clears the redirect. Location history stays with the survivor — the
+        duplicate starts with an empty history; history re-partition belongs
+        to the assertion model where every assertion names its subject.
+        Idempotent: splitting an unmerged pair is a no-op.
+        """
+        record = self._merged_records.pop(duplicate_id, None)
+        if record is None:
+            return  # never merged (or already split): nothing to restore
+        self._entities[duplicate_id] = record
+        self._merged_into.pop(duplicate_id, None)
+        self._refresh_location_index(survivor_id)
+        self._refresh_location_index(duplicate_id)
         self.touch(event_time)
 
     # -- apply bookkeeping (per-event idempotency + checkpoint) ---------------

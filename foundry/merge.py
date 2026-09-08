@@ -18,6 +18,7 @@ from typing import Any
 from foundry.events import (
     EVENT_TYPE_ENTITY_CREATED,
     EVENT_TYPE_ENTITY_MERGED,
+    EVENT_TYPE_ENTITY_SPLIT,
     EVENT_TYPE_EXTERNAL_ID_BOUND,
     EventLog,
     SemanticEvent,
@@ -114,4 +115,103 @@ def rebuild_identity(log: EventLog) -> IdentityService:
             identity.add_external_id(
                 payload["entity_id"], payload["source"], payload["external_id"]
             )
+        elif event.event_type == EVENT_TYPE_ENTITY_SPLIT:
+            identity.split_entity(
+                payload["survivor_id"],
+                payload["duplicate_id"],
+                tuple(payload.get("restored_aliases") or []),
+                tuple(
+                    (b["source"], b["external_id"])
+                    for b in payload.get("restored_external_ids") or []
+                ),
+            )
+            # bindings a third party claimed between merge and split stay put;
+            # the split outcome is already recorded in the event payload
     return identity
+
+
+@dataclass(frozen=True)
+class SplitResult:
+    """Receipt for one confirmed un-merge."""
+
+    survivor_id: str
+    duplicate_id: str
+    restored_aliases: tuple[str, ...]
+    restored_external_ids: tuple[tuple[str, str], ...]
+    retained_aliases: tuple[str, ...]
+    retained_external_ids: tuple[tuple[str, str], ...]
+    event: SemanticEvent
+
+
+def find_merge_event(log: EventLog, survivor_id: str, duplicate_id: str) -> SemanticEvent | None:
+    """Latest ``EntityMerged`` event for this pair, if the log records one."""
+    for event in reversed(log.read_all()):
+        if event.event_type != EVENT_TYPE_ENTITY_MERGED:
+            continue
+        payload = event.payload
+        if (
+            payload.get("survivor_id") == survivor_id
+            and payload.get("duplicate_id") == duplicate_id
+        ):
+            return event
+    return None
+
+
+def split_entities(
+    *,
+    identity: IdentityService,
+    log: EventLog,
+    survivor_id: str,
+    duplicate_id: str,
+    reason: str = "",
+) -> SplitResult:
+    """Undo a previously recorded merge and append the ``EntitySplit`` event.
+
+    The restore set is read from the ``EntityMerged`` event in the log — a
+    split without a recorded merge is rejected, so the correction always
+    references an auditable cause.
+
+    Raises:
+        ValueError: If no merge event exists for the pair, or the registry
+            rejects the split (unknown ids, not merged, type conflict).
+    """
+    merge_event = find_merge_event(log, survivor_id, duplicate_id)
+    if merge_event is None:
+        raise ValueError(
+            f"no EntityMerged event recorded for {duplicate_id} -> {survivor_id}; nothing to split"
+        )
+    moved = merge_event.payload
+    outcome = identity.split_entity(
+        survivor_id,
+        duplicate_id,
+        tuple(moved.get("moved_aliases") or []),
+        tuple((b["source"], b["external_id"]) for b in moved.get("moved_external_ids") or []),
+    )
+    event = make_event(
+        EVENT_TYPE_ENTITY_SPLIT,
+        {
+            "survivor_id": survivor_id,
+            "duplicate_id": duplicate_id,
+            "restored_aliases": list(outcome.restored_aliases),
+            "restored_external_ids": [
+                {"source": source, "external_id": ext}
+                for source, ext in outcome.restored_external_ids
+            ],
+            "retained_aliases": list(outcome.retained_aliases),
+            "retained_external_ids": [
+                {"source": source, "external_id": ext}
+                for source, ext in outcome.retained_external_ids
+            ],
+            "reason": reason,
+        },
+    )
+    log.append(event)
+    return SplitResult(
+        survivor_id=survivor_id,
+        duplicate_id=duplicate_id,
+        restored_aliases=outcome.restored_aliases,
+        restored_external_ids=outcome.restored_external_ids,
+        retained_aliases=outcome.retained_aliases,
+        retained_external_ids=outcome.retained_external_ids,
+        event=event,
+    )
