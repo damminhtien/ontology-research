@@ -203,3 +203,98 @@ def dump_assertions(ledger: dict[str, dict[str, Any]]) -> str:
         json.dumps({**entry, "assertion_id": assertion_id}, ensure_ascii=False, sort_keys=True)
         for assertion_id, entry in sorted(ledger.items())
     )
+
+
+# -- RDF/SHACL mapping (ontology/middle/assertion.ttl + shapes/assertion_shapes.ttl) --
+
+from rdflib import Graph, Literal, URIRef  # noqa: E402
+from rdflib.namespace import RDF, XSD  # noqa: E402
+
+ASSERTION_NS = "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#"
+CORE_NS = "https://damminhtien.github.io/ontology-research/ontology/core#"
+_OBJECT_PREDICATES = {
+    "entity": (ASSERTION_NS, "hasObject"),
+    "location": (ASSERTION_NS, "hasObject"),
+    "literal": (CORE_NS, "name"),
+}
+
+
+def document_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
+    """Add the RDF mapping of one ``DocumentRegistered`` event; returns its node.
+
+    The document is an ``assertion:Document`` (a subclass of ``core:Source``)
+    carrying its title as ``core:name``.
+    """
+    if event.event_type != EVENT_TYPE_DOCUMENT_REGISTERED:
+        raise ValueError(f"expected DocumentRegistered, got {event.event_type}")
+    payload = event.payload
+    node = URIRef(payload["document_id"])
+    graph.add((node, RDF.type, URIRef(ASSERTION_NS + "Document")))
+    graph.add((node, URIRef(CORE_NS + "name"), Literal(payload["title"], datatype=XSD.string)))
+    return node
+
+
+def assertion_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
+    """Add the RDF mapping of one ``AssertionMade`` event; returns its node.
+
+    Mapping (ontology/middle/assertion.ttl): subject via ``core:describes``,
+    object via ``assertion:hasObject`` (entity/location) or ``core:name``
+    (literal), valid time via ``core:validFrom``/``core:validUntil``, provenance
+    via ``core:hasSource`` (cited Documents), optional ``core:hasConfidence``
+    and the correction link ``assertion:supersedes``.
+
+    Raises:
+        ValueError: On a non-AssertionMade event or an unknown object kind.
+    """
+    if event.event_type != EVENT_TYPE_ASSERTION_MADE:
+        raise ValueError(f"expected AssertionMade, got {event.event_type}")
+    payload = event.payload
+    obj = payload["object"]
+    kind = obj["kind"]
+    if kind not in _OBJECT_PREDICATES:
+        raise ValueError(f"unknown object kind {kind!r}")
+
+    node = URIRef(payload["assertion_id"])
+    graph.add((node, RDF.type, URIRef(ASSERTION_NS + "Assertion")))
+    graph.add((node, URIRef(CORE_NS + "describes"), URIRef(payload["subject_id"])))
+
+    ns, local = _OBJECT_PREDICATES[kind]
+    graph.add(
+        (
+            node,
+            URIRef(ns + local),
+            URIRef(obj["value"])
+            if kind != "literal"
+            else Literal(obj["value"], datatype=XSD.string),
+        )
+    )
+
+    graph.add(
+        (
+            node,
+            URIRef(CORE_NS + "validFrom"),
+            Literal(payload["valid_from"], datatype=XSD.dateTime),
+        )
+    )
+    if payload.get("valid_to") is not None:
+        graph.add(
+            (
+                node,
+                URIRef(CORE_NS + "validUntil"),
+                Literal(payload["valid_to"], datatype=XSD.dateTime),
+            )
+        )
+    for source_id in payload.get("source_ids") or ():
+        graph.add((node, URIRef(CORE_NS + "hasSource"), URIRef(source_id)))
+    confidence = payload.get("confidence")
+    if confidence is not None:
+        graph.add(
+            (
+                node,
+                URIRef(CORE_NS + "hasConfidence"),
+                Literal(str(confidence), datatype=XSD.decimal),
+            )
+        )
+    if payload.get("supersedes") is not None:
+        graph.add((node, URIRef(ASSERTION_NS + "supersedes"), URIRef(payload["supersedes"])))
+    return node

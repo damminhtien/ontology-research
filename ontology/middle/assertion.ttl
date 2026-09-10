@@ -1,0 +1,39 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
+@prefix assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#> .
+
+<https://damminhtien.github.io/ontology-research/ontology/middle/assertion> a owl:Ontology ;
+    dcterms:title "Middle Layer: Document/Assertion Model"@en ;
+    dcterms:description "Generic assertion mapping (docs/architecture.md §4.2). An Assertion reifies one statement about the world with provenance and bi-temporal validity; every concrete fact type builds on it. Reuses core properties (core:describes, core:hasSource, core:validFrom, core:validUntil, core:hasConfidence) — this module adds only the two classes and the supersedes relation."@en ;
+    dcterms:version "0.1.0" ;
+    owl:imports <https://damminhtien.github.io/ontology-research/ontology/core> ;
+    vann:preferredNamespacePrefix "assertion" ;
+    vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#" .
+
+#################################################################
+# Classes
+#################################################################
+
+assertion:Document a owl:Class ; rdfs:subClassOf core:Source ;
+    rdfs:label "Document"@en ;
+    rdfs:comment "A provenance source document (report, record, crawl). Assertions cite documents via core:hasSource."@en .
+
+assertion:Assertion a owl:Class ; rdfs:subClassOf core:Event ;
+    rdfs:label "Assertion"@en ;
+    rdfs:comment "One reified statement about the world: core:describes names the subject entity, assertion:hasObject carries the object (entity, location or literal), core:validFrom/core:validUntil carry valid time, core:hasSource cites Documents, core:hasConfidence is optional."@en .
+
+#################################################################
+# Properties
+#################################################################
+
+assertion:hasObject a owl:ObjectProperty ; rdfs:domain assertion:Assertion ; rdfs:range core:Entity ;
+    rdfs:label "has object"@en ;
+    rdfs:comment "Entity or Location the statement points at. Literal-valued objects use core:name on the assertion instead."@en .
+
+assertion:supersedes a owl:ObjectProperty ; rdfs:domain assertion:Assertion ; rdfs:range assertion:Assertion ;
+    rdfs:label "supersedes"@en ;
+    rdfs:comment "Correction link: this assertion replaces the referenced one (never a rewrite — ADR-0002)."@en .

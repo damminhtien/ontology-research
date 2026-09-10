@@ -1,0 +1,71 @@
+# SHACL shapes for the Document → Assertion model (docs/architecture.md §4.2).
+#
+# The assertion layer is the target model new fact types build on: one reified
+# statement = subject entity (core:describes), typed object
+# (assertion:hasObject / core:name for literals), valid time (core:validFrom,
+# core:validUntil), provenance (core:hasSource → assertion:Document) and
+# optional confidence. Corrections are AssertionSuperseded events referencing
+# the original assertion id via assertion:supersedes — never a rewrite
+# (ADR-0002). Property counts mirror the write-path validation in
+# foundry/assertions.py.
+
+@prefix sh:        <http://www.w3.org/ns/shacl#> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+@prefix core:      <https://damminhtien.github.io/ontology-research/ontology/core#> .
+@prefix assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#> .
+
+assertion:AssertionShape a sh:NodeShape ;
+    sh:targetClass assertion:Assertion ;
+    sh:property [
+        sh:path core:describes ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:class core:Entity ;
+        sh:message "Assertion must describe exactly one Entity."@en ;
+    ] ;
+    sh:property [
+        sh:path assertion:hasObject ;
+        sh:maxCount 1 ;
+        sh:class core:Entity ;
+        sh:message "Assertion may point at at most one object entity/location."@en ;
+    ] ;
+    sh:property [
+        sh:path core:validFrom ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:datatype xsd:dateTime ;
+        sh:message "Assertion must have exactly one xsd:dateTime validFrom."@en ;
+    ] ;
+    sh:property [
+        sh:path core:validUntil ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:dateTime ;
+        sh:message "Assertion may have at most one validUntil."@en ;
+    ] ;
+    sh:property [
+        sh:path core:hasSource ;
+        sh:minCount 1 ;
+        sh:class assertion:Document ;
+        sh:message "Assertion must cite at least one Document."@en ;
+    ] ;
+    sh:property [
+        sh:path core:hasConfidence ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ; sh:maxInclusive 1 ;
+        sh:message "Confidence must be a decimal in [0,1]."@en ;
+    ] ;
+    sh:property [
+        sh:path assertion:supersedes ;
+        sh:maxCount 1 ;
+        sh:class assertion:Assertion ;
+        sh:message "Assertion may supersede at most one other Assertion."@en ;
+    ] .
+
+# A provenance source document is a core:Source with a human-readable name.
+assertion:DocumentShape a sh:NodeShape ;
+    sh:targetClass assertion:Document ;
+    sh:property [
+        sh:path core:name ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "Document needs at least one name."@en ;
+    ] .
