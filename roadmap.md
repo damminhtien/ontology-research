@@ -371,6 +371,14 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
   - [x] B5: Document/Assertion model nền tảng (`AssertionMade`/`AssertionSuperseded`/
         `DocumentRegistered`, ledger trong read model, merge re-point subject);
         SHACL mapping cho assertions còn mở
+  - [x] B6: identity store boundary — `IdentityStore` ABC (records, alias/external
+        multimaps, token blocking index, merge redirects) tách khỏi
+        `IdentityService` (policy); backend in-memory mặc định, SQLite/graph
+        thay vào sau không đổi resolution logic (ADR-0010, §4.5)
+  - [x] B7: ontology + SHACL mapping cho assertions — `assertion:Document`/
+        `assertion:Assertion` tái dùng core properties, shapes pin describes/
+        object/validFrom/source/confidence + thứ tự supersedes; ledger
+        materialize RDF và validate khi ingest
   - [ ] Reference lane (Wikidata/Wikipedia typed Parquet) tách khỏi runtime fetch
   - [ ] Streaming projector chạy thường trực (checkpoint đã có, chưa gắn vào Console)
 - [ ] Phase 5+: xem bảng phase ở trên
