@@ -108,7 +108,7 @@ class TestPureLookup:
         result = svc.lookup(name="Never Seen Before", entity_type="Platform")
         assert result.method == "miss"
         assert result.canonical_id == ""
-        assert svc._records == {}  # pure: no entity minted, nothing bound
+        assert svc.store._records == {}  # pure: no entity minted, nothing bound
         # resolve() afterwards still creates the entity
         resolved = svc.resolve(name="Never Seen Before", entity_type="Platform")
         assert resolved.method == "new" and resolved.is_new
@@ -235,7 +235,7 @@ class TestFuzzyBlockingIndex:
     def _brute_force_candidates(service: IdentityService, query: str) -> list[tuple[str, float]]:
         tokens = set(normalize_name(query).split())
         best: dict[str, float] = {}
-        for alias_norm, owners in service._by_alias.items():
+        for alias_norm, owners in service.store._by_alias.items():
             alias_tokens = set(alias_norm.split())
             if not tokens or not alias_tokens:
                 continue

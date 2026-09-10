@@ -37,6 +37,7 @@ Canonical ids use ``urn:world:entity:<uuid>`` - never database auto-increment.
 
 from __future__ import annotations
 
+import abc
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
@@ -95,7 +96,9 @@ class Resolution:
 
 
 @dataclass
-class _Record:
+class IdentityRecord:
+    """Mutable registry state for one canonical entity (owned by a store)."""
+
     entity_type: str
     aliases: set[str] = field(default_factory=set)
     external_ids: dict[str, set[str]] = field(default_factory=dict)
@@ -124,16 +127,81 @@ class SplitOutcome:
     retained_external_ids: tuple[tuple[str, str], ...]
 
 
-class IdentityService:
-    """In-memory identity registry with deterministic resolution rules.
+class IdentityStore(abc.ABC):
+    """Persistence boundary for registry state (docs/architecture.md §4.5).
 
-    Sufficient for Phase 2 correctness work; persistence and serving scale
-    are deferred to the platform layer without changing the contract.
+    Owns canonical-entity records, the alias/external-id multimaps, the
+    token blocking index and merge redirects. :class:`IdentityService`
+    keeps every policy decision (lookup order, ambiguity and review
+    routing, merge/split validation) so a SQLite or graph backend can be
+    substituted without touching resolution logic.
     """
 
+    @abc.abstractmethod
+    def upsert(self, entity_id: str, entity_type: str) -> None:
+        """Create an empty record for ``entity_id`` when absent."""
+
+    @abc.abstractmethod
+    def get(self, entity_id: str) -> IdentityRecord | None:
+        """Return the live record for ``entity_id``, or ``None``."""
+
+    @abc.abstractmethod
+    def entity_ids(self) -> Iterable[str]:
+        """All recorded canonical ids (including merged-away ones)."""
+
+    @abc.abstractmethod
+    def bind_alias(self, entity_id: str, alias: str) -> None:
+        """Record ``alias`` for ``entity_id`` and update the indexes."""
+
+    @abc.abstractmethod
+    def unbind_alias(self, alias: str, entity_id: str) -> None:
+        """Drop one alias binding (index + record) when present."""
+
+    @abc.abstractmethod
+    def alias_owners(self, alias_norm: str) -> set[str]:
+        """Canonical ids claiming the normalized alias."""
+
+    @abc.abstractmethod
+    def bind_external(self, entity_id: str, source: str, external_id: str) -> None:
+        """Record an external-id binding and update the index."""
+
+    @abc.abstractmethod
+    def unbind_external(self, source: str, external_id: str, entity_id: str) -> None:
+        """Drop one external-id binding (index + record) when present."""
+
+    @abc.abstractmethod
+    def external_owners(self, source: str, external_id: str) -> set[str]:
+        """Canonical ids claiming ``source::external_id``."""
+
+    @abc.abstractmethod
+    def detach_bindings(
+        self, entity_id: str
+    ) -> tuple[tuple[str, ...], tuple[tuple[str, str], ...]]:
+        """Remove and return every binding of ``entity_id`` (merge path)."""
+
+    @abc.abstractmethod
+    def candidate_aliases(self, tokens: set[str]) -> dict[str, int]:
+        """Normalized aliases sharing >= 1 token, mapped to shared-token counts."""
+
+    @abc.abstractmethod
+    def record_merge(self, duplicate_id: str, survivor_id: str) -> None:
+        """Record a permanent ``duplicate_id -> survivor_id`` redirect."""
+
+    @abc.abstractmethod
+    def clear_merge(self, duplicate_id: str) -> None:
+        """Remove the redirect for ``duplicate_id`` (split path)."""
+
+    @abc.abstractmethod
+    def merge_redirects(self) -> Mapping[str, str]:
+        """All duplicate -> survivor redirects."""
+
+
+class InMemoryIdentityStore(IdentityStore):
+    """Default backend: plain dicts, rebuilt from the log on restart."""
+
     def __init__(self) -> None:
-        """Start with an empty in-memory registry."""
-        self._records: dict[str, _Record] = {}
+        """Start with an empty registry; ``rebuild_identity`` fills it."""
+        self._records: dict[str, IdentityRecord] = {}
         # Alias multimap: normalized alias -> canonical ids claiming it.
         self._by_alias: dict[str, set[str]] = {}
         # External-id multimap: "source::id" -> canonical ids claiming it.
@@ -144,12 +212,140 @@ class IdentityService:
         # under the overlap coefficient, so blocking is exact (no false
         # negatives) and turns the O(aliases) scan into O(shared candidates).
         self._token_to_norms: dict[str, set[str]] = {}
-        # duplicate id -> surviving id, recorded by merge_entities.
+        # duplicate id -> surviving id, recorded by record_merge.
         self._merged_into: dict[str, str] = {}
+
+    def upsert(self, entity_id: str, entity_type: str) -> None:
+        """Create an empty record when absent (existing records untouched)."""
+        if entity_id not in self._records:
+            self._records[entity_id] = IdentityRecord(entity_type=entity_type)
+
+    def get(self, entity_id: str) -> IdentityRecord | None:
+        """Return the live record, or ``None`` for unknown ids."""
+        return self._records.get(entity_id)
+
+    def entity_ids(self) -> Iterable[str]:
+        """All recorded canonical ids (including merged-away ones)."""
+        return self._records.keys()
+
+    def bind_alias(self, entity_id: str, alias: str) -> None:
+        """Add the alias to the record and the normalized + token indexes."""
+        norm = normalize_name(alias)
+        if not norm:
+            return  # nothing matchable after normalization
+        owners = self._by_alias.setdefault(norm, set())
+        if entity_id not in owners:
+            for token in norm.split():
+                self._token_to_norms.setdefault(token, set()).add(norm)
+        owners.add(entity_id)
+        self._records[entity_id].aliases.add(alias)
+
+    def unbind_alias(self, alias: str, entity_id: str) -> None:
+        """Drop one alias binding from index and record; prune empty keys."""
+        norm = normalize_name(alias)
+        owners = self._by_alias.get(norm)
+        if owners is None or entity_id not in owners:
+            return
+        owners.discard(entity_id)
+        self._records[entity_id].aliases.discard(alias)
+        if not owners:
+            del self._by_alias[norm]
+            for token in norm.split():
+                bucket = self._token_to_norms.get(token)
+                if bucket is not None:
+                    bucket.discard(norm)
+                    if not bucket:
+                        del self._token_to_norms[token]
+
+    def alias_owners(self, alias_norm: str) -> set[str]:
+        """Canonical ids claiming the normalized alias (empty when none)."""
+        return self._by_alias.get(alias_norm, set())
+
+    def bind_external(self, entity_id: str, source: str, external_id: str) -> None:
+        """Add the external id to the record and the ``source::id`` index."""
+        key = f"{source}::{external_id}"
+        self._by_external.setdefault(key, set()).add(entity_id)
+        self._records[entity_id].external_ids.setdefault(source, set()).add(external_id)
+
+    def unbind_external(self, source: str, external_id: str, entity_id: str) -> None:
+        """Drop one external-id binding from index and record."""
+        key = f"{source}::{external_id}"
+        owners = self._by_external.get(key)
+        if owners is not None:
+            owners.discard(entity_id)
+            if not owners:
+                del self._by_external[key]
+        exts = self._records[entity_id].external_ids.get(source)
+        if exts is not None:
+            exts.discard(external_id)
+            if not exts:
+                del self._records[entity_id].external_ids[source]
+
+    def external_owners(self, source: str, external_id: str) -> set[str]:
+        """Canonical ids claiming ``source::external_id`` (empty when none)."""
+        return self._by_external.get(f"{source}::{external_id}", set())
+
+    def detach_bindings(
+        self, entity_id: str
+    ) -> tuple[tuple[str, ...], tuple[tuple[str, str], ...]]:
+        """Remove and return every binding of ``entity_id`` (merge path)."""
+        record = self._records[entity_id]
+        moved_aliases = tuple(sorted(record.aliases))
+        moved_external = tuple(
+            sorted((source, ext) for source, exts in record.external_ids.items() for ext in exts)
+        )
+        for alias in moved_aliases:
+            self.unbind_alias(alias, entity_id)
+        for source, ext in moved_external:
+            self._by_external.pop(f"{source}::{ext}", None)
+        record.aliases.clear()
+        record.external_ids.clear()
+        return moved_aliases, moved_external
+
+    def candidate_aliases(self, tokens: set[str]) -> dict[str, int]:
+        """Normalized aliases sharing >= 1 token, mapped to shared-token counts."""
+        shared: dict[str, int] = {}
+        for token in tokens:
+            for alias_norm in self._token_to_norms.get(token, ()):
+                shared[alias_norm] = shared.get(alias_norm, 0) + 1
+        return shared
+
+    def record_merge(self, duplicate_id: str, survivor_id: str) -> None:
+        """Record a permanent ``duplicate_id -> survivor_id`` redirect."""
+        self._merged_into[duplicate_id] = survivor_id
+
+    def clear_merge(self, duplicate_id: str) -> None:
+        """Remove the redirect for ``duplicate_id`` (split path)."""
+        self._merged_into.pop(duplicate_id, None)
+
+    def merge_redirects(self) -> Mapping[str, str]:
+        """All duplicate -> survivor redirects."""
+        return self._merged_into
+
+
+class IdentityService:
+    """Identity registry with deterministic resolution rules.
+
+    Resolution *policy* lives here (lookup order, ambiguity and review
+    routing, merge/split validation); registry *state* lives behind the
+    :class:`IdentityStore` boundary. The default backend is in-memory,
+    rebuilt from the log via ``foundry.merge.rebuild_identity``; a
+    SQLite/graph backend swaps in without changing this class
+    (docs/architecture.md §4.5).
+    """
+
+    def __init__(self, store: IdentityStore | None = None) -> None:
+        """Use ``store`` for registry state; default is in-memory."""
+        self._store: IdentityStore = store if store is not None else InMemoryIdentityStore()
+
+    @property
+    def store(self) -> IdentityStore:
+        """The backing store (for parity checks and tooling)."""
+        return self._store
 
     def __len__(self) -> int:
         """Number of live canonical entities (merged-away ids excluded)."""
-        return sum(1 for rid in self._records if rid not in self._merged_into)
+        return len(set(self._store.entity_ids()) - set(self._store.merge_redirects()))
 
     def register(
         self,
@@ -164,20 +360,19 @@ class IdentityService:
         Raises:
             ValueError: On a type conflict for a known id.
         """
-        record = self._records.get(entity_id)
+        record = self._store.get(entity_id)
         if record is None:
-            record = _Record(entity_type=entity_type)
-            self._records[entity_id] = record
+            self._store.upsert(entity_id, entity_type)
         elif record.entity_type != entity_type:
             raise ValueError(
                 f"type conflict for {entity_id}: {record.entity_type!r} vs {entity_type!r}"
             )
         for alias in aliases or []:
-            self._bind_alias(entity_id, alias)
+            self._store.bind_alias(entity_id, alias)
         for source, value in (external_ids or {}).items():
             ids = [value] if isinstance(value, str) else value
             for ext in ids:
-                self._bind_external(entity_id, source, ext)
+                self._store.bind_external(entity_id, source, ext)
 
     def lookup(
         self,
@@ -203,21 +398,25 @@ class IdentityService:
         def typed_owners(owners: set[str]) -> set[str]:
             if entity_type is None:
                 return owners
-            return {owner for owner in owners if self._records[owner].entity_type == entity_type}
+            return {
+                owner
+                for owner in owners
+                if (record := self._store.get(owner)) is not None
+                and record.entity_type == entity_type
+            }
 
         if not name and not external_id:
             raise ValueError("lookup() requires a name or an external_id")
 
         if external_id is not None:
-            key = f"{external_source or '*'}::{external_id}"
-            owners = typed_owners(self._by_external.get(key, set()))
+            owners = typed_owners(self._store.external_owners(external_source or "*", external_id))
             if len(owners) == 1:
                 return LookupResult(next(iter(owners)), "external_id")
             if len(owners) > 1:
                 return LookupResult("", "ambiguous", tuple(sorted(owners)))
 
         if name:
-            owners = typed_owners(self._by_alias.get(normalize_name(name), set()))
+            owners = typed_owners(self._store.alias_owners(normalize_name(name)))
             if len(owners) == 1:
                 return LookupResult(next(iter(owners)), "alias")
             if len(owners) > 1:
@@ -281,16 +480,16 @@ class IdentityService:
         canonical_id = new_entity_id()
         self.register(entity_id=canonical_id, entity_type=entity_type)
         if name:
-            self._bind_alias(canonical_id, name)
+            self._store.bind_alias(canonical_id, name)
         if external_id is not None:
-            self._bind_external(canonical_id, external_source or "*", external_id)
+            self._store.bind_external(canonical_id, external_source or "*", external_id)
         return Resolution(canonical_id, 1.0, "new", True)
 
     def add_external_id(self, entity_id: str, source: str, external_id: str) -> None:
         """Attach an external identifier to a known canonical entity."""
-        if entity_id not in self._records:
+        if self._store.get(entity_id) is None:
             raise ValueError(f"unknown canonical id {entity_id}")
-        self._bind_external(entity_id, source, external_id)
+        self._store.bind_external(entity_id, source, external_id)
 
     def merge_entities(self, survivor_id: str, duplicate_id: str) -> MergeOutcome:
         """Collapse ``duplicate_id`` into ``survivor_id`` (under-merge repair).
@@ -310,34 +509,25 @@ class IdentityService:
         """
         if survivor_id == duplicate_id:
             raise ValueError("cannot merge an entity into itself")
-        duplicate = self._records.get(duplicate_id)
-        survivor = self._records.get(survivor_id)
+        duplicate = self._store.get(duplicate_id)
+        survivor = self._store.get(survivor_id)
         if duplicate is None:
             raise ValueError(f"unknown canonical id {duplicate_id}")
         if survivor is None:
             raise ValueError(f"unknown canonical id {survivor_id}")
-        if duplicate_id in self._merged_into:
+        if duplicate_id in self._store.merge_redirects():
             raise ValueError(f"{duplicate_id} has already been merged")
         if duplicate.entity_type != survivor.entity_type:
             raise ValueError(
                 f"type conflict on merge: {survivor.entity_type!r} vs {duplicate.entity_type!r}"
             )
 
-        moved_aliases = sorted(duplicate.aliases)
-        moved_external_ids = sorted(
-            (source, ext) for source, exts in duplicate.external_ids.items() for ext in exts
-        )
+        moved_aliases, moved_external_ids = self._store.detach_bindings(duplicate_id)
         for alias in moved_aliases:
-            self._unbind_alias(normalize_name(alias), duplicate_id)
+            self._store.bind_alias(survivor_id, alias)
         for source, ext in moved_external_ids:
-            self._by_external.pop(f"{source}::{ext}", None)
-        duplicate.aliases.clear()
-        duplicate.external_ids.clear()
-        for alias in moved_aliases:
-            self._bind_alias(survivor_id, alias)
-        for source, ext in moved_external_ids:
-            self._bind_external(survivor_id, source, ext)
-        self._merged_into[duplicate_id] = survivor_id
+            self._store.bind_external(survivor_id, source, ext)
+        self._store.record_merge(duplicate_id, survivor_id)
         return MergeOutcome(
             moved_aliases=tuple(moved_aliases),
             moved_external_ids=tuple(moved_external_ids),
@@ -345,10 +535,11 @@ class IdentityService:
 
     def merged_into(self, entity_id: str) -> str:
         """Return the final survivor for a merged id, or '' when not merged."""
+        redirects = self._store.merge_redirects()
         seen = {entity_id}
         current = entity_id
-        while current in self._merged_into:
-            current = self._merged_into[current]
+        while current in redirects:
+            current = redirects[current]
             if current in seen:
                 break  # defensive; cycles cannot be constructed via merge_entities
             seen.add(current)
@@ -376,13 +567,13 @@ class IdentityService:
             ValueError: On unknown ids, a duplicate that is not currently
                 merged into this survivor, or an entity-type conflict.
         """
-        duplicate = self._records.get(duplicate_id)
-        survivor = self._records.get(survivor_id)
+        duplicate = self._store.get(duplicate_id)
+        survivor = self._store.get(survivor_id)
         if duplicate is None:
             raise ValueError(f"unknown canonical id {duplicate_id}")
         if survivor is None:
             raise ValueError(f"unknown canonical id {survivor_id}")
-        if self._merged_into.get(duplicate_id) != survivor_id:
+        if self._store.merge_redirects().get(duplicate_id) != survivor_id:
             raise ValueError(f"{duplicate_id} has not been merged into {survivor_id}; cannot split")
         if duplicate.entity_type != survivor.entity_type:
             raise ValueError(
@@ -395,32 +586,22 @@ class IdentityService:
         retained_external: list[tuple[str, str]] = []
 
         for alias in moved_aliases:
-            norm = normalize_name(alias)
-            owners = self._by_alias.get(norm)
-            if owners is not None and survivor_id in owners:
-                self._unbind_alias(norm, survivor_id)
-                survivor.aliases.discard(alias)
-                self._bind_alias(duplicate_id, alias)
+            if survivor_id in self._store.alias_owners(normalize_name(alias)):
+                self._store.unbind_alias(alias, survivor_id)
+                self._store.bind_alias(duplicate_id, alias)
                 restored_aliases.append(alias)
             else:
                 retained_aliases.append(alias)
 
         for source, ext in moved_external_ids:
-            key = f"{source}::{ext}"
-            owners = self._by_external.get(key)
-            if owners is not None and survivor_id in owners:
-                owners.discard(survivor_id)
-                survivor.external_ids.get(source, set()).discard(ext)
-                if not survivor.external_ids.get(source):
-                    survivor.external_ids.pop(source, None)
-                if not owners:
-                    self._by_external.pop(key, None)
-                self._bind_external(duplicate_id, source, ext)
+            if survivor_id in self._store.external_owners(source, ext):
+                self._store.unbind_external(source, ext, survivor_id)
+                self._store.bind_external(duplicate_id, source, ext)
                 restored_external.append((source, ext))
             else:
                 retained_external.append((source, ext))
 
-        del self._merged_into[duplicate_id]
+        self._store.clear_merge(duplicate_id)
         return SplitOutcome(
             restored_aliases=tuple(sorted(restored_aliases)),
             restored_external_ids=tuple(sorted(restored_external)),
@@ -430,11 +611,13 @@ class IdentityService:
 
     def knows(self, entity_id: str) -> bool:
         """True when the registry holds a record for this canonical id."""
-        return entity_id in self._records
+        return self._store.get(entity_id) is not None
 
     def identity(self, entity_id: str) -> tuple[str, frozenset[str], dict[str, frozenset[str]]]:
         """Return (entity_type, aliases, external_ids) for a canonical id."""
-        record = self._records[entity_id]
+        record = self._store.get(entity_id)
+        if record is None:
+            raise KeyError(entity_id)
         return (
             record.entity_type,
             frozenset(record.aliases),
@@ -443,38 +626,6 @@ class IdentityService:
 
     # -- internals ---------------------------------------------------------
 
-    def _unbind_alias(self, norm: str, owner: str) -> None:
-        """Remove an alias binding (merge-only; ingestion never unbinds)."""
-        owners = self._by_alias.get(norm)
-        if owners is None or owner not in owners:
-            return
-        owners.discard(owner)
-        if owners:
-            return
-        del self._by_alias[norm]
-        for token in norm.split():
-            bucket = self._token_to_norms.get(token)
-            if bucket is not None:
-                bucket.discard(norm)
-                if not bucket:
-                    del self._token_to_norms[token]
-
-    def _bind_alias(self, entity_id: str, alias: str) -> None:
-        norm = normalize_name(alias)
-        if not norm:
-            return  # nothing matchable after normalization
-        owners = self._by_alias.setdefault(norm, set())
-        if entity_id not in owners:
-            for token in norm.split():
-                self._token_to_norms.setdefault(token, set()).add(norm)
-        owners.add(entity_id)
-        self._records[entity_id].aliases.add(alias)
-
-    def _bind_external(self, entity_id: str, source: str, external_id: str) -> None:
-        key = f"{source}::{external_id}"
-        self._by_external.setdefault(key, set()).add(entity_id)
-        self._records[entity_id].external_ids.setdefault(source, set()).add(external_id)
-
     def _fuzzy_candidates(
         self, norm: str, entity_type: str | None = None
     ) -> list[tuple[str, float]]:
@@ -482,27 +633,28 @@ class IdentityService:
 
         Scoring uses the overlap coefficient |A intersect B| / min(|A|, |B|),
         which suits subset-style name variants. Candidate generation is blocked
-        through the token index: only aliases sharing at least one token with
-        the query can score above zero, so the index prunes without changing
-        results. An alias bound to several entities contributes each owner
-        (best score wins per owner); owners of a different ``entity_type`` are
-        filtered out. Results are proposals only: callers must route them to
-        review instead of auto-merging.
+        through the store's token index: only aliases sharing at least one
+        token with the query can score above zero, so the index prunes without
+        changing results. An alias bound to several entities contributes each
+        owner (best score wins per owner); owners of a different
+        ``entity_type`` are filtered out. Results are proposals only: callers
+        must route them to review instead of auto-merging.
         """
         tokens = set(norm.split())
         if not tokens:
             return []
-        shared: dict[str, int] = {}
-        for token in tokens:
-            for alias_norm in self._token_to_norms.get(token, ()):
-                shared[alias_norm] = shared.get(alias_norm, 0) + 1
         best: dict[str, float] = {}
-        for alias_norm, overlap in shared.items():
+        for alias_norm, overlap in self._store.candidate_aliases(tokens).items():
             score = overlap / min(len(tokens), len(alias_norm.split()))
             if score < REVIEW_THRESHOLD:
                 continue
-            for owner in self._by_alias[alias_norm]:
-                if entity_type is not None and self._records[owner].entity_type != entity_type:
+            for owner in self._store.alias_owners(alias_norm):
+                record = self._store.get(owner)
+                if (
+                    entity_type is not None
+                    and record is not None
+                    and record.entity_type != entity_type
+                ):
                     continue
                 if score > best.get(owner, 0.0):
                     best[owner] = score
