@@ -26,6 +26,7 @@ work in the next phase.
 from __future__ import annotations
 
 import json
+from collections.abc import Collection
 from typing import Any
 
 from foundry.events import (
@@ -97,6 +98,74 @@ def is_superseded(log: EventLog, assertion_id: str) -> bool:
     )
 
 
+def build_assertion(
+    *,
+    subject_id: str,
+    predicate: str,
+    object_kind: str,
+    object_value: str,
+    valid_from: str,
+    source_ids: list[str],
+    confidence: float | None = None,
+    supersedes: str | None = None,
+    identity: IdentityService | None = None,
+    known_assertions: Collection[str],
+) -> SemanticEvent:
+    """Validate one statement and build its ``AssertionMade`` event.
+
+    Pure constructor — nothing is appended. The ingestion pipeline uses it to
+    run the SHACL gate against the built event *before* anything reaches the
+    append-only log (:func:`make_assertion` is this plus the append).
+
+    Args:
+        subject_id: Canonical entity the statement is about.
+        predicate: Relation name (e.g. ``locatedAt``).
+        object_kind: One of ``entity``, ``location``, ``literal``.
+        object_value: The object's id or literal value.
+        valid_from: Valid time (when the statement holds in the world).
+        source_ids: Provenance references (non-empty).
+        confidence: Optional 0..1.
+        supersedes: Assertion id this statement replaces.
+        identity: Optional registry; when given, the subject must be known.
+        known_assertions: Assertion ids already recorded; a ``supersedes``
+            target must be among them.
+
+    Raises:
+        ValueError: On malformed input, an unknown subject, or a ``supersedes``
+            target that is not in ``known_assertions``.
+    """
+    if not source_ids:
+        raise ValueError("at least one source_id is required")
+    if not predicate.strip():
+        raise ValueError("predicate must be non-empty")
+    if object_kind not in OBJECT_KINDS:
+        raise ValueError(f"object_kind must be one of {list(OBJECT_KINDS)}, got {object_kind!r}")
+    if not object_value.strip():
+        raise ValueError("object_value must be non-empty")
+    parse_instant(valid_from)  # validates the xsd:dateTime form
+    if confidence is not None and not 0.0 <= confidence <= 1.0:
+        raise ValueError(f"confidence {confidence} outside [0, 1]")
+    if identity is not None and not identity.knows(subject_id):
+        raise ValueError(f"unknown subject {subject_id}; resolve identity first")
+    if supersedes is not None and supersedes not in known_assertions:
+        raise ValueError(f"supersedes target {supersedes!r} is not a recorded assertion")
+
+    return make_event(
+        EVENT_TYPE_ASSERTION_MADE,
+        {
+            "assertion_id": new_assertion_id(),
+            "subject_id": subject_id,
+            "predicate": predicate,
+            "object": {"kind": object_kind, "value": object_value},
+            "valid_from": valid_from,
+            "valid_to": None,
+            "source_ids": list(source_ids),
+            "confidence": confidence,
+            "supersedes": supersedes,
+        },
+    )
+
+
 def make_assertion(
     *,
     log: EventLog,
@@ -128,33 +197,24 @@ def make_assertion(
         ValueError: On malformed input, an unknown subject, or a ``supersedes``
             target that no ``AssertionMade`` in the log records.
     """
-    if not predicate.strip():
-        raise ValueError("predicate must be non-empty")
-    if object_kind not in OBJECT_KINDS:
-        raise ValueError(f"object_kind must be one of {list(OBJECT_KINDS)}, got {object_kind!r}")
-    if not object_value.strip():
-        raise ValueError("object_value must be non-empty")
-    parse_instant(valid_from)  # validates the xsd:dateTime form
-    if confidence is not None and not 0.0 <= confidence <= 1.0:
-        raise ValueError(f"confidence {confidence} outside [0, 1]")
-    if identity is not None and not identity.knows(subject_id):
-        raise ValueError(f"unknown subject {subject_id}; resolve identity first")
-    if supersedes is not None and _find_assertion_event(log, supersedes) is None:
-        raise ValueError(f"supersedes target {supersedes!r} is not a recorded assertion")
-
-    event = make_event(
-        EVENT_TYPE_ASSERTION_MADE,
-        {
-            "assertion_id": new_assertion_id(),
-            "subject_id": subject_id,
-            "predicate": predicate,
-            "object": {"kind": object_kind, "value": object_value},
-            "valid_from": valid_from,
-            "valid_to": None,
-            "source_ids": list(source_ids),
-            "confidence": confidence,
-            "supersedes": supersedes,
-        },
+    known: Collection[str] = frozenset()
+    if supersedes is not None:
+        known = {
+            event.payload["assertion_id"]
+            for event in log.read_all()
+            if event.event_type == EVENT_TYPE_ASSERTION_MADE
+        }
+    event = build_assertion(
+        subject_id=subject_id,
+        predicate=predicate,
+        object_kind=object_kind,
+        object_value=object_value,
+        valid_from=valid_from,
+        source_ids=source_ids,
+        confidence=confidence,
+        supersedes=supersedes,
+        identity=identity,
+        known_assertions=known,
     )
     log.append(event)
     return event

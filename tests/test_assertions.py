@@ -205,18 +205,73 @@ class TestPipelineAssertions:
         log_path = tmp_path / "events.jsonl"
         pipeline = self._pipeline(log_path)
         created = pipeline.ingest_entity(name="Org A", entity_type="Organization", source_id="s")
+        doc = pipeline.register_document(
+            uri="https://example.org/report-1",
+            title="Weekly report",
+            source_system="crawler",
+        )
         result = pipeline.ingest_assertion(
             subject_id=created.canonical_id,
             predicate="locatedAt",
             object_kind="location",
             object_value=LOC,
             valid_from="2026-08-01T00:00:00Z",
-            source_ids=["urn:doc:1"],
+            source_ids=[doc.payload["document_id"]],
             confidence=0.95,
         )
         assert result.accepted
         events = EventLog(log_path).read_all()
-        assert [e.event_type for e in events] == ["EntityCreated", "AssertionMade"]
+        assert [e.event_type for e in events] == [
+            "EntityCreated",
+            "DocumentRegistered",
+            "AssertionMade",
+        ]
+
+    def test_assertion_citing_unregistered_document_rejected(self, tmp_path):
+        log_path = tmp_path / "events.jsonl"
+        pipeline = self._pipeline(log_path)
+        created = pipeline.ingest_entity(name="Org A", entity_type="Organization", source_id="s")
+        result = pipeline.ingest_assertion(
+            subject_id=created.canonical_id,
+            predicate="locatedAt",
+            object_kind="location",
+            object_value=LOC,
+            valid_from="2026-08-01T00:00:00Z",
+            source_ids=["urn:doc:missing"],
+        )
+        assert not result.accepted
+        assert "SHACL violation" in result.reason
+        assert [e.event_type for e in EventLog(log_path).read_all()] == ["EntityCreated"]
+
+    def test_supersedes_chain_passes_the_gate(self, tmp_path):
+        log_path = tmp_path / "events.jsonl"
+        pipeline = self._pipeline(log_path)
+        created = pipeline.ingest_entity(name="Org A", entity_type="Organization", source_id="s")
+        doc = pipeline.register_document(
+            uri="https://example.org/report-1",
+            title="Weekly report",
+            source_system="crawler",
+        )
+        first = pipeline.ingest_assertion(
+            subject_id=created.canonical_id,
+            predicate="locatedAt",
+            object_kind="location",
+            object_value=LOC,
+            valid_from="2026-08-01T00:00:00Z",
+            source_ids=[doc.payload["document_id"]],
+        )
+        second = pipeline.ingest_assertion(
+            subject_id=created.canonical_id,
+            predicate="locatedAt",
+            object_kind="location",
+            object_value="urn:world:location:" + "c" * 32,
+            valid_from="2026-08-02T00:00:00Z",
+            source_ids=[doc.payload["document_id"]],
+            supersedes=first.event.payload["assertion_id"],
+        )
+        assert first.accepted and second.accepted
+        events = EventLog(log_path).read_all()
+        assert [e.event_type for e in events].count("AssertionMade") == 2
 
     def test_unknown_subject_is_queued_not_crashed(self, tmp_path):
         log_path = tmp_path / "events.jsonl"

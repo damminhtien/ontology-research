@@ -23,10 +23,21 @@ from pathlib import Path
 from ontology_utils import materialize_type_closure
 from pyshacl import validate
 from rdflib import RDF, Graph, Literal, URIRef
-from rdflib.namespace import XSD
+from rdflib.namespace import OWL, XSD
 
-from foundry.assertions import make_assertion
-from foundry.events import EventLog, SemanticEvent, make_event
+from foundry.assertions import (
+    assertion_to_rdf,
+    build_assertion,
+    document_to_rdf,
+    register_document,
+)
+from foundry.events import (
+    EVENT_TYPE_ASSERTION_MADE,
+    EVENT_TYPE_DOCUMENT_REGISTERED,
+    EventLog,
+    SemanticEvent,
+    make_event,
+)
 from foundry.identity import IdentityService
 from foundry.namespaces import new_fact_iri
 
@@ -95,15 +106,30 @@ class IngestionPipeline:
         ontology_path: Path,
         shapes_path: Path,
     ) -> None:
-        """Preload ontology axioms and SHACL shapes once for all records."""
+        """Preload ontology axioms and SHACL shapes once for all records.
+
+        Besides ``shapes_path``, the sibling ``assertion_shapes.ttl`` in the
+        same directory is loaded when present so the assertion gate enforces
+        the same SHACL contract the shapes file pins.
+        """
         self._identity = identity
         self._log = log
         self._ontology_path = ontology_path
         self._shapes = Graph()
         self._shapes.parse(shapes_path.as_posix(), format="turtle")
+        assertion_shapes_path = shapes_path.parent / "assertion_shapes.ttl"
+        if assertion_shapes_path.exists():
+            self._shapes.parse(assertion_shapes_path.as_posix(), format="turtle")
         # review-queue dedup within one process run: the same unresolved
         # reference is queued once per run, not once per record
         self._queued_references: set[tuple[str | None, str | None, str]] = set()
+        # assertion-gate context, loaded lazily from the log once per run:
+        # provenance documents and recorded assertions (for supersedes checks
+        # and the SHACL graph). Documents registered by *this* pipeline are
+        # also added incrementally via ``register_document``.
+        self._documents: dict[str, SemanticEvent] = {}
+        self._assertion_events: dict[str, SemanticEvent] = {}
+        self._assertion_context_loaded = False
 
     # -- structured entities ------------------------------------------------
 
@@ -285,6 +311,25 @@ class IngestionPipeline:
 
     # -- generic assertions (docs/architecture.md §4.2) -----------------------
 
+    def register_document(
+        self,
+        *,
+        uri: str,
+        title: str,
+        source_system: str,
+        content_ref: str | None = None,
+    ) -> SemanticEvent:
+        """Record a provenance source document and remember it for the gate."""
+        event = register_document(
+            log=self._log,
+            uri=uri,
+            title=title,
+            source_system=source_system,
+            content_ref=content_ref,
+        )
+        self._remember_context_event(event)
+        return event
+
     def ingest_assertion(
         self,
         *,
@@ -299,9 +344,15 @@ class IngestionPipeline:
     ) -> IngestResult:
         """Record one reified assertion about a known canonical entity.
 
+        The assertion is mapped to RDF (ontology/middle/assertion.ttl) together
+        with its cited ``DocumentRegistered`` events and any superseded
+        assertion, then validated against the SHACL contract before anything
+        is appended — nothing reaches the log unless it conforms.
+
         Malformed input raises ``ValueError`` (caller bug); an unknown subject
         is a data problem — it is durably queued for review like every other
-        unresolved reference and returns a rejection receipt.
+        unresolved reference. A SHACL violation (e.g. a cited document that
+        was never registered) is rejected with a structured receipt.
         """
         if not source_ids:
             raise ValueError("at least one source_id is required")
@@ -315,10 +366,8 @@ class IngestionPipeline:
                 reason=f"assertion subject {subject_id} is not a known canonical entity",
             )
             return _reject(subject_id, "unknown assertion subject", event=queue_event)
-        # make_assertion validates everything before appending, so a ValueError
-        # here never leaves a partial write in the log
-        event = make_assertion(
-            log=self._log,
+        self._load_assertion_context()
+        event = build_assertion(
             subject_id=subject_id,
             predicate=predicate,
             object_kind=object_kind,
@@ -327,10 +376,105 @@ class IngestionPipeline:
             source_ids=source_ids,
             confidence=confidence,
             supersedes=supersedes,
+            known_assertions=frozenset(self._assertion_events),
         )
+        graph = self._build_assertion_graph(event)
+        conforms, _, results_text = validate(
+            data_graph=graph,
+            shacl_graph=self._shapes,
+            inference="none",
+            advanced=True,
+        )
+        if not conforms:
+            return _reject(subject_id, f"SHACL violation: {results_text.strip()}")
+        self._log.append(event)
+        self._remember_context_event(event)
         return _accept(subject_id, event)
 
     # -- internals -----------------------------------------------------------
+
+    def _load_assertion_context(self) -> None:
+        """Load document/assertion context from the log once per run.
+
+        Assertions may also be written by other tools between pipeline runs;
+        the lazily built cache reflects the log as of the first
+        ``ingest_assertion`` call of this run.
+        """
+        if self._assertion_context_loaded:
+            return
+        self._assertion_context_loaded = True
+        for event in self._log.read_all():
+            self._remember_context_event(event)
+
+    def _remember_context_event(self, event: SemanticEvent) -> None:
+        """Cache one DocumentRegistered/AssertionMade event for the gate."""
+        if event.event_type == EVENT_TYPE_DOCUMENT_REGISTERED:
+            self._documents[event.payload["document_id"]] = event
+        elif event.event_type == EVENT_TYPE_ASSERTION_MADE:
+            self._assertion_events[event.payload["assertion_id"]] = event
+
+    def _build_assertion_graph(self, event: SemanticEvent) -> Graph:
+        """Map one assertion — with provenance and correction context — to RDF.
+
+        The cited documents and any superseded assertion are mapped from the
+        context cache so the SHACL class constraints (``sh:class
+        assertion:Document`` / ``assertion:Assertion``) can hold, and every
+        mapped assertion's subject and object are typed and named (mirrors the
+        observation gate: ``sh:class`` constraints and NamedThingShape need
+        typed, named nodes in the gate graph).
+        """
+        graph = Graph()
+        graph.parse(self._ontology_path.as_posix(), format="turtle")
+
+        stack: list[SemanticEvent] = [event]
+        visited: set[str] = set()
+        while stack:
+            current = stack.pop()
+            assertion_id = current.payload["assertion_id"]
+            if assertion_id in visited:
+                continue
+            visited.add(assertion_id)
+            assertion_to_rdf(graph, current)
+            self._type_and_name(graph, current)
+            for source_id in current.payload.get("source_ids") or ():
+                document = self._documents.get(source_id)
+                if document is not None:
+                    document_to_rdf(graph, document)
+            target_id = current.payload.get("supersedes")
+            if target_id is not None and target_id in self._assertion_events:
+                stack.append(self._assertion_events[target_id])
+
+        materialize_type_closure(graph)
+        return graph
+
+    def _type_and_name(self, graph: Graph, mapped: SemanticEvent) -> None:
+        """Type and name the subject and object of one mapped assertion."""
+        entity_type, aliases, _ = self._identity.identity(mapped.payload["subject_id"])
+        subject = URIRef(mapped.payload["subject_id"])
+        class_uri = URIRef(CORE + entity_type)
+        if (class_uri, RDF.type, OWL.Class) not in graph:
+            class_uri = URIRef(CORE + "Entity")  # unknown type: fall back to the root
+        graph.add((subject, RDF.type, class_uri))
+        display_name = next(iter(sorted(aliases)), mapped.payload["subject_id"])
+        graph.add((subject, URIRef(CORE + "name"), Literal(display_name)))
+
+        obj = mapped.payload["object"]
+        if obj["kind"] not in ("entity", "location"):
+            return  # literal objects carry the value as core:name on the assertion
+        object_node = URIRef(obj["value"])
+        label = obj["value"].rstrip("/").rsplit("/", 1)[-1].split("#")[-1]
+        if obj["kind"] == "location":
+            graph.add((object_node, RDF.type, URIRef(CORE + "Location")))
+        elif self._identity.knows(obj["value"]):
+            obj_type, obj_aliases, _ = self._identity.identity(obj["value"])
+            obj_class = URIRef(CORE + obj_type)
+            if (obj_class, RDF.type, OWL.Class) not in graph:
+                obj_class = URIRef(CORE + "Entity")
+            graph.add((object_node, RDF.type, obj_class))
+            label = next(iter(sorted(obj_aliases)), label)
+        else:
+            graph.add((object_node, RDF.type, URIRef(CORE + "Entity")))
+        graph.add((object_node, URIRef(CORE + "name"), Literal(label)))
 
     def _queue_review(
         self,
