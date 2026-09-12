@@ -33,3 +33,13 @@ hành nằm trong file `VERSION` ở gốc repo; source code đọc qua
    (`foundry/events.py`) + regression test đọc log phiên cũ — log đã ghi không
    bao giờ bị rewrite (ADR-0002).
 4. `make check` phải xanh trong cùng commit.
+
+## reference_lane
+
+### 1 — 2026-09-11
+
+- Lane snapshot đầu tiên: typed Parquet theo `class_qid` (cột `qid`, `name_vi`,
+  `name_en`, `type_qids`, `class_qid`, `fetched_at`), manifest-authoritative
+  (`snapshots[]` + `latest`), publish atomic qua tmp+rename — ADR-0002/
+  architecture §4.6. Lane là reference data, rebuild được độc lập, không bao giờ
+  là nguồn sự thật.

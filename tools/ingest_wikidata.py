@@ -31,6 +31,10 @@ from foundry.events import EventLog
 from foundry.ingestion import IngestionPipeline
 from foundry.lake import default_lake_root, persist_events
 from foundry.merge import rebuild_identity
+from foundry.reference import (
+    default_reference_root,
+    read_snapshot,
+)
 
 
 def main() -> int:
@@ -44,12 +48,32 @@ def main() -> int:
         "--lake", default=None, help="lake root (default $FOUNDRY_LAKE_ROOT or repo)"
     )
     parser.add_argument("--no-lake", action="store_true", help="skip the lake write")
+    parser.add_argument(
+        "--from-lane",
+        action="store_true",
+        help="read rows from the reference lane instead of fetching live",
+    )
+    parser.add_argument(
+        "--snapshot", default=None, help="lane snapshot id (default: latest published)"
+    )
+    parser.add_argument("--reference-root", default=None, help="lane root (default data/reference)")
     args = parser.parse_args()
 
-    print(f"fetching P31/{args.class_qid} entities from Wikidata (limit={args.limit}) ...")
-    records = wd.fetch_entities(class_qid=args.class_qid, limit=args.limit, timeout=args.timeout)
-    mapped = sum(1 for r in records if r.entity_type is not None)
-    print(f"normalized: {len(records)} records ({mapped} type-mapped)")
+    if args.from_lane:
+        root = Path(args.reference_root) if args.reference_root else default_reference_root()
+        rows = read_snapshot(root, args.class_qid, args.snapshot)
+        records = wd.records_from_reference(rows)
+        print(
+            f"lane: {len(rows)} rows read ({len(records)} usable) from "
+            f"{args.snapshot or 'latest'} at {root.resolve()}"
+        )
+    else:
+        print(f"fetching P31/{args.class_qid} entities from Wikidata (limit={args.limit}) ...")
+        records = wd.fetch_entities(
+            class_qid=args.class_qid, limit=args.limit, timeout=args.timeout
+        )
+        mapped = sum(1 for r in records if r.entity_type is not None)
+        print(f"normalized: {len(records)} records ({mapped} type-mapped)")
 
     log_path = Path(args.log)
     log_path.parent.mkdir(parents=True, exist_ok=True)

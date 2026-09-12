@@ -3,3 +3,4 @@
 # never hardcode a version number in source files.
 event_schema = 2
 lake = 1
+reference_lane = 1

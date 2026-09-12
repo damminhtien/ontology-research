@@ -379,7 +379,13 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
         `assertion:Assertion` tái dùng core properties, shapes pin describes/
         object/validFrom/source/confidence + thứ tự supersedes; ledger
         materialize RDF và validate khi ingest
-  - [ ] Reference lane (Wikidata/Wikipedia typed Parquet) tách khỏi runtime fetch
+  - [x] B8: reference lane + QID-cursor paging (`foundry/reference.py`,
+        `wd.iter_entities`, `tools/build_reference_lane.py`, ingest
+        `--from-lane`) — typed Parquet snapshot versioned theo class, manifest
+        authoritative + publish atomic, ingest từ lane đi qua identity+SHACL
+        như thường; đã chứng minh thật: 150 rows/3 trang cursor, 150/150
+        accepted (76 new, 74 merged), 0% unresolved (§4.6)
+  - [ ] SHACL hỗ trợ unresolved identity (§4.7); e2e benchmark theo stage (§4.8)
   - [ ] Streaming projector chạy thường trực (checkpoint đã có, chưa gắn vào Console)
 - [ ] Phase 5+: xem bảng phase ở trên
 

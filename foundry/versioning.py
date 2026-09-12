@@ -20,7 +20,7 @@ _VERSION_FILE = Path(__file__).resolve().parents[1] / "VERSION"
 
 #: Keys this deployment defines. Unknown keys in the file are rejected so a
 #: typo cannot silently create a contract nobody reads.
-KNOWN_CONTRACTS = ("event_schema", "lake")
+KNOWN_CONTRACTS = ("event_schema", "lake", "reference_lane")
 
 
 @lru_cache(maxsize=1)
@@ -82,3 +82,5 @@ EVENT_SCHEMA_VERSION = contract_version("event_schema")
 
 #: Lake layout version written into ``manifest.json`` (see ``foundry.lake``).
 LAKE_VERSION = contract_version("lake")
+
+REFERENCE_LANE_VERSION = contract_version("reference_lane")

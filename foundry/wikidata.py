@@ -23,11 +23,12 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 
-from foundry.events import SemanticEvent
+from foundry.events import SemanticEvent, utc_now_iso
 from foundry.ingestion import IngestionPipeline, IngestResult
+from foundry.reference import ReferenceRecord
 
 WIKIDATA_ENDPOINT = "https://query.wikidata.org/sparql"
 USER_AGENT = "ontology-research/0.1 (https://github.com/damminhtien/ontology-research)"
@@ -133,6 +134,142 @@ def map_type(type_qids: tuple[str, ...]) -> str | None:
         if qid in QID_TO_ENTITY_TYPE:
             return QID_TO_ENTITY_TYPE[qid]
     return None
+
+
+def _fetch_with_retry(
+    url: str,
+    *,
+    timeout: float,
+    retries: int,
+    backoff: float,
+    fetcher: Callable[[str, float], dict[str, object]],
+) -> dict[str, object]:
+    """GET a SPARQL JSON result with bounded exponential backoff."""
+    data: dict[str, object] | None = None
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        if attempt:
+            time.sleep(backoff * attempt)
+        try:
+            data = fetcher(url, timeout=timeout)
+            last_error = None
+            break
+        except WikidataError as exc:
+            last_error = exc
+    if data is None:
+        raise WikidataError(f"query failed after {retries + 1} attempts: {last_error}")
+    return data
+
+
+def _bindings(data: dict[str, object]) -> list[dict[str, object]]:
+    results = data.get("results")
+    return results.get("bindings", []) if isinstance(results, dict) else []
+
+
+# Cursor paging (architecture §4.6): the next page starts strictly after the
+# last item of the previous page (a QID cursor), never a LIMIT window that
+# re-scans and re-fetches overlapping items. ORDER BY ?item matches the
+# STR(?item) cursor comparison, so pages tile the closure without overlap.
+CURSOR_QUERY_TEMPLATE = """
+SELECT ?item ?labelVi ?labelEn WHERE {
+  ?item wdt:P31/wdt:P279* wd:%(class)s .
+  ?item rdfs:label ?labelVi .
+  FILTER(LANG(?labelVi) = "vi")
+  FILTER(STR(?item) > "%(cursor)s")
+  OPTIONAL { ?item rdfs:label ?labelEn . FILTER(LANG(?labelEn) = "en") }
+}
+ORDER BY ?item
+LIMIT %(limit)d
+"""
+
+WIKIDATA_ENTITY_IRI = "http://www.wikidata.org/entity/"
+
+
+def iter_entities(
+    *,
+    class_qid: str = "Q43229",
+    page_size: int = 2000,
+    max_records: int | None = None,
+    endpoint: str = WIKIDATA_ENDPOINT,
+    timeout: float = 60.0,
+    retries: int = 2,
+    backoff: float = 5.0,
+    fetcher: Callable[[str, float], dict[str, object]] = _http_get_json,
+) -> Iterator[ReferenceRecord]:
+    """Page through the class closure by QID cursor; yields typed lane rows.
+
+    One row per item per page (the template joins no types, and an item has
+    at most one vi label), so pages tile the closure exactly: the cursor is
+    the last item IRI and each page continues strictly after it. Stops at a
+    short page (closure exhausted) or after ``max_records`` rows.
+    ``fetcher`` is injectable so tests never touch the network.
+    """
+    cursor = ""
+    yielded = 0
+    while max_records is None or yielded < max_records:
+        query = CURSOR_QUERY_TEMPLATE % {"class": class_qid, "cursor": cursor, "limit": page_size}
+        url = f"{endpoint}?{urllib.parse.urlencode({'query': query, 'format': 'json'})}"
+        data = _fetch_with_retry(
+            url, timeout=timeout, retries=retries, backoff=backoff, fetcher=fetcher
+        )
+        fetched_at = utc_now_iso()
+        page: list[ReferenceRecord] = []
+        for binding_ in _bindings(data):
+            item_iri = binding_.get("item", {}).get("value", "")
+            qid = item_iri.rsplit("/", 1)[-1]
+            if not qid.startswith("Q"):
+                continue
+            name_vi = (binding_.get("labelVi", {}).get("value") or "").strip()
+            name_en = (binding_.get("labelEn", {}).get("value") or "").strip()
+            if not name_vi and not name_en:
+                continue  # unusable surface form; skipped, never silently wrong
+            page.append(
+                ReferenceRecord(
+                    qid=qid,
+                    name_vi=name_vi,
+                    name_en=name_en,
+                    type_qids=(),
+                    class_qid=class_qid,
+                    fetched_at=fetched_at,
+                )
+            )
+        if not page:
+            return
+        for row in page:
+            if max_records is not None and yielded >= max_records:
+                return
+            yield row
+            yielded += 1
+        cursor = WIKIDATA_ENTITY_IRI + page[-1].qid
+        if len(page) < page_size:
+            return
+
+
+def records_from_reference(rows: Iterable[ReferenceRecord]) -> list[WikidataRecord]:
+    """Convert lane rows into ingestable records (vi preferred, en as alias).
+
+    The lane is reference data, never truth: conversion drops rows without a
+    usable surface name and derives the entity type from the row's declared
+    classes, falling back to the queried root class (same rule as the live
+    fetch path).
+    """
+    records: list[WikidataRecord] = []
+    for row in rows:
+        name = row.name_vi.strip() or row.name_en.strip()
+        if not name:
+            continue
+        en = row.name_en.strip()
+        aliases = tuple(a for a in (en,) if a and a != name)
+        records.append(
+            WikidataRecord(
+                qid=row.qid,
+                name=name,
+                entity_type=map_type(row.type_qids) or QID_TO_ENTITY_TYPE.get(row.class_qid),
+                aliases=aliases,
+                type_qids=row.type_qids,
+            )
+        )
+    return records
 
 
 def fetch_entities(

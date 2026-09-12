@@ -17,9 +17,10 @@ class TestLoadVersions:
     def test_parses_comments_and_whitespace(self, tmp_path):
         path = tmp_path / "VERSION"
         path.write_text(
-            "# header comment\n\nevent_schema = 3   # bumped today\nlake=1\n", encoding="utf-8"
+            "# header comment\n\nevent_schema = 3   # bumped today\nlake=1\nreference_lane = 2\n",
+            encoding="utf-8",
         )
-        assert load_versions(path) == {"event_schema": 3, "lake": 1}
+        assert load_versions(path) == {"event_schema": 3, "lake": 1, "reference_lane": 2}
 
     def test_rejects_malformed_line(self, tmp_path):
         path = tmp_path / "VERSION"
