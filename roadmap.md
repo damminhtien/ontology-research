@@ -386,7 +386,9 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
         như thường; đã chứng minh thật: 150 rows/3 trang cursor, 150/150
         accepted (76 new, 74 merged), 0% unresolved (§4.6)
   - [ ] SHACL hỗ trợ unresolved identity (§4.7); e2e benchmark theo stage (§4.8)
-  - [ ] Streaming projector chạy thường trực (checkpoint đã có, chưa gắn vào Console)
+  - [x] Streaming projector thường trực: Console hydrate read-model snapshot
+        cạnh log (pickle, atomic tmp+rename), chỉ fold suffix sau checkpoint;
+        corrupt snapshot degrade về full replay — cache, không phải source of truth
 - [ ] Phase 5+: xem bảng phase ở trên
 
 
