@@ -16,8 +16,10 @@ Design contract (ADR-0004):
 
 from __future__ import annotations
 
+import pickle
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 
 def parse_instant(text: str) -> datetime:
@@ -318,6 +320,7 @@ class ReadModel:
             "entities": len(self._entities),
             "with_location": len(self._location_history),
             "locations": len(locations),
+            "assertions": len(self._assertions),
             "last_event_time": (
                 self._last_event_time.strftime("%Y-%m-%dT%H:%M:%SZ")
                 if self._last_event_time
@@ -387,6 +390,34 @@ class ReadModel:
         ]
 
     # -- internal maintenance (projector-only, keeps indexes consistent) -------
+
+    def save_snapshot(self, path) -> None:
+        """Persist the model state for incremental resume (a cache, not truth).
+
+        The event log stays the single source of truth (ADR-0002/0004); the
+        snapshot only spares a server restart a full replay. Written
+        atomically (tmp + rename).
+        """
+        path = path if isinstance(path, Path) else Path(path)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_bytes(pickle.dumps(self, protocol=pickle.HIGHEST_PROTOCOL))
+        tmp.replace(path)
+
+    @staticmethod
+    def load_snapshot(path) -> ReadModel | None:
+        """Restore a persisted model; ``None`` when missing or corrupt.
+
+        A corrupt cache degrades to a full replay — it must never take the
+        console down, so any deserialization problem is swallowed here.
+        """
+        path = path if isinstance(path, Path) else Path(path)
+        if not path.exists():
+            return None
+        try:
+            model = pickle.loads(path.read_bytes())
+        except Exception:
+            return None
+        return model if isinstance(model, ReadModel) else None
 
     def rebuild_location_index(self) -> None:
         """Recompute the reverse index from history (used after full replay)."""

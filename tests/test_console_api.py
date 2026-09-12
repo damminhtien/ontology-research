@@ -193,6 +193,44 @@ class TestProjectionEndpoints:
         assert data["entity"]["name"] == "Patrol Vessel 01"
         assert data["current_location"]["location_uri"].endswith("loc-cam-ranh")
 
+    def test_projection_resumes_incrementally_from_snapshot(self, seeded_client, tmp_path):
+        """B6 follow-up: log growth folds in the suffix, never a full re-replay."""
+        from foundry.console.api import projection
+        from foundry.events import EventLog, make_event
+
+        seeded_client.get("/api/projection")  # primes the in-process + disk cache
+        snapshot, meta = projection._snapshot_paths(projection.event_log_path())
+        assert snapshot.exists() and meta.exists()
+
+        # append a new event to the seeded log, then bump its mtime so the
+        # in-process cache is invalidated and the resume path must run
+        log_path = projection.event_log_path()
+        EventLog(log_path).append(
+            make_event(
+                "EntityCreated",
+                {
+                    "entity_id": "urn:x:patrol-02",
+                    "entity_type": "Platform",
+                    "name": "Patrol Vessel 02",
+                    "source_id": "s1",
+                    "confidence": 1.0,
+                },
+            )
+        )
+        stat = log_path.stat()
+        import os
+
+        os.utime(log_path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+        projection.reset_cache()
+
+        data = seeded_client.get("/api/projection").json()
+        assert data["entities"] == 2  # suffix applied on top of the snapshot
+
+        # and the hydrate-from-disk path serves the same state after reset
+        projection.reset_cache()
+        again = seeded_client.get("/api/projection").json()
+        assert again["entities"] == 2
+
     def test_unknown_entity_404(self, seeded_client):
         assert seeded_client.get("/api/projection/entities/urn:x:missing").status_code == 404
 

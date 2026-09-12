@@ -8,6 +8,7 @@ does not need; this router is the live demonstration of that rule.
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Annotated
 
@@ -15,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from foundry.console.api.monitor import event_log_path
 from foundry.events import EventLog
-from foundry.projector import replay_log
+from foundry.projector import Projector, replay_log
 from foundry.readmodel import ReadModel, format_instant, parse_instant
 
 BENCHMARK_REPORT = Path(__file__).resolve().parents[3] / "build" / "benchmark-report.json"
@@ -39,28 +40,81 @@ def projection_benchmark() -> dict:
 
 _model_cache: ReadModel | None = None
 _model_log_mtime: float | None = None
+_model_lock = threading.Lock()
+
+
+def _snapshot_paths(log_path: Path) -> tuple[Path, Path]:
+    """Sidecar paths next to the log: pickled model + its fingerprint meta."""
+    return (
+        log_path.with_suffix(log_path.suffix + ".readmodel.pkl"),
+        log_path.with_suffix(log_path.suffix + ".readmodel.json"),
+    )
 
 
 def _read_model() -> ReadModel:
-    """Replay the log into a fresh model, cached by log file mtime."""
+    """Read model cached in-process and on disk, resumed incrementally.
+
+    Layers:
+    1. in-process cache keyed by log mtime — the common hit;
+    2. persisted snapshot + checkpoint (B2/B6): a log change applies only the
+       suffix after the recorded sequence, and a server restart loads the
+       snapshot instead of replaying the whole log;
+    3. anything missing or corrupt degrades to a full replay — the snapshot is
+       a cache, never a source of truth (ADR-0002/0004).
+    """
     global _model_cache, _model_log_mtime
-    path = event_log_path()
-    if not path.exists():
-        _model_cache = ReadModel()
-        _model_log_mtime = None
+    with _model_lock:
+        path = event_log_path()
+        if not path.exists():
+            _model_cache = ReadModel()
+            _model_log_mtime = None
+            return _model_cache
+
+        current_mtime = path.stat().st_mtime
+        if _model_cache is not None and _model_log_mtime == current_mtime:
+            return _model_cache
+
+        snapshot_path, meta_path = _snapshot_paths(path)
+        size = path.stat().st_size
+        model = ReadModel.load_snapshot(snapshot_path)
+        meta: dict = {}
+        if model is not None and snapshot_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                meta = {}
+
+        checkpoint = model.checkpoint_sequence if model is not None else None
+        grew = (
+            model is not None
+            and checkpoint is not None
+            and meta.get("checkpoint_sequence") == checkpoint
+            and meta.get("log_size") is not None
+            and size >= meta["log_size"]
+        )
+        if grew:
+            # append-only growth: fold in only what came after the checkpoint
+            events = EventLog(path).read_all()  # validates the entire log
+            Projector(model).replay(events, after_sequence=checkpoint)
+        else:
+            model, _stats = replay_log(EventLog(path))
+
+        model.save_snapshot(snapshot_path)
+        meta_path.write_text(
+            json.dumps({"checkpoint_sequence": model.checkpoint_sequence, "log_size": size}) + "\n",
+            encoding="utf-8",
+        )
+        _model_cache = model
+        _model_log_mtime = current_mtime
         return _model_cache
-    mtime = path.stat().st_mtime
-    if _model_cache is None or _model_log_mtime != mtime:
-        _model_cache, _stats = replay_log(EventLog(path))
-        _model_log_mtime = mtime
-    return _model_cache
 
 
 def reset_cache() -> None:
     """Invalidate the cached model (used by tests)."""
     global _model_cache, _model_log_mtime
-    _model_cache = None
-    _model_log_mtime = None
+    with _model_lock:
+        _model_cache = None
+        _model_log_mtime = None
 
 
 @router.get("")

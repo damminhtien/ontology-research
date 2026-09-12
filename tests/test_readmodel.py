@@ -282,3 +282,71 @@ class TestSequenceOrderedReplay:
         projector.apply(observed_b)
         assert model.entities_at(LOC_A) == set()  # moved, index updated in place
         assert model.entities_at(LOC_B) == {E1}
+
+
+class TestReadModelSnapshot:
+    """Persisted model cache: round-trip must be state-identical."""
+
+    def test_snapshot_round_trip(self, tmp_path):
+        log = EventLog(tmp_path / "events.jsonl")
+        log.extend(
+            [
+                _entity_event(E1, "V01", "2026-08-01T00:00:00Z"),
+                _entity_event(E2, "V02", "2026-08-01T01:00:00Z"),
+                _location_event(E1, LOC_A, "2026-07-15T00:00:00Z"),
+                _location_event(E1, LOC_B, "2026-08-20T03:00:00Z"),
+                make_event(
+                    "EntityMerged",
+                    {
+                        "survivor_id": E2,
+                        "duplicate_id": E1,
+                        "moved_aliases": [],
+                        "moved_external_ids": [],
+                        "reason": "r",
+                    },
+                ),
+            ]
+        )
+        model, _stats = replay_log(log)
+        snapshot = tmp_path / "model.pkl"
+        model.save_snapshot(snapshot)
+
+        restored = ReadModel.load_snapshot(snapshot)
+        assert restored is not None
+        assert restored.checkpoint_sequence == model.checkpoint_sequence
+        assert restored.applied_event_count == model.applied_event_count
+        assert restored.get_entity(E1) == model.get_entity(E1)
+        assert restored.merged_into(E1) == model.merged_into(E1)
+        assert restored.current_location(E2) == model.current_location(E2)
+        assert restored.entities_at(LOC_B) == model.entities_at(LOC_B)
+        assert restored.stats() == model.stats()
+
+    def test_snapshot_supports_incremental_resume(self, tmp_path):
+        log = EventLog(tmp_path / "events.jsonl")
+        log.extend([_entity_event(E1, "V01", "2026-08-01T00:00:00Z")])
+        events = log.read_all()
+        model = ReadModel()
+        Projector(model).replay(events)
+        snapshot = tmp_path / "model.pkl"
+        model.save_snapshot(snapshot)
+
+        # server restart: hydrate from the snapshot, apply only the suffix
+        restored = ReadModel.load_snapshot(snapshot)
+        assert restored is not None
+        checkpoint = restored.checkpoint_sequence
+        log.append(_location_event(E1, LOC_B, "2026-08-25T03:00:00Z"))
+        Projector(restored).replay(log.read_all(), after_sequence=checkpoint)
+        assert restored.current_location(E1).location_uri == LOC_B
+
+        # snapshot again: the cycle is idempotent
+        restored.save_snapshot(snapshot)
+        again = ReadModel.load_snapshot(snapshot)
+        assert again is not None
+        assert again.checkpoint_sequence == restored.checkpoint_sequence
+        assert again.current_location(E1) == restored.current_location(E1)
+
+    def test_load_snapshot_missing_or_corrupt_degrades_to_none(self, tmp_path):
+        assert ReadModel.load_snapshot(tmp_path / "missing.pkl") is None
+        corrupt = tmp_path / "corrupt.pkl"
+        corrupt.write_bytes(b"not a pickle")
+        assert ReadModel.load_snapshot(corrupt) is None
