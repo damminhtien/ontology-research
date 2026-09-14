@@ -26,6 +26,14 @@ Commit: `4cbf25d`
 
 - Initial baseline release.
 
+## identity
+
+### 0.1.0 (2026-09-12T11:22:11Z) - NONE
+
+Commit: `4393292`
+
+- Initial baseline release.
+
 ## location
 
 ### 0.1.0 (2026-08-27T14:02:26Z) - NONE

@@ -50,6 +50,17 @@
       "module_iri": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking",
       "severity": "NONE",
       "version": "0.1.0"
+    },
+    {
+      "changes": [],
+      "commit": "4393292",
+      "date": "2026-09-12T11:22:11Z",
+      "file": "ontology/middle/identity.ttl",
+      "migration": null,
+      "migration_script": null,
+      "module_iri": "https://damminhtien.github.io/ontology-research/ontology/middle/identity",
+      "severity": "NONE",
+      "version": "0.1.0"
     }
   ]
 }

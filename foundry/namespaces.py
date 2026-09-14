@@ -10,6 +10,7 @@ migration (new namespace + explicit mapping), never in place.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 
 # ---------------------------------------------------------------------------
@@ -20,6 +21,7 @@ ONTOLOGY_BASE = "https://damminhtien.github.io/ontology-research/ontology"
 CORE_ONTOLOGY_NS = f"{ONTOLOGY_BASE}/core#"
 LOCATION_MIDDLE_NS = f"{ONTOLOGY_BASE}/middle/location#"
 TRACKING_DOMAIN_NS = f"{ONTOLOGY_BASE}/domain/tracking#"
+IDENTITY_MIDDLE_NS = f"{ONTOLOGY_BASE}/middle/identity#"
 
 # ---------------------------------------------------------------------------
 # Runtime identifier schemes.
@@ -42,6 +44,11 @@ ASSERTION_URN_PREFIX = "urn:assert:"
 
 #: Document identifiers for provenance sources: ``urn:doc:<uuid4 hex>``.
 DOCUMENT_URN_PREFIX = "urn:doc:"
+
+#: Deterministic IRIs for unresolved references — NOT minted, derived from the
+#: cited surface form (md5 of the normalized name) so repeated pending
+#: observations of the same name address the same placeholder node.
+PENDING_URN_PREFIX = "urn:world:pending:"
 
 
 def new_entity_id() -> str:
@@ -67,3 +74,18 @@ def new_assertion_id() -> str:
 def new_document_id() -> str:
     """Mint a fresh document id for provenance tracking."""
     return f"{DOCUMENT_URN_PREFIX}{uuid.uuid4().hex}"
+
+
+def pending_reference_iri(surface_name: str) -> str:
+    """Deterministic placeholder IRI for an unresolved reference.
+
+    Same cited name → same IRI, so pending observations of one surface form
+    accumulate on one node instead of sprouting duplicates.
+    """
+    digest = hashlib.md5(normalize_surface(surface_name).encode("utf-8")).hexdigest()
+    return f"{PENDING_URN_PREFIX}{digest}"
+
+
+def normalize_surface(text: str) -> str:
+    """Casefold + squeeze whitespace (no punctuation stripping: names may differ only so)."""
+    return " ".join(text.casefold().split())

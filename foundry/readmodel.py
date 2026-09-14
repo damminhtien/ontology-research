@@ -104,6 +104,7 @@ class ReadModel:
         self._entities: dict[str, _EntityRecord] = {}
         self._merged_records: dict[str, _EntityRecord] = {}
         self._location_history: dict[str, list[_LocationEntry]] = {}
+        self._pending: dict[str, list[_LocationEntry]] = {}
         self._by_location: dict[str, set[str]] = {}
         self._current_location: dict[str, str] = {}
         self._merged_into: dict[str, str] = {}
@@ -148,6 +149,60 @@ class ReadModel:
         history.append(entry)
         history.sort(key=lambda e: (e.valid_from, e.event_id))
         self._refresh_location_index(entity_id)
+
+    def add_pending_observation(
+        self,
+        entity_ref: str,
+        location_uri: str,
+        valid_from: datetime,
+        source_ids: tuple[str, ...],
+        event_id: str,
+    ) -> None:
+        """Hold an observation whose subject has no canonical identity yet (§4.7)."""
+        from foundry.namespaces import normalize_surface
+
+        norm = normalize_surface(entity_ref)
+        if not norm:
+            return
+        self._pending.setdefault(norm, []).append(
+            _LocationEntry(
+                location_uri=location_uri,
+                valid_from=valid_from,
+                source_ids=source_ids,
+                event_id=event_id,
+            )
+        )
+
+    def flush_pending(self, entity_id: str, surface_names: list[str] | tuple[str, ...]) -> int:
+        """Link pending observations to a newly minted entity (§4.7).
+
+        A pending observation links when its cited surface form matches the
+        entity's name or any of its registered aliases. Returns the number of
+        observations linked.
+        """
+        from foundry.namespaces import normalize_surface
+
+        flushed = 0
+        for name in surface_names:
+            norm = normalize_surface(name)
+            entries = self._pending.pop(norm, None)
+            if not entries:
+                continue
+            for entry in entries:
+                self.add_location_observation(
+                    entity_id=entity_id,
+                    location_uri=entry.location_uri,
+                    valid_from=entry.valid_from,
+                    source_ids=entry.source_ids,
+                    event_id=entry.event_id,
+                )
+                flushed += 1
+        return flushed
+
+    @property
+    def pending_count(self) -> int:
+        """Observations waiting for their subject entity to be minted."""
+        return sum(len(entries) for entries in self._pending.values())
 
     def _refresh_location_index(self, entity_id: str) -> None:
         """Keep the reverse index correct after one entity's history changes.
@@ -321,6 +376,7 @@ class ReadModel:
             "with_location": len(self._location_history),
             "locations": len(locations),
             "assertions": len(self._assertions),
+            "pending_observations": self.pending_count,
             "last_event_time": (
                 self._last_event_time.strftime("%Y-%m-%dT%H:%M:%SZ")
                 if self._last_event_time

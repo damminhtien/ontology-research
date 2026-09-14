@@ -32,7 +32,7 @@ class TestShellAndOverview:
 class TestOntologyEndpoints:
     def test_model_counts_match_kernel(self, client):
         model = client.get("/api/ontology/model").json()
-        assert len(model["classes"]) == 26
+        assert len(model["classes"]) == 27  # core kernel + identity:UnresolvedReference
         assert len(model["properties"]) == 41
 
     def test_tree_roots_at_entity(self, client):

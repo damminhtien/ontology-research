@@ -1,0 +1,17 @@
+{
+  "date": "2026-09-12T11:22:11Z",
+  "file": "ontology/middle/identity.ttl",
+  "module_iri": "https://damminhtien.github.io/ontology-research/ontology/middle/identity",
+  "snapshot_version": 1,
+  "terms": {
+    "https://damminhtien.github.io/ontology-research/ontology/middle/identity#UnresolvedReference": {
+      "comment": "Placeholder for a referenced entity whose canonical identity is not minted yet. Carries the surface form it was cited by (core:name); the projector links observations to the entity once it exists. Never mints a fake canonical id.",
+      "kind": "class",
+      "label": "Unresolved reference",
+      "parents": [
+        "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
+      ]
+    }
+  },
+  "version": "0.1.0"
+}

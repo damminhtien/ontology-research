@@ -125,7 +125,7 @@ class TestObservationIngestion:
         events = pipeline._log.read_all()
         assert [e.event_type for e in events] == ["EntityCreated", "LocationObserved"]
 
-    def test_observation_for_unknown_entity_is_rejected(self, pipeline):
+    def test_observation_for_unknown_entity_is_accepted_pending(self, pipeline):
         result = pipeline.ingest_location_observation(
             entity_name="Ghost Vessel",
             entity_type="Platform",
@@ -133,12 +133,13 @@ class TestObservationIngestion:
             valid_from="2026-08-20T03:00:00Z",
             source_ids=[SOURCE_URI],
         )
-        assert not result.accepted
-        assert "unresolved entity" in result.reason
-        # B4: the rejection is durably queued, not just returned as a receipt
-        assert result.event is not None
-        assert result.event.event_type == "ResolutionReviewQueued"
-        assert [e.event_type for e in pipeline._log.read_all()] == ["ResolutionReviewQueued"]
+        # D12/§4.7: unresolved references are recorded as pending observations,
+        # not rejected — they link up when the entity is minted later
+        assert result.accepted and result.pending
+        assert result.event.event_type == "LocationObserved"
+        assert result.event.payload["entity_id"] == ""
+        assert result.event.payload["entity_ref"] == "Ghost Vessel"
+        assert [e.event_type for e in pipeline._log.read_all()] == ["LocationObserved"]
 
     def test_observation_missing_source_fails_shacl_gate(self, pipeline):
         self.ingest_platform(pipeline)
@@ -225,12 +226,18 @@ class TestReviewQueue:
         events = EventLog(log_path).read_all()
         assert [e.event_type for e in events] == ["EntityCreated", "ResolutionReviewQueued"]
 
-    def test_unresolved_observation_reference_is_queued(self, tmp_path):
+    def test_ambiguous_observation_reference_is_queued(self, tmp_path):
+        """Ambiguity (multimap collision) needs a human decision — queued, not guessed."""
         log_path = tmp_path / "events.jsonl"
         pipeline = self._pipeline(log_path)
+        pipeline.ingest_entity(name="Trung đoàn 101", entity_type="Organization", source_id="s1")
+        colliding = "urn:world:entity:" + "e" * 32
+        pipeline._identity.register(
+            entity_id=colliding, entity_type="Organization", aliases=["Trung đoàn 101"]
+        )
         rejected = pipeline.ingest_location_observation(
-            entity_name="Never Registered Entity",
-            entity_type="Platform",
+            entity_name="Trung đoàn 101",
+            entity_type="Organization",
             location_uri=LOCATION_URI,
             valid_from="2026-08-20T03:00:00Z",
             source_ids=[SOURCE_URI],
@@ -238,7 +245,6 @@ class TestReviewQueue:
         assert not rejected.accepted
         assert rejected.event is not None
         assert rejected.event.event_type == "ResolutionReviewQueued"
-        assert rejected.event.payload["reference_name"] == "Never Registered Entity"
 
 
 class TestExternalIdBinding:

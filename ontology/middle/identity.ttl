@@ -1,0 +1,23 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
+@prefix identity: <https://damminhtien.github.io/ontology-research/ontology/middle/identity#> .
+
+<https://damminhtien.github.io/ontology-research/ontology/middle/identity> a owl:Ontology ;
+    dcterms:title "Middle Layer: Identity references"@en ;
+    dcterms:description "Unresolved entity references (docs/architecture.md §4.7). An UnresolvedReference is a placeholder for an entity the source names but that has no canonical identity yet: observations about it pass the SHACL gate, are recorded verbatim on the event log, and the read model links them to the entity the moment it is minted. It subclasses core:Entity so existing shapes (sh:class core:Entity) accept it unchanged."@en ;
+    dcterms:version "0.1.0" ;
+    owl:imports <https://damminhtien.github.io/ontology-research/ontology/core> ;
+    vann:preferredNamespacePrefix "identity" ;
+    vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/middle/identity#" .
+
+#################################################################
+# Classes
+#################################################################
+
+identity:UnresolvedReference a owl:Class ; rdfs:subClassOf core:Entity ;
+    rdfs:label "Unresolved reference"@en ;
+    rdfs:comment "Placeholder for a referenced entity whose canonical identity is not minted yet. Carries the surface form it was cited by (core:name); the projector links observations to the entity once it exists. Never mints a fake canonical id."@en .

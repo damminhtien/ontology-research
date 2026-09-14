@@ -46,6 +46,11 @@ def test_minted_ids_use_frozen_schemes():
     assert len(assertion) > len("urn:assert:")
     assert document.startswith("urn:doc:")
     assert len(document) > len("urn:doc:")
+    # pending placeholders are derived, not minted: deterministic per surface form
+    assert namespaces.pending_reference_iri("Org A") == namespaces.pending_reference_iri(
+        "  org   a "
+    )
+    assert namespaces.pending_reference_iri("Org A").startswith("urn:world:pending:")
     # uniqueness
     assert namespaces.new_entity_id() != entity
     assert namespaces.new_fact_iri() != fact

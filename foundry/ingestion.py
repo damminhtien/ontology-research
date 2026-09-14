@@ -16,7 +16,7 @@ via LLM extraction plug in ahead of the same gate.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -39,7 +39,11 @@ from foundry.events import (
     make_event,
 )
 from foundry.identity import IdentityService
-from foundry.namespaces import new_fact_iri
+from foundry.namespaces import (
+    IDENTITY_MIDDLE_NS,
+    new_fact_iri,
+    pending_reference_iri,
+)
 
 CORE = "https://damminhtien.github.io/ontology-research/ontology/core#"
 
@@ -65,6 +69,9 @@ class IngestResult:
 
     Accepted records carry the emitted event id and canonical entity id;
     rejected records carry a human-readable reason for the review queue.
+    ``pending`` marks accepted observations whose subject had no canonical
+    identity yet — they are recorded verbatim and link up when it exists
+    (architecture §4.7).
     """
 
     accepted: bool
@@ -73,6 +80,7 @@ class IngestResult:
     reason: str = ""
     event: SemanticEvent | None = None
     is_new: bool = False
+    pending: bool = False
 
 
 def _reject(canonical_id: str, reason: str, event: SemanticEvent | None = None) -> IngestResult:
@@ -261,24 +269,57 @@ class IngestionPipeline:
         if confidence is not None and not 0.0 <= confidence <= 1.0:
             raise ValueError(f"confidence {confidence} outside [0, 1]")
 
-        resolution = self._identity.resolve(name=entity_name, entity_type=entity_type)
-        if resolution.method not in {"alias", "external_id"}:
-            reason = (
-                f"entity reference matches candidates {resolution.candidates}; "
-                "resolve via exact alias or external id first"
-                if resolution.method == "review"
-                else "unresolved entity reference; ingest the entity before observing it"
+        # Pure lookup — never mints (architecture §4.7): an unresolved
+        # reference becomes a pending observation instead of polluting the
+        # registry with an entity that has no EntityCreated event.
+        found = self._identity.lookup(name=entity_name, entity_type=entity_type)
+        if found.method not in {"alias", "external_id"}:
+            if found.method == "ambiguous":
+                reason = (
+                    f"entity reference matches candidates {found.candidates}; "
+                    "resolve via exact alias or external id first"
+                )
+                queue_event = self._queue_review(
+                    reference_name=entity_name,
+                    external_source=None,
+                    external_id=None,
+                    entity_type=entity_type,
+                    candidates=found.candidates,
+                    reason=reason,
+                )
+                return _reject("", reason, event=queue_event)
+            # Miss with no candidates (§4.7): nothing to review — record the
+            # observation verbatim against an UnresolvedReference placeholder;
+            # the projector links it to the entity once it is minted.
+            data_graph = self._build_pending_graph(
+                entity_name=entity_name,
+                location_uri=location_uri,
+                valid_from=valid_from,
+                source_ids=source_ids,
+                confidence=confidence,
             )
-            queue_event = self._queue_review(
-                reference_name=entity_name,
-                external_source=None,
-                external_id=None,
-                entity_type=entity_type,
-                candidates=resolution.candidates,
-                reason=reason,
+            conforms, _, results_text = validate(
+                data_graph=data_graph,
+                shacl_graph=self._shapes,
+                inference="none",
+                advanced=True,
             )
-            return _reject(resolution.canonical_id, reason, event=queue_event)
-        canonical_id = resolution.canonical_id
+            if not conforms:
+                return _reject("", f"SHACL violation: {results_text.strip()}")
+            event = make_event(
+                "LocationObserved",
+                {
+                    "entity_id": "",  # no canonical id yet — pending by design
+                    "entity_ref": entity_name,
+                    "location_uri": location_uri,
+                    "valid_from": valid_from,
+                    "source_ids": list(source_ids),
+                    "confidence": confidence,
+                },
+            )
+            self._log.append(event)
+            return replace(_accept(pending_reference_iri(entity_name), event), pending=True)
+        canonical_id = found.canonical_id
 
         data_graph = self._build_observation_graph(
             canonical_id=canonical_id,
@@ -390,6 +431,59 @@ class IngestionPipeline:
         self._log.append(event)
         self._remember_context_event(event)
         return _accept(subject_id, event)
+
+    def _build_pending_graph(
+        self,
+        *,
+        entity_name: str,
+        location_uri: str,
+        valid_from: str,
+        source_ids: list[str],
+        confidence: float | None = None,
+    ) -> Graph:
+        """Map one observation whose subject has no canonical identity yet.
+
+        The subject of the LocationAssertion is an
+        ``identity:UnresolvedReference`` placeholder — a ``core:Entity``
+        subclass carrying the cited surface form — so the assertion passes
+        the same shapes without minting a fake canonical id (§4.7).
+        """
+        graph = Graph()
+        graph.parse(self._ontology_path.as_posix(), format="turtle")
+        # the placeholder's subClassOf axiom lives in the identity module —
+        # without it, sh:class core:Entity cannot see through the subclass
+        identity_module = self._ontology_path.parent.parent / "middle" / "identity.ttl"
+        graph.parse(identity_module.as_posix(), format="turtle")
+
+        subject = URIRef(new_fact_iri())
+        entity = URIRef(pending_reference_iri(entity_name))
+        location = URIRef(location_uri)
+
+        graph.add((subject, RDF.type, URIRef(CORE + "LocationAssertion")))
+        graph.add((subject, URIRef(CORE + "describes"), entity))
+        graph.add((subject, URIRef(CORE + "locatedAt"), location))
+        graph.add((subject, URIRef(CORE + "validFrom"), Literal(valid_from, datatype=XSD.dateTime)))
+        for source_id in source_ids:
+            source_node = URIRef(source_id)
+            graph.add((subject, URIRef(CORE + "hasSource"), source_node))
+            graph.add((source_node, RDF.type, URIRef(CORE + "Source")))
+            graph.add((source_node, URIRef(CORE + "name"), Literal(source_id)))
+        if confidence is not None:
+            graph.add(
+                (
+                    subject,
+                    URIRef(CORE + "hasConfidence"),
+                    Literal(str(confidence), datatype=XSD.decimal),
+                )
+            )
+
+        graph.add((entity, RDF.type, URIRef(IDENTITY_MIDDLE_NS + "UnresolvedReference")))
+        graph.add((entity, URIRef(CORE + "name"), Literal(entity_name)))
+        graph.add((location, RDF.type, URIRef(CORE + "Location")))
+        location_label = location_uri.rstrip("/").rsplit("/", 1)[-1].split("#")[-1]
+        graph.add((location, URIRef(CORE + "name"), Literal(location_label)))
+        materialize_type_closure(graph)
+        return graph
 
     # -- internals -----------------------------------------------------------
 
