@@ -385,7 +385,13 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
         authoritative + publish atomic, ingest từ lane đi qua identity+SHACL
         như thường; đã chứng minh thật: 150 rows/3 trang cursor, 150/150
         accepted (76 new, 74 merged), 0% unresolved (§4.6)
-  - [ ] SHACL hỗ trợ unresolved identity (§4.7); e2e benchmark theo stage (§4.8)
+  - [x] SHACL hỗ trợ unresolved identity (§4.7): `identity:UnresolvedReference`
+        (middle module 0.1.0, subClassOf core:Entity) — observation về entity
+        chưa mint được ghi verbatim với placeholder `urn:world:pending:` và
+        read model tự nối khi entity được mint (theo name/alias); ambiguity
+        (alias collision) vẫn vào review queue; sửa side-effect mint của
+        observation path (registry/log divergence)
+  - [ ] e2e benchmark theo stage (§4.8)
   - [x] Streaming projector thường trực: Console hydrate read-model snapshot
         cạnh log (pickle, atomic tmp+rename), chỉ fold suffix sau checkpoint;
         corrupt snapshot degrade về full replay — cache, không phải source of truth
