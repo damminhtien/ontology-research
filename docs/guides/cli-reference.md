@@ -29,6 +29,9 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 | `.venv/bin/python tools/benchmark.py [--scale N] [--observations N] [--runs N]` | Synthetic benchmark → `build/benchmark-report.json` |
 | `.venv/bin/python tools/check_slo.py` | SLO regression gate (1.2× baseline + SLO tuyệt đối) |
 | `.venv/bin/python tools/check_slo.py --generate-baseline` | Cập nhật `benchmarks/baseline.json` |
+| `.venv/bin/python tools/benchmark_e2e.py [--entities N] [--iterations N]` | E2E benchmark theo stage (ingest qua SHACL → lake → projector → lake query) → `build/benchmark-e2e-report.json` |
+| `.venv/bin/python tools/benchmark_e2e.py --check` | Gate e2e: floor tuyệt đối từng stage + 1/1.2× baseline (`benchmarks/baseline-e2e.json`) |
+| `.venv/bin/python tools/benchmark_e2e.py --generate-baseline` | Cập nhật baseline e2e (cùng `--entities` với gate) |
 
 ## Data plane
 

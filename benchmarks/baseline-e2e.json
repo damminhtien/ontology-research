@@ -1,0 +1,45 @@
+{
+  "stage_slos": {
+    "ingest": {
+      "min_events_per_second": 20.0
+    },
+    "lake_persist": {
+      "min_events_per_second": 150.0
+    },
+    "projector": {
+      "min_events_per_second": 5000.0
+    },
+    "lake_query": {
+      "max_p95_ms": 100.0
+    }
+  },
+  "stages": {
+    "ingest": {
+      "count": 131,
+      "seconds": 1.1882,
+      "events_per_second": 111.6,
+      "accepted": 131,
+      "rejected": 0,
+      "pending": 5
+    },
+    "lake_persist": {
+      "count": 127,
+      "seconds": 0.0318,
+      "events_per_second": 3991.3
+    },
+    "projector": {
+      "count": 127,
+      "seconds": 0.0018,
+      "events_per_second": 190471.9,
+      "entities": 60
+    },
+    "lake_query": {
+      "count": 3,
+      "seconds": 0.5112,
+      "events_per_second": 5.6,
+      "p50_ms": 16.876,
+      "p95_ms": 21.821,
+      "runs": 30
+    }
+  }
+}

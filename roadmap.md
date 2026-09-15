@@ -391,7 +391,12 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
         read model tự nối khi entity được mint (theo name/alias); ambiguity
         (alias collision) vẫn vào review queue; sửa side-effect mint của
         observation path (registry/log divergence)
-  - [ ] e2e benchmark theo stage (§4.8)
+  - [x] e2e benchmark theo stage (§4.8): `tools/benchmark_e2e.py` đo 4 stage thật
+        (ingest qua SHACL + log → lake persist + dedup → projector replay →
+        DuckDB query p95) trên phân bố đại diện (song ngữ VI/EN, re-statement
+        external-id hit, collision ambiguity, pending refs); gate floor tuyệt
+        đối + 1/1.2× baseline (`benchmarks/baseline-e2e.json`, entities=60),
+        trong `make check`
   - [x] Streaming projector thường trực: Console hydrate read-model snapshot
         cạnh log (pickle, atomic tmp+rename), chỉ fold suffix sau checkpoint;
         corrupt snapshot degrade về full replay — cache, không phải source of truth
