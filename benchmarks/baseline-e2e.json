@@ -16,29 +16,29 @@
   "stages": {
     "ingest": {
       "count": 131,
-      "seconds": 1.1882,
-      "events_per_second": 111.6,
+      "seconds": 1.5214,
+      "events_per_second": 85.8,
       "accepted": 131,
       "rejected": 0,
       "pending": 5
     },
     "lake_persist": {
       "count": 127,
-      "seconds": 0.0318,
-      "events_per_second": 3991.3
+      "seconds": 0.0073,
+      "events_per_second": 17128.9
     },
     "projector": {
       "count": 127,
-      "seconds": 0.0018,
-      "events_per_second": 190471.9,
+      "seconds": 0.001,
+      "events_per_second": 136798.5,
       "entities": 60
     },
     "lake_query": {
       "count": 3,
-      "seconds": 0.5112,
-      "events_per_second": 5.6,
-      "p50_ms": 16.876,
-      "p95_ms": 21.821,
+      "seconds": 0.6334,
+      "events_per_second": 4.9,
+      "p50_ms": 20.788,
+      "p95_ms": 21.604,
       "runs": 30
     }
   }

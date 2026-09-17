@@ -270,7 +270,9 @@ def _evaluate(report: dict, baseline: dict | None) -> list[str]:
         failures.append(f"lake_query: p95 {p95}ms exceeds SLO {max_p95}ms")
     if baseline:
         for stage, entry in baseline["stages"].items():
-            base = entry.get("events_per_second")  # lake_query is latency-gated
+            if stage == "lake_query":
+                continue  # latency-gated, not throughput-gated
+            base = entry.get("events_per_second")
             if not base:
                 continue
             cur = stages[stage]["events_per_second"]
@@ -312,7 +314,8 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.generate_baseline or args.check:
-        report = _median_report(args.entities, max(3, args.iterations))
+        # 5 median iterations: the gate must not trip on single-run machine noise
+        report = _median_report(args.entities, max(5, args.iterations))
         print(json.dumps(report["stages"], indent=2, ensure_ascii=False))
         if args.generate_baseline:
             baseline = {"stage_slos": STAGE_SLOS, "stages": report["stages"]}
