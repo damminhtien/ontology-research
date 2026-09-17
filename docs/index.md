@@ -12,7 +12,7 @@ không phải toàn bộ dự án. Nguyên tắc xuyên suốt:
 
 | Lớp | Thành phần | Điểm vào |
 |-----|------------|----------|
-| **Ontology kernel** | 20 classes / 33 predicates, SHACL contracts | `ontology/core/core.ttl` |
+| **Ontology kernel** | 7 modules / 27 classes / 41 properties, SHACL contracts, usage-tracked | `ontology/` · [Ontology status](guides/ontology-status.md) |
 | **Ingestion** | Append-only event log, identity resolution precision-first, SHACL gate | `foundry/` |
 | **Read model** | CQRS projector + query latency benchmark với SLO gate | `foundry/projector.py` |
 | **Governance** | SemVer registry, migration gate cho MAJOR, blast radius, stability | `registry/` |

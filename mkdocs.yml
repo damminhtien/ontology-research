@@ -61,6 +61,7 @@ nav:
       - 06. Console UI: tutorials/06-console.md
   - Guides:
       - Kiến trúc hệ thống: architecture.md
+      - Ontology status: guides/ontology-status.md
       - Data & correction workflows: guides/workflows.md
       - CLI reference: guides/cli-reference.md
   - Engineering docs:
