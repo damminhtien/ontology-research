@@ -1,4 +1,4 @@
-# Semantic Foundry — Roadmap 12 tháng
+# Semantic Foundry — Roadmap
 
 > Nguyên tắc duy nhất xuyên suốt project:
 >
@@ -7,414 +7,138 @@
 > Ontology bảo đảm **meaning**; materialized data models bảo đảm **speed**;
 > modularity + versioning bảo đảm **evolution**.
 
-Mục tiêu: xây một **Production Semantic Platform**, không phải một "Ontology Project".
-Ontology chỉ là một phần của architecture, không nằm trên critical data-path nếu không cần thiết.
-
-$$
-\text{Production Semantic Platform} > \text{Beautiful Ontology}
-$$
-
-Nguyên tắc kiến trúc:
-
-$$
-\text{Correct semantics} + \text{bounded evolution} + \text{fast operational queries} + \text{horizontal scalability}
-$$
-
-## North-star architecture
-
-```text
-                    ┌──────────────────────┐
-                    │  Ontology Registry   │
-                    │ OWL + SHACL + SKOS   │
-                    └──────────┬───────────┘
-                               │  Semantic Contracts
-        ┌──────────────────────┼───────────────────────┐
-        ▼                      ▼                       ▼
- Structured DB             Event Stream            Documents
- SQL / API                 Kafka-like              OSINT/PDF/etc.
-        └───────────────┬──────┴──────────────┬────────┘
-                        ▼                     ▼
-                Semantic Mapping       Entity Resolution
-                        └──────────┬──────────┘
-                                   ▼
-                          Canonical Knowledge
-                          (provenance / time / source)
-                                   │
-                     ┌─────────────┴─────────────┐
-                     ▼                           ▼
-             Materialized Graph              Lakehouse
-             operational view              historical/raw
-                     │                           │
-               Graph / SQL / Search          OLAP Analytics
-                     │
-                     ▼
-                Application / AI / C2
-```
-
-Polyglot storage: **Graph** (traversal), **Relational/columnar** (history + analytics),
-**Search** (aliases/text), **Vector** (candidate generation), **Stream** (live events).
-Federation theo domain KG thay vì một central KG khổng lồ.
-
-## Tổng quan phase
-
-| Phase | Thời gian | Mục tiêu |
-| ----- | --------: | -------- |
-| 0     | 2 tuần    | Requirements + benchmark contract |
-| 1     | 4 tuần    | Semantic kernel v0 (tiny ontology) |
-| 2     | 4–6 tuần  | Production ingestion pipeline |
-| 3     | 4–6 tuần  | Fast materialized read graph (CQRS) |
-| 4     | 6–8 tuần  | Domain module đầu tiên |
-| 5     | 6–8 tuần  | Evolution + governance |
-| 6     | 2–3 tháng | Scale / federation |
-| 7     | liên tục  | AI + reasoning + expansion |
-
-Thứ tự ưu tiên thực tế:
-
-$$
-Benchmark \rightarrow Data\ pipeline \rightarrow Query \rightarrow Ontology\ richness
-$$
-
-Thứ tự khi chỉ có 1–2 engineer:
-
-```text
-1. Query workload   2. Data model   3. Identity      4. Ingestion
-5. Read model       6. Benchmark    7. Tiny ontology 8. SHACL
-9. First domain     10. Evolution   11. Federation   12. LLM
-```
-
-Điểm phản trực giác: **tiny ontology đứng SAU data/query architecture về engineering priority**,
-vì production requirements phải ép ontology vào đúng shape.
-
-## Phase 0 — Engineering contract (Week 1–2)
-
-Scale targets ban đầu (architecture hướng tới, chưa cần đạt ngay):
-
-```text
-Entities        10^8
-Relations       10^9
-Events/day      10^7
-Sources         10^3
-Ontology terms  10^4–10^5
-```
-
-Xác định workload trước ontology: **50–100 Competency Queries** chia 6 nhóm,
-mỗi nhóm có SLO p95 riêng (chi tiết trong `requirements/`):
-
-| Nhóm | Ví dụ | Target p95 |
-| ---- | ----- | ---------- |
-| Q1 Entity lookup | Find entity X | < 50ms |
-| Q2 1-hop relationship | Which organization operates platform X? | < 100ms |
-| Q3 2–3 hop graph | Sensors operated by orgs in region X | < 300ms |
-| Q4 Temporal | Where was entity X at time T? | < 500ms |
-| Q5 Provenance | Which sources support fact F? | < 500ms |
-| Q6 Analytical | Count/group by region/type/time | chạy OLAP, không trên graph store |
-
-Deliverable Phase 0 (đã có trong repo này):
-
-```text
-requirements/competency_questions.md
-requirements/performance_slo.md
-requirements/scale_targets.md
-benchmarks/queries/          # CQ dạng SPARQL, chạy được
-benchmarks/datasets/         # dataset mẫu xác định
-benchmarks/expected_results/ # ground truth cho regression test
-```
-
-## Phase 1 — Semantic kernel v0 (Week 3–6) ✅ implemented
-
-Không xây Vietnam/Military ontology. Chỉ xây `semantic-core`:
-**15–25 classes, 30–50 predicates**, chỉ những quan hệ cực ổn định.
-
-Quy tắc đưa predicate vào core: `Coverage(p) > k` domain (ví dụ `partOf` dùng cho
-organizations/geography/systems/documents/infrastructure → core;
-`launchesMissile` → domain). Không có `Tank`, `Radar`, `Company`, `Province` ở core.
-
-**SHACL ngay từ ngày đầu**: CI fail nếu dữ liệu production vi phạm shape
-(ví dụ `Observation` phải có `timestamp = exactly 1`, `source >= 1`).
-
-Deliverables đã có:
-
-```text
-ontology/core/core.ttl        # 20 classes, 33 predicates, domain+range đầy đủ
-shapes/core_shapes.ttl        # SHACL contracts: Observation / LocationAssertion / Entity
-tools/validate.py             # CLI validate data bằng pyshacl
-tools/check_dependency_dag.py # invariant: core ← middle ← domain, không circular
-tests/                        # pytest: ontology unit tests + SHACL + CQ regression
-```
-
-## Phase 2 — Production ingestion pipeline (Week 7–12)
-
-Pipeline chuẩn:
-
-```text
-Source → Parser → Schema normalization → Entity extraction → Entity resolution
-      → Ontology mapping → Validation → Canonical event/fact
-```
-
-Chỉ ingest 3 loại data để chứng minh architecture:
-
-- **A. Slowly-changing structured** (organization, infrastructure, geography)
-- **B. High-rate events** (track, sensor observation, telemetry)
-- **C. Unstructured** (reports, news, documents)
-
-Yêu cầu cốt lõi:
-
-- **Immutable append-only event log**: `EntityCreated`, `LocationObserved`,
-  `AffiliationAssessed`, `EntityMerged`, `ExternalIdBound`,
-  `RelationshipObserved`… không overwrite history.
-- **identity-service** riêng: `canonical_id`, `aliases[]`, `external_ids[]`,
-  `confidence`, `source`. Ontology không giải quyết identity resolution
-  ("USS Gerald R. Ford" / "CVN-78" / "Gerald Ford Carrier" → một canonical id).
-- Global ID sớm: `urn:world:entity:<uuid>` — không dùng DB auto-increment làm identity.
-- LLM chỉ ở cuối pipeline:
-  `Document → LLM extraction → candidate facts → ER → ontology mapping → SHACL
-   → confidence/provenance → human review if needed → KG`.
-  LLM chỉ đề xuất; semantic system quyết định acceptance.
-
-Target synthetic: `10^4 – 10^5 events/s`.
-
-## Phase 3 — Materialized read graph (Week 10–16)
-
-Dual representation + **CQRS**:
-
-- **Canonical (write model)**: `LocationAssertion123 {entity, location, validFrom, source}`
-  — tối ưu correctness / audit / history / provenance.
-- **Operational (read model)**: `AircraftA currentLocation Hanoi`
-  — tối ưu latency / simplicity / indexability. Query phổ biến chỉ dùng projection.
-
-Performance invariant (đây là SLO engineering, không phải ontology theorem):
-
-$$
-80\%\ operational\ queries \le 3\ graph\ hops
-$$
-
-Targets: 1-hop p95 < 100ms · 3-hop p95 < 300ms · ProjectionLag < 5s.
-
-## Phase 4 — Domain ontology đầu tiên (Week 13–20)
-
-Vertical đầu tiên: `Observation → Track → Entity → Organization → Location`
-(test được identity, temporal, uncertainty, sensor, organization, geography, provenance).
-
-Module layout, dependency bắt buộc là DAG:
-
-```text
-ontology/
-├── core/      # kernel v0 (đã có)
-├── middle/    # organization, location, information, measurement, temporal
-└── domain/    # sensor, platform, tracking, c2
-```
-
-Invariant: `Core ↛ Middle ↛ Domain`. Import ngược chiều hoặc circular → CI fail
-(`tools/check_dependency_dag.py`, đã có sẵn từ Phase 1).
-
-## Phase 5 — Ontology as software engineering (Week 18–26)
-
-Repository governance:
-
-```text
-ontology/{core,middle,domains}/  shapes/  mappings/  tests/  migrations/  docs/
-```
-
-- **SemVer** cho từng module (`core 1.2.3`): PATCH = label/doc;
-  MINOR = thêm backward-compatible; MAJOR = breaking semantic change.
-  **Không bao giờ redefine silently** (đổi nghĩa `Aircraft` v1 → v2 phải qua migration hoặc term mới).
-- **Ontology unit tests**: positive (`F16 ⊑ FighterAircraft ⊑ Aircraft ⊑ Platform`)
-  và negative (`person playsRole Commander ⇏ person rdf:type CommanderKind`).
-- **Regression query tests** mỗi release: so answer correctness + p50/p95/p99;
-  ontology update làm p95 tăng > 20% → reject hoặc review.
-
-Evolution metrics:
-
-- Change Blast Radius: `BR(Δ) = N_modules + N_queries + N_mappings + N_applications` — mục tiêu giảm dần.
-- Semantic Stability: `Stability(c) = 1 − N_breaking/N_releases`; core > 0.99, domain > 0.95.
-- Query Complexity Score: `C(q) = w1·Hops + w2·Joins + w3·ReifiedRels + w4·Filters`, monitor qua release.
-
-## Phase 6 — Scale & federation (Month 6–9)
-
-Synthetic scale ladder: 10M entities/100M edges → 100M entities/1B edges.
-Test: ingestion throughput, query p95, memory, storage, index build, recovery, replication.
-
-Federation quan trọng hơn "one huge KG": nhiều domain KG (Geo/Infra/Defence/Economy/
-Organization) cùng conform `core + middle + semantic contracts`;
-federated query layer xử lý cross-domain.
-
-## Phase 7 — Vietnam profile + AI (Month 6+)
-
-Bắt đầu khoảng **Month 6**, sau khi core/mapping/query/evolution pipeline ổn định.
-Vietnam là **profile**, không phải ontology đơn khối:
-
-```text
-profiles/vietnam/   # VN Geography, Government, Infrastructure, Economy, Defence…
-```
-
-Reuse domain ontology chung: `Vietnam rdf:type Country`,
-`Hanoi rdf:type AdministrativeRegion`. Không tạo `VietnameseCountryClass` /
-`VietnameseCityClass` trừ khi thực sự có semantics riêng.
-
-Cuối phase: AI semantic query interface
-(NL → competency-query templates → validated SPARQL).
-
-## KPI cấp architecture
-
-| # | KPI | Mục tiêu |
-| - | --- | -------- |
-| 1 | Query latency | p95(operational) < 300ms |
-| 2 | Scale | architecture test tới ≥ 10^9 relationships |
-| 3 | Semantic coverage | CQ coverage > 95% |
-| 4 | Stability | breaking core changes < 1/năm sau khi core mature |
-| 5 | Evolution | median blast radius giảm dần |
-| 6 | Data quality | ValidFacts > 99.9% sau validation |
-
-SLO vận hành khác:
-
-```text
-EntityResolutionErrorRate < 1%
-ShapeViolationRate        < 0.1%
-ProjectionLag             < 5s
-```
-
-Observability: mapping failures, SHACL violation rate, unresolved/duplicate entity rate,
-query latency, reasoner latency, projector lag, schema/mapping version, data freshness.
-
-## Team & Definition of Done
-
-Team competence: **Semantic Engineer · Data/Streaming Engineer · Database/Platform
-Engineer · Domain Expert** (team nhỏ thì kiêm role).
-Code ownership theo `semantic/ data-platform/ identity/ query/ domain/ infra/`,
-không chia cứng "ontology team vs backend team".
-
-**DoD cho một ontology module** — chỉ có `*.owl` là CHƯA xong:
-
-- [ ] scope rõ, không circular dependency
-- [ ] competency questions
-- [ ] SHACL contracts
-- [ ] positive/negative reasoning tests
-- [ ] query benchmarks
-- [ ] mappings + version + migration policy
-- [ ] documentation + owner
-- [ ] performance regression test
-
-## Phân tích khoảng trống & rủi ro (cập nhật sau Phase 1)
-
-Các gap đã được chốt quyết định qua ADR (xem `docs/adr/`):
-
-| # | Gap | Quyết định | ADR |
-|---|-----|------------|-----|
-| 1 | Storage engine cho 5 loại workload khác nhau | Polyglot, ontology chỉ bind semantics | ADR-0001 |
-| 2 | History/provenance/replay | Append-only event log, corrections = event mới | ADR-0002 |
-| 3 | Identity: fuzzy match có tự merge không? | Precision-first — review gate bắt buộc | ADR-0003 |
-| 4 | Operational query path vs ontology complexity | CQRS: projector + read model, không đi qua ontology/SPARQL | ADR-0004 |
-
-Rủi ro lớn nhất cần theo dõi liên tục:
-
-```text
-R1 False-merge entity      -> giảm revenue tin cậy của cả hệ thống  (ADR-0003)
-R2 Projection lag          -> phá SLO p95 operational queries
-R3 Ontology drift          -> core bị domain concepts xâm nhập (test đang chặn)
-R4 SHACL gate quá ngặt     -> review queue phình to, ingestion nghẽn
-R5 Benchmark không đo thật -> KPI thành con số trên giấy (Phase 3 phải có dashboard)
-```
-
-Việc còn mở cần quyết định trước khi vào Phase 3:
-
-- [x] Event supersede/correction semantics — chốt: correction là event mới,
-  không rewrite log (`EntityMerged`, upcasters — ADR-0007, ADR-0009)
-- [ ] Định dạng mapping config (YAML/RML?) khi số nguồn tăng lên
-- [ ] Access control ở query API layer (ai được thấy provenance nào)
-
-## Trạng thái hiện tại
-
-- [x] Phase 0: requirements + benchmark scaffold (CQ queries chạy được với expected results)
-- [x] Phase 1: `semantic-core` v0.1 + SHACL + CI tests (pytest + rdflib + pyshacl)
-- [x] Phase 2: production ingestion pipeline
-  - [x] Append-only event log + immutable event contract (`foundry/events.py`)
-  - [x] Identity service precision-first (`foundry/identity.py`, ADR-0003)
-  - [x] Ingestion pipeline với SHACL gate (`foundry/ingestion.py`) — structured records + location observations
-  - [x] Throughput benchmark 10^4-10^5 events/s (synthetic) (`tools/benchmark.py`)
-  - [x] Nạp dữ liệu thật: 24.217 canonical entities từ Wikidata trong lake
-        Parquet (47.628 events, song ngữ Việt–Anh) qua `tools/ingest_wikidata.py`
-  - [x] Unstructured documents (`foundry/extraction.py` + `ingest_document`):
-        extractor *đề xuất* candidate facts — pipeline quyết định. Deterministic
-        `PatternExtractor` (mẫu báo cáo VI/EN, không cần LLM) + `LlmExtractor`
-        pluggable qua completion callable injectable; mọi candidate đi qua
-        identity (pure lookup) + SHACL assertion gate, confidence cap 0.7,
-        provenance = citing document, subject unresolved → durable review
-        queue, **không bao giờ auto-mint**
-- [~] Phase 5 (bắt đầu sớm): version governance
-  - [x] Release registry (`registry/`) + SemVer enforcement trong `make check`
-  - [x] `release` với migration note bắt buộc cho MAJOR; changelog sinh tự động
-  - [x] Blast radius analysis (`blast-radius`) + stability metric (`stability`)
-  - [x] Migration scripts (`migrate` — sinh SPARQL Update script review-before-apply cho MAJOR changes) + alignment registry (`align add/list/check`, trong `make check`)
-- [~] Tooling: Ontology Console v0.1 (read-only UI)
-  - [x] FastAPI backend (`foundry/console/`) tái dùng logic tools/ + foundry/
-  - [x] SPA: Dashboard / Explorer / Versions / Impact / Data Monitor / Projection
-  - [x] API tests; seed script qua ingestion pipeline thật
-  - [ ] Write operations từ UI (release) — cần auth + audit trail (Phase 3+)
-- [x] Phase 3: projector + read models + benchmark dashboard (ADR-0004)
-- [x] Phase 4 (bắt đầu): tracking vertical `Observation → Track → Entity → Organization → Location`
-  - [x] Middle modules: `location.ttl`, `organization.ttl`; domain modules: `sensor.ttl`, `tracking.ttl` (ADR-0005)
-  - [x] CQ-013…CQ-016 vào regression harness tự động (cq_runner load mọi module/dataset)
-  - [x] Domain SHACL contracts (`shapes/domain_shapes.ttl`) trong `make validate`
-  - [x] Baseline releases 0.1.0 cho 4 module; SemVer enforcement áp dụng toàn registry
-  - [x] Ingestion mapping cho domain types (Phase 4 hoàn thành): vertical
-        `Observation → Track → Entity` qua `foundry/tracking.py` +
-        `IngestionPipeline.ingest_sensor/ingest_observation/ingest_track` —
-        3 event types mới (`SensorRegistered`/`ObservationRecorded`/
-        `TrackObserved`), MMSI + sensor serial là trusted external ids
-        (ADR-0006), gate qua `sensor:SensorShape`/`core:ObservationShape`/
-        `tracking:TrackShape` (shapes domain vào pipeline tự động); CLI
-        `tools/ingest_tracking_feed.py` nạp feed AIS-JSONL; read model có
-        track store (`get_track`/`tracks_of`), sensors là entities (Artifact)
-- [x] Nền móng production facts (kéo sớm, trước khi nhân rộng nguồn — 2026-08-31…09-02):
-  - [x] Freeze namespace + identifier schemes, freeze guards trong CI (ADR-0008)
-  - [x] Event contract v2: sequence/offset, valid-time, upcaster chain (ADR-0009)
-  - [x] Registry = log projection: pure lookup, alias multimap, type-aware,
-        external id multi-valued, binding bền vững qua `ExternalIdBound` (ADR-0010)
-  - [x] Under-merge repair qua `EntityMerged` + merge CLI (ADR-0007) — đã repair
-        185 cặp QID trùng trên dữ liệu thật
-  - [x] Nạp dữ liệu thật: 24.217 canonical entities từ Wikidata trong lake
-        Parquet (47.628 events, song ngữ Việt–Anh) qua `tools/ingest_wikidata.py`
-- [x] Kiến trúc B1–B5 (2026-09-02, theo `docs/architecture.md`):
-  - [x] B1: một production log duy nhất; EventLog segmented + flock + fsync +
-        tail-recovery; `import_events`; review queue + split CLI defaults
-  - [x] B2: projector replay theo sequence (không còn wall-clock), per-event
-        idempotent, checkpoint save/load, reverse index streaming-safe
-  - [x] B3: lake manifest-authoritative query, dedup theo event_id, compaction
-  - [x] B4: review queue bền vững (`ResolutionReviewQueued`); un-merge replay-exact
-        (`EntitySplit` + `tools/split_entity.py`); identity store boundary còn mở
-  - [x] B5: Document/Assertion model nền tảng (`AssertionMade`/`AssertionSuperseded`/
-        `DocumentRegistered`, ledger trong read model, merge re-point subject);
-        SHACL mapping cho assertions còn mở
-  - [x] B6: identity store boundary — `IdentityStore` ABC (records, alias/external
-        multimaps, token blocking index, merge redirects) tách khỏi
-        `IdentityService` (policy); backend in-memory mặc định, SQLite/graph
-        thay vào sau không đổi resolution logic (ADR-0010, §4.5)
-  - [x] B7: ontology + SHACL mapping cho assertions — `assertion:Document`/
-        `assertion:Assertion` tái dùng core properties, shapes pin describes/
-        object/validFrom/source/confidence + thứ tự supersedes; ledger
-        materialize RDF và validate khi ingest
-  - [x] B8: reference lane + QID-cursor paging (`foundry/reference.py`,
-        `wd.iter_entities`, `tools/build_reference_lane.py`, ingest
-        `--from-lane`) — typed Parquet snapshot versioned theo class, manifest
-        authoritative + publish atomic, ingest từ lane đi qua identity+SHACL
-        như thường; đã chứng minh thật: 150 rows/3 trang cursor, 150/150
-        accepted (76 new, 74 merged), 0% unresolved (§4.6)
-  - [x] SHACL hỗ trợ unresolved identity (§4.7): `identity:UnresolvedReference`
-        (middle module 0.1.0, subClassOf core:Entity) — observation về entity
-        chưa mint được ghi verbatim với placeholder `urn:world:pending:` và
-        read model tự nối khi entity được mint (theo name/alias); ambiguity
-        (alias collision) vẫn vào review queue; sửa side-effect mint của
-        observation path (registry/log divergence)
-  - [x] e2e benchmark theo stage (§4.8): `tools/benchmark_e2e.py` đo 4 stage thật
-        (ingest qua SHACL + log → lake persist + dedup → projector replay →
-        DuckDB query p95) trên phân bố đại diện (song ngữ VI/EN, re-statement
-        external-id hit, collision ambiguity, pending refs); gate floor tuyệt
-        đối + 1/1.2× baseline (`benchmarks/baseline-e2e.json`, entities=60),
-        trong `make check`
-  - [x] Streaming projector thường trực: Console hydrate read-model snapshot
-        cạnh log (pickle, atomic tmp+rename), chỉ fold suffix sau checkpoint;
-        corrupt snapshot degrade về full replay — cache, không phải source of truth
-- [ ] Phase 5+: xem bảng phase ở trên
-
-
-
+Mục tiêu: **Production Semantic Platform** — ontology chỉ là một phần của
+architecture, không nằm trên critical data-path. Tài liệu này là kế hoạch 12
+tháng: §1 snapshot đồng bộ với mã nguồn, §2 những gì đã xong, §3 backlog có
+thứ tự. North-star architecture (polyglot storage, federation theo domain KG
+thay vì một central KG): xem `docs/architecture.md` §2.
+
+---
+
+## 1. Snapshot hiện tại (đồng bộ mã nguồn — 2026-09-02)
+
+Đo bằng chính hệ thống: `make check` xanh, **380 tests**, 2 SLO gates
+(read-model + e2e per-stage).
+
+| Thành phần | Trạng thái | Bằng chứng trong repo |
+|---|---|---|
+| Event log (write model) | ✅ | `foundry/events.py` — JSONL segmented, flock + fsync, tail-recovery, sequence toàn cục, upcaster chain, **13 event types** |
+| Identity registry | ✅ | `foundry/identity.py` — pure `lookup()`, alias multimap, type-aware, external id multi-valued, `IdentityStore` boundary; registry = log projection |
+| Ingestion pipeline | ✅ | `foundry/ingestion.py` — SHACL gate (4 shapes files), **4 data lanes**: reference (Wikidata), tracking (AIS), documents (extraction), corrections (merge/split/backfill/import) |
+| Read model (CQRS) | ✅ | `foundry/projector.py` + `readmodel.py` — sequence-ordered, checkpointed, per-event idempotent, snapshot persist; track store |
+| Lake | ✅ | `foundry/lake.py` — Parquet+zstd, manifest-authoritative query, event-id dedup, compaction |
+| Assertions | ✅ | `foundry/assertions.py` — Document/Assertion ledger, supersedes, SHACL assertion shapes |
+| Extraction | ✅ | `foundry/extraction.py` — `PatternExtractor` deterministic + `LlmExtractor` (completion injectable), confidence cap 0.7, không auto-mint |
+| Reference lane | ✅ | `foundry/reference.py` + `wd.iter_entities` — cursor paging theo QID, snapshot versioned |
+| Tracking vertical | ✅ | `foundry/tracking.py` — `SensorRegistered`/`ObservationRecorded`/`TrackObserved`, gate qua domain SHACL |
+| Console | ⚠️ v0.1 read-only | `foundry/console/` — FastAPI + SPA; projection hydrate từ snapshot; **chưa có write ops/auth** |
+| Governance | ✅ | `tools/manage_ontology.py` — SemVer registry, blast-radius, stability, migration/alignment |
+| Benchmarks | ✅ | micro (`tools/benchmark.py`) + e2e per-stage gate (`tools/benchmark_e2e.py`) |
+| Ontology | ✅ | 7 modules / 27 classes / 41 properties — `docs/guides/ontology-status.md` |
+
+**Production facts**: 24.217 canonical entities Wikidata (song ngữ VI–EN) trong
+lake Parquet; 47.628 events trong production log; unresolved_rate ≈ 0 với nguồn
+có external id.
+
+**Event types hiện hành (13)**: `EntityCreated`, `LocationObserved`,
+`AffiliationAssessed`*, `EntityMerged`, `EntitySplit`, `ExternalIdBound`,
+`ResolutionReviewQueued`, `DocumentRegistered`, `AssertionMade`,
+`AssertionSuperseded`, `SensorRegistered`, `ObservationRecorded`,
+`TrackObserved`.
+
+\* `AffiliationAssessed` khai báo từ contract v1 nhưng **chưa có producer** —
+implement ở Phase 7 hoặc xoá trong một MAJOR release.
+
+Quyết định kiến trúc chi tiết: 10 ADRs (`docs/adr/`); bản đồ kiến trúc +
+redesign đã triển khai: `docs/architecture.md` §6 (bảng commit mapping).
+
+---
+
+## 2. Phase đã hoàn thành
+
+| Phase | Phạm vi đã ship |
+|-------|-----------------|
+| **0** — Engineering contract | requirements, scale targets, SLO baseline, CQ harness |
+| **1** — Semantic kernel v0 | core.ttl (20 classes / 33 props) + SHACL + CI + 16 CQ regression |
+| **2** — Production ingestion | event contract v2 (sequence/valid-time/upcasters), identity precision-first (ADR-0003/0006), SHACL gate, **4 data lanes**, unstructured-document extraction (extractor pluggable — LLM chỉ đề xuất), 24k entities thật |
+| **3** — Read graph (CQRS) | projector checkpointed + per-event idempotent (ADR-0004), Console v0.1, latency benchmark + SLO gate, e2e per-stage gate (§4.8) |
+| **4** — Domain vertical đầu tiên | location/organization/sensor/tracking modules + domain SHACL + ingestion mapping end-to-end (tracking vertical hoàn thành) |
+| **5** (phần lớn) | SemVer registry + blast-radius + stability + migration/alignment; merge/split/review-queue/backfill/import corrections; Document/Assertion model (§4.2); reference lane (§4.6); streaming projector; identity store boundary (§4.5) |
+
+Kiến trúc nền B1–B8 theo `docs/architecture.md` §4: log transport bền vững
+(§4.1), projector sequence-ordered (§4.3), lake manifest-authoritative (§4.4),
+review queue bền vững + un-merge (§4.5), IdentityStore boundary, reference
+lane (§4.6), unresolved identity SHACL (§4.7), e2e benchmark (§4.8) —
+**tất cả đã ship**; bảng commit mapping ở `docs/architecture.md` §6.
+
+---
+
+## 3. Backlog có thứ tự
+
+### 3.1 Phase 5 — phần còn lại (ngắn, làm trước khi scale)
+
+| # | Việc | Ghi chú |
+|---|------|---------|
+| 1 | Console **write operations** (release/merge UI) | cần auth + audit trail trên log; console hiện chỉ read |
+| 2 | **Review queue UI/drain workflow** | `ResolutionReviewQueued` đã bền vững; cần giao diện phê duyệt → gọi merge/import theo receipt |
+| 3 | Quyết định **`AffiliationAssessed`**: implement hoặc xoá | producer chưa tồn tại; xoá = MAJOR contract release |
+| 4 | **Mapping config format** (YAML/RML?) | chốt khi nguồn thứ 3+ gia nhập; hiện 4 lane hardcode mapping |
+
+### 3.2 Phase 6 — Scale & federation (Month 6–9)
+
+| # | Việc | Ghi chú |
+|---|------|---------|
+| 1 | **Access control ở query API layer** (ai thấy provenance nào) | chặn Phase 7 AI interface |
+| 2 | **Scale ladder** 10M entities / 100M edges → 100M / 1B | đo: ingest throughput, query p95, memory, index build, recovery |
+| 3 | **Federation** theo domain KG + federated query layer | nhiều domain KG conform core + middle + semantic contracts |
+| 4 | **Multi-writer log** | segment foundation (B1) sẵn sàng; chỉ làm khi scale đo được nhu cầu |
+| 5 | **Vector-based candidate generation** | thay/thêm token-overlap, vẫn qua cùng review gate |
+
+### 3.3 Phase 7 — Vietnam profile + AI (Month 6+, song song 6)
+
+| # | Việc | Ghi chú |
+|---|------|---------|
+| 1 | `profiles/vietnam/` — VN là **profile**, không ontology đơn khối | reuse domain chung (`Vietnam rdf:type Country`); cấm `VietnameseCityClass` |
+| 2 | **Membership/affiliation lane** | `organization.ttl` đã có `memberOf`; dùng reserved terms participation/role |
+| 3 | **AI semantic query interface** | NL → competency-query templates → validated SPARQL |
+
+### 3.4 Giải phóng nợ ontology (review mỗi milestone)
+
+21 reserved terms trong core (participation/role, capability/quality,
+mereology, temporal boundaries) — chính sách **keep-not-delete** tới khi
+Phase 6/7 chốt design; gỡ term = MAJOR release. Chi tiết:
+`docs/guides/ontology-status.md` §2.
+
+---
+
+## 4. KPI cấp architecture
+
+| # | KPI | Mục tiêu | Hiện tại |
+|---|-----|----------|----------|
+| 1 | EntityResolutionErrorRate (false-merge) | ≈ 0 | 0 — không có luồng auto-merge |
+| 2 | unresolved_rate (nguồn có external id) | < 1% | ≈ 0% |
+| 3 | Query p95 (Q1 / Q-current / Q4) | 50 / 100 / 500 ms | OK (SLO gate) |
+| 4 | ProjectionLag | < 5 s | OK (SLO gate) |
+| 5 | Ingest e2e throughput | ≥ 20 ev/s floor | 79.8 ev/s @100 entities |
+| 6 | Semantic Stability | core > 0.99, domain > 0.95 | 1.0 toàn registry |
+
+## 5. Rủi ro chính
+
+| Rủi ro | Giảm thiểu |
+|--------|-----------|
+| LLM extraction false positive | confidence cap 0.7 + provenance document + review queue + SHACL gate |
+| Under-merge tích luỹ (2 QID = 1 thực thể) | chấp nhận theo ADR-0006; repair bằng merge CLI + audit trail |
+| Log single-writer giới hạn throughput | segment layout (B1) sẵn sàng multi-writer; chỉ làm khi Phase 6 đo được nhu cầu |
+| Read-model snapshot stale | snapshot là cache — corrupt/stale tự full replay; log vẫn validate toàn bộ |
+| Reserved terms thành dead weight | review mỗi Phase 6/7 milestone; xoá chỉ qua MAJOR release |
+
+## 6. Quy ước cập nhật tài liệu này
+
+- Snapshot §1 đồng bộ **mỗi milestone**: chạy `make check`, ghi số tests /
+  events / entities thật.
+- Hoàn thành việc nào → chuyển sang §2 với một dòng bằng chứng (commit/file).
+- Việc mới phát sinh → §3 theo đúng phase; **không** thêm status patchwork
+  rải rác (nguyên nhân roadmap cũ rối).
+- Đối tác tài liệu: `docs/architecture.md` (kiến trúc + redesign),
+  `docs/guides/ontology-status.md` (đánh giá ontology),
+  `docs/CHANGELOG.md` (release ontology tự sinh).

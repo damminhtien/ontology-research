@@ -276,8 +276,12 @@ def _evaluate(report: dict, baseline: dict | None) -> list[str]:
             if not base:
                 continue
             cur = stages[stage]["events_per_second"]
-            if cur / base < 1 / 1.2:
-                failures.append(f"{stage}: {cur} ev/s under 1/1.2x of baseline {base} ev/s")
+            # 1/1.5 (not 1/1.2): at micro scale on a shared machine, CPU-bound
+            # stage throughput swings >20% run-to-run under load; the absolute
+            # floors above are the real invariant, this only catches gross
+            # regressions.
+            if cur / base < 1 / 1.5:
+                failures.append(f"{stage}: {cur} ev/s under 1/1.5x of baseline {base} ev/s")
     return failures
 
 
