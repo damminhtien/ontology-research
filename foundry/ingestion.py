@@ -38,6 +38,7 @@ from foundry.events import (
     SemanticEvent,
     make_event,
 )
+from foundry.extraction import Extractor, PatternExtractor
 from foundry.identity import IdentityService
 from foundry.namespaces import (
     IDENTITY_MIDDLE_NS,
@@ -97,6 +98,25 @@ def _accept(canonical_id: str, event: SemanticEvent, *, is_new: bool = True) -> 
         event=event,
         is_new=is_new,
     )
+
+
+@dataclass(frozen=True)
+class DocumentIngestResult:
+    """Receipt for one unstructured-document ingest (Phase 2).
+
+    ``candidates`` = extractor proposals; ``asserted`` = candidates that became
+    SHACL-valid assertions; ``queued`` = candidates whose subject is unresolved
+    (durable review queue, never auto-minted); ``skipped`` = undated
+    candidates the assertion contract cannot represent.
+    """
+
+    document_id: str
+    document_event: SemanticEvent
+    candidates: int
+    asserted: int
+    queued: int
+    skipped: int
+    assertion_results: tuple[IngestResult, ...]
 
 
 class IngestionPipeline:
@@ -484,6 +504,92 @@ class IngestionPipeline:
         graph.add((location, URIRef(CORE + "name"), Literal(location_label)))
         materialize_type_closure(graph)
         return graph
+
+    # -- unstructured documents (Phase 2 — LLM chỉ đề xuất) -------------------
+
+    def ingest_document(
+        self,
+        *,
+        uri: str,
+        title: str,
+        source_system: str,
+        text: str,
+        content_ref: str | None = None,
+        extractor: Extractor | None = None,
+    ) -> DocumentIngestResult:
+        """Register a document, extract candidate facts, gate every one of them.
+
+        Contract (roadmap Phase 2): the extractor *proposes*; the pipeline
+        decides. Per candidate:
+
+        - undated candidates are skipped (the SHACL assertion contract needs a
+          temporal anchor);
+        - the subject must resolve by exact alias/external id — otherwise the
+          candidate is durably queued for review and **no entity is minted**;
+        - entity objects cited by name resolve the same way, falling back to a
+          deterministic pending-placeholder IRI (§4.7) the ledger can re-point
+          later; location objects cited as text do the same;
+        - accepted candidates become low-confidence assertions whose provenance
+          is the citing document.
+        """
+        document_event = self.register_document(
+            uri=uri, title=title, source_system=source_system, content_ref=content_ref
+        )
+        document_id = document_event.payload["document_id"]
+        extractor = extractor if extractor is not None else PatternExtractor()
+        candidates = extractor.extract(text)
+
+        results: list[IngestResult] = []
+        queued = skipped = 0
+        for candidate in candidates:
+            if candidate.valid_from is None:
+                skipped += 1
+                continue
+            found = self._identity.lookup(name=candidate.subject_name)
+            if found.method not in {"alias", "external_id"}:
+                self._queue_review(
+                    reference_name=candidate.subject_name,
+                    external_source=None,
+                    external_id=None,
+                    entity_type="",
+                    candidates=found.candidates,
+                    reason=f"extracted from document {document_id}: {candidate.snippet}",
+                )
+                queued += 1
+                continue
+
+            object_kind, object_value = candidate.object_kind, candidate.object_value
+            is_iri = object_value.startswith(("urn:", "http://", "https://"))
+            if object_kind == "entity" and not is_iri and not self._identity.knows(object_value):
+                obj_found = self._identity.lookup(name=object_value)
+                if obj_found.method in {"alias", "external_id"}:
+                    object_value = obj_found.canonical_id
+                else:
+                    object_value = pending_reference_iri(object_value)
+            elif object_kind == "location" and not is_iri:
+                object_value = pending_reference_iri(object_value)
+
+            results.append(
+                self.ingest_assertion(
+                    subject_id=found.canonical_id,
+                    predicate=candidate.predicate,
+                    object_kind=object_kind,
+                    object_value=object_value,
+                    valid_from=candidate.valid_from,
+                    source_ids=[document_id],
+                    confidence=candidate.confidence,
+                )
+            )
+        asserted = sum(1 for r in results if r.accepted)
+        return DocumentIngestResult(
+            document_id=document_id,
+            document_event=document_event,
+            candidates=len(candidates),
+            asserted=asserted,
+            queued=queued,
+            skipped=skipped,
+            assertion_results=tuple(results),
+        )
 
     # -- internals -----------------------------------------------------------
 

@@ -326,14 +326,20 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
 
 - [x] Phase 0: requirements + benchmark scaffold (CQ queries chạy được với expected results)
 - [x] Phase 1: `semantic-core` v0.1 + SHACL + CI tests (pytest + rdflib + pyshacl)
-- [~] Phase 2 (đang làm): 
+- [x] Phase 2: production ingestion pipeline
   - [x] Append-only event log + immutable event contract (`foundry/events.py`)
   - [x] Identity service precision-first (`foundry/identity.py`, ADR-0003)
   - [x] Ingestion pipeline với SHACL gate (`foundry/ingestion.py`) — structured records + location observations
   - [x] Throughput benchmark 10^4-10^5 events/s (synthetic) (`tools/benchmark.py`)
   - [x] Nạp dữ liệu thật: 24.217 canonical entities từ Wikidata trong lake
         Parquet (47.628 events, song ngữ Việt–Anh) qua `tools/ingest_wikidata.py`
-  - [ ] Unstructured documents (LLM extraction trước cùng gate đó)
+  - [x] Unstructured documents (`foundry/extraction.py` + `ingest_document`):
+        extractor *đề xuất* candidate facts — pipeline quyết định. Deterministic
+        `PatternExtractor` (mẫu báo cáo VI/EN, không cần LLM) + `LlmExtractor`
+        pluggable qua completion callable injectable; mọi candidate đi qua
+        identity (pure lookup) + SHACL assertion gate, confidence cap 0.7,
+        provenance = citing document, subject unresolved → durable review
+        queue, **không bao giờ auto-mint**
 - [~] Phase 5 (bắt đầu sớm): version governance
   - [x] Release registry (`registry/`) + SemVer enforcement trong `make check`
   - [x] `release` với migration note bắt buộc cho MAJOR; changelog sinh tự động
