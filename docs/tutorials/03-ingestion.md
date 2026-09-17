@@ -133,8 +133,8 @@ bị reject** nữa — nó được ghi verbatim với placeholder `urn:world:p
 entity đó được mint (khớp tên hoặc alias):
 
 ```python
-pending = pipeline.ingest_location_observation(...)   # subject chưa có → accepted, pending=True
-created = pipeline.ingest_entity(name=...)            # mint sau
+pending = pipeline.ingest_location_observation(...)  # subject chưa có → accepted, pending=True
+created = pipeline.ingest_entity(name=...)  # mint sau
 # → pending observation đã nằm trong current_location của entity
 ```
 

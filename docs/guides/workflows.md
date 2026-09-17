@@ -74,6 +74,7 @@ result = pipeline.ingest_document(
 # LLM backend: inject completion callable (text -> JSON candidate list);
 # đổi vendor không đụng pipeline
 from foundry.extraction import LlmExtractor
+
 result = pipeline.ingest_document(..., extractor=LlmExtractor(complete=my_llm_fn))
 ```
 
