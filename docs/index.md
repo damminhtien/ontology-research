@@ -45,6 +45,7 @@ Nếu gặp lỗi, bắt đầu với [Tutorial 01 — Getting started](tutorial
 | Hiểu kiến trúc tổng thể và hướng thiết kế lại | [Kiến trúc hệ thống](architecture.md) |
 | Hiểu cách hệ thống chạy end-to-end | [Tutorials 01–06](tutorials/01-getting-started.md) |
 | Nạp dữ liệu thật từ Wikidata vào lake | [Tutorial 03 — Ingestion](tutorials/03-ingestion.md) |
+| Chạy các luồng sửa dữ liệu và data lanes | [Workflows guide](guides/workflows.md) |
 | Tra cứu lệnh CLI | [CLI reference](guides/cli-reference.md) |
 | Biết kế hoạch 12 tháng | [Roadmap](generated/roadmap.md) |
 | Hiểu các quyết định kiến trúc | [ADRs 0001–0010](adr/ADR-0001-polyglot-persistence.md) |

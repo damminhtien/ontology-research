@@ -208,7 +208,26 @@ B6. 4.6 Reference lane + paging; 4.7 SHACL unresolved; 4.8 e2e benchmark
 Mỗi bước giữ nguyên bất biến: log không rewrite; mọi migration là upcaster mới
 hoặc event mới. Tiến trình track ở `roadmap.md`, mục "Nền móng production facts".
 
-## 6. Rủi ro của chính bản thiết kế lại này
+## 6. Trạng thái triển khai (2026-09-02)
+
+Toàn bộ thiết kế trong tài liệu này **đã triển khai**:
+
+| Thiết kế | Commit |
+|---|---|
+| §4.1 Log transport (segments, flock, fsync, tail-recovery, import tool) | `23330f4` |
+| §4.3 Projector sequence-ordered, checkpoint, per-event idempotent | `072fcf5` |
+| §4.4 Lake manifest-authoritative, dedup, compaction | `b3ee596` |
+| §4.5 Review queue bền vững (`ResolutionReviewQueued`) + un-merge (`EntitySplit` + CLI) | `d23686b` |
+| §4.2 Document/Assertion ledger (`AssertionMade`/`AssertionSuperseded`/`DocumentRegistered`) | `3017719`, `14f80e0`, `d1d0bce` |
+| §4.5 IdentityStore boundary | `fd7d218` |
+| §4.6 Reference lane + cursor paging | `ba3cd8e` |
+| §4.7 SHACL unresolved identity (`identity:UnresolvedReference`) | `a972f8b` |
+| §4.8 E2E per-stage benchmark + gate | `b2cac79` |
+
+Còn mở duy nhất từ bảng nợ: không — D1–D12 đã đóng hết. Việc tiếp theo theo
+roadmap: Console write operations (auth + audit), Phase 6 scale ladder.
+
+## 7. Rủi ro của chính bản thiết kế lại này
 
 - **4.2 (Assertion) là breaking change ở tầng khái niệm**: mọi consumer đọc
   `LocationObserved` phải map sang `AssertionMade`. Giảm rủi ro bằng upcaster

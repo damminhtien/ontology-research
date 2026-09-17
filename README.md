@@ -162,11 +162,19 @@ graphify update .                                  # rebuild sau khi sửa code 
 
 - [x] Phase 0: requirements + benchmark harness (correctness regression)
 - [x] Phase 1: semantic-core v0.1 + SHACL + CI tests
-- [x] Phase 2: ingestion pipeline + identity service + append-only event log
-- [x] Phase 3: projector + read models + latency benchmark dashboard
-- [x] Phase 4: nạp dữ liệu thật — 24.217 canonical entities từ Wikidata trong
-      lake Parquet; namespace freeze (ADR-0008); event contract v2 (ADR-0009);
-      registry = log projection (ADR-0010)
-- [ ] Phase 5: merge/review tooling hoàn chỉnh, streaming/checkpointed projector,
-      reference lane (Wikipedia), Document/Assertion model
-- [ ] Phase 6: vector-based candidate generation qua cùng review gate
+- [x] Phase 2: production ingestion pipeline — identity service, append-only
+      event log, 4 data lanes (reference/tracking/documents/corrections),
+      unstructured-document extraction với extractor pluggable (LLM chỉ đề xuất)
+- [x] Phase 3: projector + read models + latency benchmark dashboard + e2e
+      per-stage SLO gate
+- [x] Phase 4: tracking vertical end-to-end — sensor/tracking ingestion mapping
+      (3 domain event types qua domain SHACL contracts), 24.217+ canonical
+      entities từ Wikidata trong lake Parquet; namespace freeze (ADR-0008);
+      event contract v2 (ADR-0009); registry = log projection (ADR-0010)
+- [x] Phase 5 (phần lớn): merge/split/review tooling + Document/Assertion model
+      + reference lane + streaming/checkpointed projector + migration/alignment
+      registry
+- [ ] Phase 5 còn lại: Console write operations (auth + audit trail)
+- [ ] Access control ở query API layer; mapping config format (YAML/RML?)
+- [ ] Phase 6: scale ladder 10M–100M entities; vector-based candidate generation
+- [ ] Phase 7: Vietnam profile + AI semantic query interface

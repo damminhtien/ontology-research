@@ -118,10 +118,45 @@ sửa log, chỉ append `EntityMerged`:
 ```
 
 Tool rebuild registry từ log trước, từ chối merge sai (unknown id, type
-conflict, self-merge) mà không ghi gì. Chi tiết:
-[ADR-0007](../adr/ADR-0007-under-merge-repair-via-append-only-merge-events.md).
+conflict, self-merge) mà không ghi gì. Undo merge sai: `tools/split_entity.py`
+(same flags) — restore set đọc từ `EntityMerged`, split không có merge record
+bị reject. Chi tiết: [ADR-0007](../adr/ADR-0007-under-merge-repair-via-append-only-merge-events.md).
 
-## Bước 6 — Quan sát trong Console
+Toàn bộ các luồng sửa dữ liệu + data lanes gom ở
+[Workflows guide](../guides/workflows.md).
+
+## Bước 6 — Observation về entity chưa mint (pending)
+
+Reference nói về một entity chưa tồn tại trong registry? Observation **không
+bị reject** nữa — nó được ghi verbatim với placeholder `urn:world:pending:*`
+(`identity:UnresolvedReference`), và read model **tự nối** vào entity ngay khi
+entity đó được mint (khớp tên hoặc alias):
+
+```python
+pending = pipeline.ingest_location_observation(...)   # subject chưa có → accepted, pending=True
+created = pipeline.ingest_entity(name=...)            # mint sau
+# → pending observation đã nằm trong current_location của entity
+```
+
+Ambiguity thật (một tên, hai entity cùng loại) vẫn vào review queue. Chi tiết:
+`docs/architecture.md` §4.7.
+
+## Bước 7 — Bốn lane dữ liệu
+
+| Lane | Đầu vào | Công cụ | Event types |
+|------|---------|---------|-------------|
+| Reference (Wikidata) | SPARQL / Parquet snapshot | `build_reference_lane.py` → `ingest_wikidata.py --from-lane` | `EntityCreated`, `ExternalIdBound` |
+| Tracking (AIS feed) | JSONL sensor feed | `ingest_tracking_feed.py` | `SensorRegistered`, `ObservationRecorded`, `TrackObserved` |
+| Documents (văn bản) | Báo cáo/tin — extractor *đề xuất* | `pipeline.ingest_document(...)` | `DocumentRegistered`, `AssertionMade` |
+| Corrections | Human decision | merge/split/backfill/import CLI | `EntityMerged`, `EntitySplit`, `ExternalIdBound`, `ResolutionReviewQueued` |
+
+Document lane theo nguyên tắc *"LLM chỉ đề xuất; semantic system quyết định"*:
+`PatternExtractor` (deterministic VI/EN, không cần LLM) làm mặc định,
+`LlmExtractor` pluggable qua completion callable; candidate không bao giờ
+auto-mint — subject unresolved thì vào review queue, confidence cap 0.7,
+provenance là citing document.
+
+## Bước 8 — Quan sát trong Console
 
 ```bash
 make console
