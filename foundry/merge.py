@@ -45,6 +45,7 @@ def merge_entities(
     survivor_id: str,
     duplicate_id: str,
     reason: str = "",
+    actor: str = "",
 ) -> MergeResult:
     """Merge two canonical entities and append the ``EntityMerged`` event.
 
@@ -66,6 +67,7 @@ def merge_entities(
             {"source": source, "external_id": ext} for source, ext in outcome.moved_external_ids
         ],
         "reason": reason,
+        "actor": actor,
     }
     event = make_event(EVENT_TYPE_ENTITY_MERGED, payload)
     log.append(event)
@@ -164,6 +166,7 @@ def split_entities(
     survivor_id: str,
     duplicate_id: str,
     reason: str = "",
+    actor: str = "",
 ) -> SplitResult:
     """Undo a previously recorded merge and append the ``EntitySplit`` event.
 
@@ -203,6 +206,7 @@ def split_entities(
                 for source, ext in outcome.retained_external_ids
             ],
             "reason": reason,
+            "actor": actor,
         },
     )
     log.append(event)

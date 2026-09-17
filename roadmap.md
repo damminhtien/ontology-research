@@ -63,7 +63,7 @@ redesign đã triển khai: `docs/architecture.md` §6 (bảng commit mapping).
 | **2** — Production ingestion | event contract v2 (sequence/valid-time/upcasters), identity precision-first (ADR-0003/0006), SHACL gate, **4 data lanes**, unstructured-document extraction (extractor pluggable — LLM chỉ đề xuất), 24k entities thật |
 | **3** — Read graph (CQRS) | projector checkpointed + per-event idempotent (ADR-0004), Console v0.1, latency benchmark + SLO gate, e2e per-stage gate (§4.8) |
 | **4** — Domain vertical đầu tiên | location/organization/sensor/tracking modules + domain SHACL + ingestion mapping end-to-end (tracking vertical hoàn thành) |
-| **5** (phần lớn) | SemVer registry + blast-radius + stability + migration/alignment; merge/split/review-queue/backfill/import corrections; Document/Assertion model (§4.2); reference lane (§4.6); streaming projector; identity store boundary (§4.5) |
+| **5** | governance + corrections hoàn chỉnh: SemVer registry, blast-radius, stability, migration/alignment; merge/split/review-queue/backfill/import; Document/Assertion model (§4.2); reference lane (§4.6); streaming projector; identity store boundary (§4.5); **Console admin write ops (auth + audit)** |
 
 Kiến trúc nền B1–B8 theo `docs/architecture.md` §4: log transport bền vững
 (§4.1), projector sequence-ordered (§4.3), lake manifest-authoritative (§4.4),
@@ -77,12 +77,23 @@ lane (§4.6), unresolved identity SHACL (§4.7), e2e benchmark (§4.8) —
 
 ### 3.1 Phase 5 — phần còn lại (ngắn, làm trước khi scale)
 
-| # | Việc | Ghi chú |
-|---|------|---------|
-| 1 | Console **write operations** (release/merge UI) | cần auth + audit trail trên log; console hiện chỉ read |
-| 2 | **Review queue UI/drain workflow** | `ResolutionReviewQueued` đã bền vững; cần giao diện phê duyệt → gọi merge/import theo receipt |
-| 3 | Quyết định **`AffiliationAssessed`**: implement hoặc xoá | producer chưa tồn tại; xoá = MAJOR contract release |
-| 4 | **Mapping config format** (YAML/RML?) | chốt khi nguồn thứ 3+ gia nhập; hiện 4 lane hardcode mapping |
+**Đã hoàn thành (2026-09-02):**
+
+- [x] **Console write operations** — `foundry/console/api/admin.py`: bearer-token
+  auth (`$FOUNDRY_CONSOLE_TOKEN`, constant-time compare; unset → 503), audit
+  trail = event log (payload `actor`), endpoints merge/split/backfill/review;
+  SPA Admin view (views/admin.js); admin log = `$FOUNDRY_ADMIN_LOG` mặc định
+  `data/production.jsonl` (không đụng seed log — bài học split-log incident)
+- [x] **Review queue drain** — `POST /api/admin/review` liệt kê
+  `ResolutionReviewQueued`; resolve qua merge/split endpoints
+- [x] Quyết định **`AffiliationAssessed`**: **xoá khỏi contract** — superseded
+  bởi generic `AssertionMade` (predicate=memberOf); không producer từng tồn
+  tại, 0 record trong mọi log → không cần upcaster; ghi CHANGELOG-DATA
+- [x] Quyết định **mapping config format**: **code-as-mapping** — 4 lane giữ
+  mapper typed+tested trong code; config engine chỉ khi nguồn generic thứ 5+
+  xuất hiện (documented decision, không phải backlog)
+
+Phase 5 **hoàn thành** → Phase 6 là milestone kế tiếp.
 
 ### 3.2 Phase 6 — Scale & federation (Month 6–9)
 

@@ -9,6 +9,22 @@ export async function get(path) {
   return res.json();
 }
 
+export async function post(path, body, token) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const payload = await res.json().catch(() => ({ detail: res.statusText }));
+  if (!res.ok) {
+    throw new Error(typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail ?? ""));
+  }
+  return payload;
+}
+
 export function esc(text) {
   const el = document.createElement("span");
   el.textContent = text ?? "";

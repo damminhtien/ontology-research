@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from foundry.console.api import (  # noqa: E402
+    admin,
     impact,
     monitor,
     ontology,
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
         impact.router,
         projection.router,
         monitor.router,
+        admin.router,
     ):
         application.include_router(router, prefix="/api")
 

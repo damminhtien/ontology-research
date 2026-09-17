@@ -7,6 +7,14 @@ hành nằm trong file `VERSION` ở gốc repo; source code đọc qua
 
 ## event_schema
 
+### 2 — amendment 2026-09-02
+
+- `AffiliationAssessed` **xoá khỏi `EVENT_TYPES`** — superseded bởi generic
+  `AssertionMade` (predicate `memberOf` qua assertion lane). Không producer
+  từng tồn tại và 0 record trong mọi log, nên không cần upcaster; type này
+  trở thành "unknown event type" ở các consumer cũ nếu log lịch sử có
+  (thực tế: không có).
+
 ### 2 — 2026-08-31
 
 - Thêm `sequence` (offset 1-based do `EventLog` gán khi append; replay phát hiện

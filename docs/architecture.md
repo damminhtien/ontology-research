@@ -223,6 +223,7 @@ Toàn bộ thiết kế trong tài liệu này **đã triển khai**:
 | §4.6 Reference lane + cursor paging | `ba3cd8e` |
 | §4.7 SHACL unresolved identity (`identity:UnresolvedReference`) | `a972f8b` |
 | §4.8 E2E per-stage benchmark + gate | `b2cac79` |
+| Phase 5 Console admin write ops (token auth + audit trail) | *phiên 2026-09-02* |
 
 Còn mở duy nhất từ bảng nợ: không — D1–D12 đã đóng hết. Việc tiếp theo theo
 roadmap: Console write operations (auth + audit), Phase 6 scale ladder.

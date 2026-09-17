@@ -10,7 +10,7 @@ nào, CQRS read model và lake OLAP — ontology là một phần của kiến t
 phải toàn bộ dự án.
 
 📚 **Tài liệu & tutorials: <https://damminhtien.github.io/ontology-research/>**
-📊 **Roadmap**: [roadmap.md](roadmap.md) — Phase 0–4 hoàn thành, Phase 5 gần xong
+📊 **Roadmap**: [roadmap.md](roadmap.md) — Phase 0–5 hoàn thành, Phase 6 là milestone kế tiếp
 
 > Quy tắc duy nhất: **Never make the operational query path pay for semantic
 > complexity it does not need.**
@@ -105,9 +105,15 @@ SHACL gate, CQ regression) · **Projection** (read model: entity, location
 as-of, snapshot resume).
 
 REST API cùng nguồn dữ liệu: `GET /api/overview`, `/api/ontology/*`,
-`/api/releases/*`, `/api/impact?term=`, `/api/monitor/*`, `/api/projection/*`
-(xem `/api/docs`). Write operations (release/tag) vẫn qua CLI flow — UI auth +
-audit là backlog Phase 5 còn lại.
+`/api/releases/*`, `/api/impact?term=`, `/api/monitor/*`, `/api/projection/*`,
+`/api/admin/*` (xem `/api/docs`).
+
+**Write operations** (Admin view, token-gated): merge/split corrections +
+review-queue drain + external-id backfill. Auth: `Authorization: Bearer
+$FOUNDRY_CONSOLE_TOKEN` (constant-time compare; biến unset → admin API trả
+503 — console không thể có write access do vô tình). **Audit trail = event
+log**: mỗi mutation ghi `EntityMerged`/`EntitySplit` với `actor` trong payload
+vào production log (`$FOUNDRY_ADMIN_LOG`, mặc định `data/production.jsonl`).
 
 ## Governance & versioning
 
@@ -186,10 +192,11 @@ Sau khi sửa code, chạy `graphify update .` (hoặc để git hook tự chạ
       extraction (extractor pluggable, LLM chỉ đề xuất), 24.217 entities thật
 - [x] Phase 3: projector checkpointed/idempotent + Console v0.1 + 2 SLO gates
 - [x] Phase 4: tracking vertical end-to-end qua domain SHACL contracts
-- [x] Phase 5 (phần lớn): merge/split/review tooling + Document/Assertion model
-      + reference lane + streaming projector + migration/alignment registry
-- [ ] Phase 5 còn lại: Console write operations (auth + audit trail)
-- [ ] Access control ở query API layer; mapping config format (YAML/RML?)
+- [x] Phase 5: merge/split/review tooling + Document/Assertion model + reference
+      lane + streaming/checkpointed projector + migration/alignment registry +
+      **Console admin write ops (token auth + audit trên event log)** — hoàn thành
+- [ ] Access control ở query API layer (mapping config đã quyết định:
+      code-as-mapping)
 - [ ] Phase 6: scale ladder 10M–100M; federation; multi-writer log; vector
       candidate generation
 - [ ] Phase 7: Vietnam profile + AI semantic query interface
