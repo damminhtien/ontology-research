@@ -356,7 +356,15 @@ Việc còn mở cần quyết định trước khi vào Phase 3:
   - [x] CQ-013…CQ-016 vào regression harness tự động (cq_runner load mọi module/dataset)
   - [x] Domain SHACL contracts (`shapes/domain_shapes.ttl`) trong `make validate`
   - [x] Baseline releases 0.1.0 cho 4 module; SemVer enforcement áp dụng toàn registry
-  - [ ] Ingestion mapping cho domain types (khi có data source thật)
+  - [x] Ingestion mapping cho domain types (Phase 4 hoàn thành): vertical
+        `Observation → Track → Entity` qua `foundry/tracking.py` +
+        `IngestionPipeline.ingest_sensor/ingest_observation/ingest_track` —
+        3 event types mới (`SensorRegistered`/`ObservationRecorded`/
+        `TrackObserved`), MMSI + sensor serial là trusted external ids
+        (ADR-0006), gate qua `sensor:SensorShape`/`core:ObservationShape`/
+        `tracking:TrackShape` (shapes domain vào pipeline tự động); CLI
+        `tools/ingest_tracking_feed.py` nạp feed AIS-JSONL; read model có
+        track store (`get_track`/`tracks_of`), sensors là entities (Artifact)
 - [x] Nền móng production facts (kéo sớm, trước khi nhân rộng nguồn — 2026-08-31…09-02):
   - [x] Freeze namespace + identifier schemes, freeze guards trong CI (ADR-0008)
   - [x] Event contract v2: sequence/offset, valid-time, upcaster chain (ADR-0009)

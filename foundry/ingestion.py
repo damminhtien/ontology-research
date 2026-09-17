@@ -145,9 +145,10 @@ class IngestionPipeline:
         self._ontology_path = ontology_path
         self._shapes = Graph()
         self._shapes.parse(shapes_path.as_posix(), format="turtle")
-        assertion_shapes_path = shapes_path.parent / "assertion_shapes.ttl"
-        if assertion_shapes_path.exists():
-            self._shapes.parse(assertion_shapes_path.as_posix(), format="turtle")
+        for sibling in ("assertion_shapes.ttl", "domain_shapes.ttl"):
+            sibling_path = shapes_path.parent / sibling
+            if sibling_path.exists():
+                self._shapes.parse(sibling_path.as_posix(), format="turtle")
         # review-queue dedup within one process run: the same unresolved
         # reference is queued once per run, not once per record
         self._queued_references: set[tuple[str | None, str | None, str]] = set()
@@ -158,6 +159,12 @@ class IngestionPipeline:
         self._documents: dict[str, SemanticEvent] = {}
         self._assertion_events: dict[str, SemanticEvent] = {}
         self._assertion_context_loaded = False
+        # sensor-gate context (Phase 4): SensorRegistered events keyed by
+        # canonical sensor id, so an observation gate graph carries the
+        # sensor's mountedOn platform (sensor:SensorShape needs it)
+        self._sensor_events: dict[str, SemanticEvent] = {}
+        self._sensor_context_loaded = False
+        self._observation_events: dict[str, SemanticEvent] = {}
 
     # -- structured entities ------------------------------------------------
 
@@ -591,7 +598,209 @@ class IngestionPipeline:
             assertion_results=tuple(results),
         )
 
+    # -- sensor/tracking domain (Phase 4 — the tracking vertical) -------------
+
+    def ingest_sensor(
+        self,
+        *,
+        sensor_id: str,
+        name: str,
+        platform_name: str,
+        source_id: str,
+    ) -> IngestResult:
+        """Register a sensor artifact mounted on a platform.
+
+        Identity: the sensor serial is a trusted external id (ADR-0006) and
+        the carrier platform resolves/mints by its name. The SHACL gate
+        enforces ``sensor:SensorShape`` (mounted on exactly one Platform).
+        """
+        if not sensor_id.strip():
+            raise ValueError("sensor_id must be non-empty")
+        if not name.strip():
+            raise ValueError("sensor name must be non-empty")
+
+        sensor = self._identity.resolve(
+            name=name,
+            external_source="sensor-registry",
+            external_id=sensor_id,
+            entity_type="Artifact",
+        )
+        platform = self._identity.resolve(name=platform_name, entity_type="Platform")
+
+        from foundry.tracking import sensor_event, sensor_to_rdf
+
+        event = sensor_event(
+            sensor_entity_id=sensor.canonical_id,
+            sensor_id=sensor_id,
+            name=name,
+            platform_entity_id=platform.canonical_id,
+            platform_name=platform_name,
+            source_id=source_id,
+        )
+        graph = self._build_domain_graph(event, mappers=[sensor_to_rdf])
+        conforms, _, results_text = validate(
+            data_graph=graph,
+            shacl_graph=self._shapes,
+            inference="none",
+            advanced=True,
+        )
+        if not conforms:
+            return _reject(sensor.canonical_id, f"SHACL violation: {results_text.strip()}")
+        self._log.append(event)
+        self._sensor_events[sensor.canonical_id] = event
+        return _accept(sensor.canonical_id, event)
+
+    def ingest_observation(
+        self,
+        *,
+        sensor_entity_id: str,
+        subject_name: str,
+        subject_entity_id: str,
+        at_time: str,
+        location_uri: str | None,
+        source_ids: list[str],
+        confidence: float | None = None,
+    ) -> IngestResult:
+        """Record one sensor detection as a ``core:Observation``.
+
+        The SHACL gate enforces ``core:ObservationShape`` (time anchor, at
+        least one source, observes an entity) plus ``sensor:detectedBy``.
+        """
+        if not source_ids:
+            raise ValueError("at least one source_id is required")
+        from datetime import datetime as _dt
+
+        try:
+            _dt.fromisoformat(at_time.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(f"invalid at_time timestamp {at_time!r}") from exc
+
+        from foundry.tracking import observation_event, observation_to_rdf
+
+        self._load_sensor_context()
+        event = observation_event(
+            observation_id=new_fact_iri(),
+            sensor_entity_id=sensor_entity_id,
+            subject_entity_id=subject_entity_id,
+            subject_name=subject_name,
+            at_time=at_time,
+            location_uri=location_uri,
+            source_ids=source_ids,
+            confidence=confidence,
+        )
+        graph = self._build_domain_graph(event, mappers=[observation_to_rdf])
+        # carry the sensor's registration context so its mountedOn platform
+        # is in the gate graph (sensor:SensorShape targets every sensor node)
+        sensor_event = self._sensor_events.get(sensor_entity_id)
+        if sensor_event is not None:
+            from foundry.tracking import sensor_to_rdf
+
+            sensor_to_rdf(graph, sensor_event)
+        conforms, _, results_text = validate(
+            data_graph=graph,
+            shacl_graph=self._shapes,
+            inference="none",
+            advanced=True,
+        )
+        if not conforms:
+            return _reject(subject_entity_id, f"SHACL violation: {results_text.strip()}")
+        self._log.append(event)
+        self._observation_events[event.payload["observation_id"]] = event
+        return _accept(subject_entity_id, event)
+
+    def ingest_track(
+        self,
+        *,
+        track_id: str,
+        subject_name: str,
+        subject_entity_id: str,
+        observation_ids: list[str],
+        source_ids: list[str],
+    ) -> IngestResult:
+        """Record the derived track hypothesis (``tracking:Track``, ADR-0005).
+
+        The SHACL gate enforces ``tracking:TrackShape``: exactly one resolved
+        entity, at least one supporting observation, exactly one track id.
+        """
+        if not track_id.strip():
+            raise ValueError("track_id must be non-empty")
+        if not observation_ids:
+            return _reject(subject_entity_id, "a track needs at least one observation")
+
+        from foundry.tracking import track_event, track_to_rdf
+
+        event = track_event(
+            track_id=track_id,
+            entity_id=subject_entity_id,
+            subject_name=subject_name,
+            observation_ids=observation_ids,
+            source_ids=source_ids,
+        )
+        graph = self._build_domain_graph(event, mappers=[track_to_rdf])
+        # observations must appear with their full context: typing them as
+        # core:Observation makes ObservationShape fire (atTime, sources) —
+        # and each cited observation's sensor must carry its mountedOn platform
+        self._load_sensor_context()
+        self._load_observation_context()
+        from foundry.tracking import observation_to_rdf, sensor_to_rdf
+
+        sensor_ids: set[str] = set()
+        for observation_id in event.payload["observation_ids"]:
+            observation_event = self._observation_events.get(observation_id)
+            if observation_event is not None:
+                observation_to_rdf(graph, observation_event)
+                sensor_ids.add(observation_event.payload["sensor_entity_id"])
+        for sensor_entity_id in sensor_ids:
+            sensor_event = self._sensor_events.get(sensor_entity_id)
+            if sensor_event is not None:
+                sensor_to_rdf(graph, sensor_event)
+        conforms, _, results_text = validate(
+            data_graph=graph,
+            shacl_graph=self._shapes,
+            inference="none",
+            advanced=True,
+        )
+        if not conforms:
+            return _reject(subject_entity_id, f"SHACL violation: {results_text.strip()}")
+        self._log.append(event)
+        return _accept(subject_entity_id, event)
+
+    def _build_domain_graph(self, event: SemanticEvent, *, mappers: list) -> Graph:
+        """Map one domain event to RDF over the domain ontology modules."""
+        graph = Graph()
+        graph.parse(self._ontology_path.as_posix(), format="turtle")
+        middle = self._ontology_path.parent.parent / "middle"
+        domain = self._ontology_path.parent.parent / "domain"
+        for module_path in (
+            middle / "identity.ttl",
+            domain / "sensor.ttl",
+            domain / "tracking.ttl",
+        ):
+            if module_path.exists():
+                graph.parse(module_path.as_posix(), format="turtle")
+        for mapper in mappers:
+            mapper(graph, event)
+        materialize_type_closure(graph)
+        return graph
+
     # -- internals -----------------------------------------------------------
+
+    def _load_sensor_context(self) -> None:
+        """Populate the sensor registration cache from the log (once per run)."""
+        if self._sensor_context_loaded:
+            return
+        for event in self._log.read_all():
+            if event.event_type == "SensorRegistered":
+                self._sensor_events[event.payload["sensor_entity_id"]] = event
+        self._sensor_context_loaded = True
+
+    def _load_observation_context(self) -> None:
+        """Populate the observation cache from the log (once per run)."""
+        if self._observation_events:
+            return
+        for event in self._log.read_all():
+            if event.event_type == "ObservationRecorded":
+                self._observation_events[event.payload["observation_id"]] = event
 
     def _load_assertion_context(self) -> None:
         """Load document/assertion context from the log once per run.

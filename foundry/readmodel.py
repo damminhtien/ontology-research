@@ -79,6 +79,16 @@ class _LocationEntry:
 
 
 @dataclass
+class _TrackRecord:
+    """One derived track hypothesis (tracking vertical, Phase 4)."""
+
+    entity_id: str
+    subject_name: str
+    observation_ids: tuple[str, ...]
+    source_ids: tuple[str, ...]
+
+
+@dataclass
 class _AssertionRecord:
     """One entry in the assertion ledger (docs/architecture.md §4.2)."""
 
@@ -109,6 +119,7 @@ class ReadModel:
         self._current_location: dict[str, str] = {}
         self._merged_into: dict[str, str] = {}
         self._assertions: dict[str, _AssertionRecord] = {}
+        self._tracks: dict[str, _TrackRecord] = {}
         self._applied_event_ids: set[str] = set()
         self._checkpoint_sequence: int | None = None
         self._last_event_time: datetime | None = None
@@ -376,6 +387,7 @@ class ReadModel:
             "with_location": len(self._location_history),
             "locations": len(locations),
             "assertions": len(self._assertions),
+            "tracks": len(self._tracks),
             "pending_observations": self.pending_count,
             "last_event_time": (
                 self._last_event_time.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -384,6 +396,38 @@ class ReadModel:
             ),
             "lag_seconds": lag_seconds,
         }
+
+    # -- track store (tracking vertical, Phase 4) ------------------------------
+
+    def add_track(self, payload: dict) -> None:
+        """Fold one ``TrackObserved`` into the track store."""
+        self._tracks[payload["track_id"]] = _TrackRecord(
+            entity_id=payload["entity_id"],
+            subject_name=payload.get("subject_name", ""),
+            observation_ids=tuple(payload.get("observation_ids") or ()),
+            source_ids=tuple(payload.get("source_ids") or ()),
+        )
+
+    def get_track(self, track_id: str) -> dict | None:
+        """Ledger entry for one track (None when unknown)."""
+        record = self._tracks.get(track_id)
+        if record is None:
+            return None
+        return {
+            "track_id": track_id,
+            "entity_id": record.entity_id,
+            "subject_name": record.subject_name,
+            "observation_ids": list(record.observation_ids),
+            "source_ids": list(record.source_ids),
+        }
+
+    def tracks_of(self, entity_id: str) -> list[dict]:
+        """All tracks hypothesized about one entity."""
+        return [
+            self.get_track(track_id)
+            for track_id, record in self._tracks.items()
+            if record.entity_id == entity_id
+        ]
 
     # -- assertion ledger (docs/architecture.md §4.2) -------------------------
 

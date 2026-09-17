@@ -107,6 +107,18 @@ class Projector:
             self._model.supersede_assertion(payload["assertion_id"])
         elif event.event_type == "DocumentRegistered":
             pass  # provenance source; served from the log/lake, not the read model
+        elif event.event_type == "SensorRegistered":
+            # the sensor is an entity (an Artifact) — enter the entity index
+            self._model.upsert_entity(
+                entity_id=payload["sensor_entity_id"],
+                entity_type="Artifact",
+                name=payload["name"],
+                event_time=occurred,
+            )
+        elif event.event_type == "ObservationRecorded":
+            pass  # detection fact; counted, its track hypothesis lands below
+        elif event.event_type == "TrackObserved":
+            self._model.add_track(payload)
         else:
             return False
 
