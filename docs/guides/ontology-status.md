@@ -4,17 +4,22 @@ Báo cáo đánh giá định kỳ của ontology — nguồn số liệu: `tool
 stats / stability / blast-radius / report`, audit usage chạy trên toàn bộ
 `foundry/`, `shapes/`, `benchmarks/queries`.
 
-## 1. Inventory: 7 modules, 27 classes, 41 properties
+## 1. Inventory: 7 modules, 27 classes, 43 properties
 
 | Module | Lớp | Classes | Obj-props | Data-props | Dùng bởi production code |
 |--------|-----|--------:|----------:|-----------:|--------------------------|
 | core | 0 | 20 | 24 | 9 | mọi module (kernel) |
-| middle/assertion | 1 | 2 | 2 | 0 | `foundry/assertions.py`, `ingestion.py` |
+| middle/assertion | 1 | 2 | 3 | 1 | `foundry/assertions.py`, `ingestion.py` |
 | middle/identity | 1 | 1 | 0 | 0 | `foundry/ingestion.py` (D12 pending) |
 | middle/location | 1 | 2 | 0 | 0 | LocationAssertion (gate observation) |
 | middle/organization | 1 | 0 | 1 | 0 | membership mapping (chưa có lane) |
 | domain/sensor | 2 | 1 | 2 | 0 | `foundry/tracking.py` (Phase 4) |
 | domain/tracking | 2 | 1 | 2 | 1 | `foundry/tracking.py`, `readmodel.py` (Phase 4) |
+
+> Cập nhật 2026-09-17: `middle/assertion` tách `Assertion` khỏi `core:Event`
+> (nay ⊑ `core:InformationObject` — `AssertionMade` mới là event) và thêm
+> `assertion:predicate` (quan hệ dạng IRI) + `assertion:literalValue`; số liệu
+> inventory trên đã tính theo module hiện hành (`manage_ontology.py stats`).
 
 Namespace frozen (ADR-0008), freeze guards trong CI; SemVer registry +
 `check-versions` xanh; **Stability = 1.0 cho cả 6 module** (0 breaking).

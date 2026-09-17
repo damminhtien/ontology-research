@@ -13,6 +13,7 @@ from foundry.events import (
     event_to_dict,
     make_event,
 )
+from foundry.namespaces import CORE_ONTOLOGY_NS
 from foundry.versioning import EVENT_SCHEMA_VERSION as SCHEMA_VERSION
 
 
@@ -48,7 +49,7 @@ class TestEventContract:
 
     def test_from_dict_rejects_upcast_gap(self):
         record = event_to_dict(make_event("EntityCreated", {}))
-        record["schema_version"] = SCHEMA_VERSION - 2  # no path from v0
+        record["schema_version"] = 0  # no path from a version that was never registered
         with pytest.raises(ValueError, match="no upcast path"):
             event_from_dict(record)
 
@@ -217,7 +218,53 @@ class TestUpcasters:
         EventLog(path).append(make_event("EntityCreated", {"n": "current-2"}))
         replayed = EventLog(path).read_all()
         assert [e.payload.get("n") for e in replayed] == ["current-1", None, "current-2"]
-        assert [e.schema_version for e in replayed] == [2, 2, 2]
+        assert [e.schema_version for e in replayed] == [SCHEMA_VERSION] * 3
+
+    def test_v2_assertion_record_upcasts_predicate_to_predicate_iri(self, tmp_path):
+        """A v2 ``AssertionMade`` record replays with the relation as an IRI.
+
+        v2 carried a bare relation name that the RDF mapping could not place in
+        the graph; the upcaster resolves it against the core vocabulary, so the
+        ledger and the mapping see one shape regardless of when the log was
+        written.
+        """
+        path = tmp_path / "events.jsonl"
+        legacy = {
+            "event_id": "a11ce5ed" * 4,
+            "event_type": "AssertionMade",
+            "schema_version": 2,
+            "occurred_at": "2026-08-01T00:00:00Z",
+            "sequence": 1,
+            "payload": {
+                "assertion_id": "urn:assert:legacy",
+                "subject_id": "urn:world:entity:legacy",
+                "predicate": "locatedAt",
+                "object": {"kind": "location", "value": "urn:world:location:l"},
+                "valid_from": "2026-08-01T00:00:00Z",
+                "valid_to": None,
+                "source_ids": ["urn:doc:1"],
+                "confidence": None,
+                "supersedes": None,
+            },
+        }
+        path.write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+        events = EventLog(path).read_all()
+        assert events[0].schema_version == SCHEMA_VERSION
+        assert events[0].payload["predicate_iri"] == CORE_ONTOLOGY_NS + "locatedAt"
+        assert "predicate" not in events[0].payload
+
+    def test_v2_non_assertion_record_upcasts_untouched(self):
+        """Only AssertionMade payloads change; other types keep their payload."""
+        record = {
+            "event_id": "beef" * 8,
+            "event_type": "EntityCreated",
+            "schema_version": 2,
+            "occurred_at": "2026-08-01T00:00:00Z",
+            "payload": {"entity_id": "urn:x:1", "predicate": "not-a-relation"},
+        }
+        event = event_from_dict(record)
+        assert event.schema_version == SCHEMA_VERSION
+        assert event.payload == {"entity_id": "urn:x:1", "predicate": "not-a-relation"}
 
     def test_upcasters_table_covers_all_historical_versions(self):
         from foundry.events import UPCASTERS

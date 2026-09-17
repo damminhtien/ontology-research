@@ -32,6 +32,17 @@ def test_ttl_namespace_matches_runtime_constant():
     assert f'vann:preferredNamespaceUri "{namespaces.CORE_ONTOLOGY_NS}"' in text
 
 
+def test_middle_namespaces_match_module_headers():
+    """Middle-layer namespaces stay in lockstep with the ontology (and SHACL) headers."""
+    for namespace, relative in (
+        (namespaces.ASSERTION_MIDDLE_NS, "ontology/middle/assertion.ttl"),
+        (namespaces.LOCATION_MIDDLE_NS, "ontology/middle/location.ttl"),
+        (namespaces.IDENTITY_MIDDLE_NS, "ontology/middle/identity.ttl"),
+    ):
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        assert f'vann:preferredNamespaceUri "{namespace}"' in text, relative
+
+
 def test_minted_ids_use_frozen_schemes():
     entity = namespaces.new_entity_id()
     fact = namespaces.new_fact_iri()

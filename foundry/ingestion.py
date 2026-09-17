@@ -869,7 +869,7 @@ class IngestionPipeline:
 
         obj = mapped.payload["object"]
         if obj["kind"] not in ("entity", "location"):
-            return  # literal objects carry the value as core:name on the assertion
+            return  # literal objects carry the value as assertion:literalValue
         object_node = URIRef(obj["value"])
         label = obj["value"].rstrip("/").rsplit("/", 1)[-1].split("#")[-1]
         if obj["kind"] == "location":

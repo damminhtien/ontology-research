@@ -20,7 +20,7 @@ Mọi thiết kế dưới đây phục tùng bốn nguyên tắc này — chún
                     ┌──────────────────────────────────────────────┐
   Nguồn dữ liệu     │              FOUNDRY (write path)            │
   ─────────────     │                                              │
-  Wikidata SPARQL ─►│ fetch/normalize ─► IdentityService ─► SHACL ─┼─► EventLog (JSONL, schema v2)
+  Wikidata SPARQL ─►│ fetch/normalize ─► IdentityService ─► SHACL ─┼─► EventLog (JSONL, schema v3)
   (tools/ingest_    │ (foundry/wikidata.py)  (foundry/identity.py) │    data/production.jsonl
    wikidata.py)     │                        pure lookup + mint    │    = WRITE MODEL (sự thật duy nhất)
   Console seed ────►│ seed_console_data.py ──► IngestionPipeline ──┤
@@ -104,7 +104,7 @@ nhất, làm nền cho mọi fact type sau này:
 Document                          Assertion
   document_id (urn:doc:)            assertion_id (urn:assert:)
   uri / title / fetched_at          subject_id   (canonical entity)
-  source_system                     predicate    (locatedAt / memberOf / …)
+  source_system                     predicate_iri (IRI tuyệt đối: core:locatedAt)
   content_ref                       object       (location_uri / entity_id / literal)
                                     ── generic provenance, mọi assertion như nhau:
                                     valid_from / valid_to   (valid-time)
@@ -119,7 +119,12 @@ Quy tắc:
 
 - **Event chỉ còn vai trò ghi thay đổi của assertion**: `AssertionMade` (tạo),
   `AssertionSuperseded` (correct/retract trỏ assertion cũ). `LocationObserved`
-  hiện tại map 1:1 sang `AssertionMade(predicate=locatedAt)` khi migrate.
+  hiện tại map 1:1 sang `AssertionMade(predicate_iri=core:locatedAt)` khi migrate.
+- **Assertion là information object, không phải event**: `assertion:Assertion ⊑
+  core:InformationObject`; quan hệ là một node trong graph
+  (`assertion:predicate` → IRI của property, vd `core:locatedAt`), nên hai mệnh
+  đề chỉ khác quan hệ không còn trùng RDF form. Object dạng literal nằm ở
+  `assertion:literalValue` (không dùng `core:name` cho giá trị).
 - Read model giữ history theo **assertion_id** — correct/retract một mệnh đề cụ
   thể được, không còn "latest wins" ngầm định.
 - Entity creation giữ nguyên `EntityCreated` (đã đúng vai trò event).

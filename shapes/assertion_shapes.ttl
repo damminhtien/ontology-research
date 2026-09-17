@@ -1,13 +1,20 @@
 # SHACL shapes for the Document → Assertion model (docs/architecture.md §4.2).
 #
 # The assertion layer is the target model new fact types build on: one reified
-# statement = subject entity (core:describes), typed object
-# (assertion:hasObject / core:name for literals), valid time (core:validFrom,
+# statement = subject entity (core:describes), relation named by IRI
+# (assertion:predicate), typed object (assertion:hasObject for entities and
+# locations, assertion:literalValue for literals), valid time (core:validFrom,
 # core:validUntil), provenance (core:hasSource → assertion:Document) and
 # optional confidence. Corrections are AssertionSuperseded events referencing
 # the original assertion id via assertion:supersedes — never a rewrite
 # (ADR-0002). Property counts mirror the write-path validation in
 # foundry/assertions.py.
+#
+# assertion:predicate is constrained as sh:nodeKind sh:IRI rather than
+# sh:class rdf:Property: the ontology declares the range rdf:Property, but
+# rdf:type/rdfs:subClassOf* of the relation is only visible to a gate that has
+# already loaded the module declaring it, while "the event carries an absolute
+# property IRI" is guaranteed by the write path and the log upcaster.
 
 @prefix sh:        <http://www.w3.org/ns/shacl#> .
 @prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
@@ -23,11 +30,29 @@ assertion:AssertionShape a sh:NodeShape ;
         sh:message "Assertion must describe exactly one Entity."@en ;
     ] ;
     sh:property [
+        sh:path assertion:predicate ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "Assertion must name exactly one relation IRI (rdfs:range rdf:Property)."@en ;
+    ] ;
+    sh:property [
         sh:path assertion:hasObject ;
         sh:maxCount 1 ;
         sh:class core:Entity ;
         sh:message "Assertion may point at at most one object entity/location."@en ;
     ] ;
+    sh:property [
+        sh:path assertion:literalValue ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "Assertion may carry at most one xsd:string literal object."@en ;
+    ] ;
+    # Exactly one object: an entity/location or a literal, never both, never
+    # neither (foundry/assertions.py takes a single object_kind).
+    sh:or (
+        [ sh:property [ sh:path assertion:hasObject ; sh:minCount 1 ] ]
+        [ sh:property [ sh:path assertion:literalValue ; sh:minCount 1 ] ]
+    ) ;
     sh:property [
         sh:path core:validFrom ;
         sh:minCount 1 ; sh:maxCount 1 ;

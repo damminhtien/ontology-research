@@ -18,10 +18,29 @@ from foundry.assertions import (
 from foundry.events import EventLog, make_event
 from foundry.identity import IdentityService
 from foundry.ingestion import IngestionPipeline
+from foundry.namespaces import CORE_ONTOLOGY_NS, resolve_predicate_iri
 from foundry.projector import replay_log
 
 E1 = "urn:world:entity:" + "a" * 32
 LOC = "urn:world:location:" + "b" * 32
+
+
+class TestPredicateResolution:
+    def test_bare_name_resolves_against_the_core_vocabulary(self):
+        assert resolve_predicate_iri("locatedAt") == CORE_ONTOLOGY_NS + "locatedAt"
+        assert resolve_predicate_iri("  memberOf  ") == CORE_ONTOLOGY_NS + "memberOf"
+
+    @pytest.mark.parametrize(
+        "absolute",
+        ["https://example.org/vocab#operatesIn", "http://example.org/x", "urn:x:relation"],
+    )
+    def test_absolute_iri_is_kept_verbatim(self, absolute):
+        assert resolve_predicate_iri(absolute) == absolute
+
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_blank_predicate_rejected(self, blank):
+        with pytest.raises(ValueError, match="predicate must be non-empty"):
+            resolve_predicate_iri(blank)
 
 
 @pytest.fixture()
@@ -71,8 +90,22 @@ class TestMakeAssertion:
         )
         assert event.event_type == "AssertionMade"
         assert event.payload["assertion_id"].startswith("urn:assert:")
+        assert event.payload["predicate_iri"] == CORE_ONTOLOGY_NS + "locatedAt"
         assert event.payload["object"] == {"kind": "location", "value": LOC}
         assert event.payload["valid_to"] is None
+
+    def test_absolute_predicate_iri_is_recorded_verbatim(self, log, identity):
+        event = make_assertion(
+            log=log,
+            subject_id=E1,
+            predicate="https://example.org/vocab#operatesIn",
+            object_kind="location",
+            object_value=LOC,
+            valid_from="2026-08-01T00:00:00Z",
+            source_ids=["s"],
+            identity=identity,
+        )
+        assert event.payload["predicate_iri"] == "https://example.org/vocab#operatesIn"
 
     def test_unknown_subject_rejected_when_registry_given(self, log, identity):
         with pytest.raises(ValueError, match="unknown subject"):
@@ -338,7 +371,11 @@ class TestAssertionProjection:
         assert stats.applied == 4
         entry = model.get_assertion(aid)
         assert entry is not None and entry["subject_id"] == e_org  # followed the merge
+        assert entry["predicate_iri"] == CORE_ONTOLOGY_NS + "memberOf"
+        # callers may filter by bare name or by the property IRI
         assert model.active_assertions(e_org, "memberOf")
+        assert model.active_assertions(e_org, CORE_ONTOLOGY_NS + "memberOf")
+        assert model.active_assertions(e_org, "locatedAt") == []
 
         log.append(
             make_event(

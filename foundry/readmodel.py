@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from foundry.namespaces import resolve_predicate_iri
+
 
 def parse_instant(text: str) -> datetime:
     """Parse an xsd:dateTime instant ('…Z' or offset) to an aware datetime.
@@ -93,7 +95,7 @@ class _AssertionRecord:
     """One entry in the assertion ledger (docs/architecture.md §4.2)."""
 
     subject_id: str
-    predicate: str
+    predicate_iri: str
     object: dict
     valid_from: str
     valid_to: str | None
@@ -435,7 +437,7 @@ class ReadModel:
         """Fold one ``AssertionMade`` into the ledger."""
         self._assertions[payload["assertion_id"]] = _AssertionRecord(
             subject_id=payload["subject_id"],
-            predicate=payload["predicate"],
+            predicate_iri=payload["predicate_iri"],
             object=dict(payload["object"]),
             valid_from=payload["valid_from"],
             valid_to=payload.get("valid_to"),
@@ -466,7 +468,7 @@ class ReadModel:
         return {
             "assertion_id": assertion_id,
             "subject_id": record.subject_id,
-            "predicate": record.predicate,
+            "predicate_iri": record.predicate_iri,
             "object": dict(record.object),
             "valid_from": record.valid_from,
             "valid_to": record.valid_to,
@@ -476,7 +478,16 @@ class ReadModel:
         }
 
     def active_assertions(self, subject_id: str, predicate: str | None = None) -> list[dict]:
-        """Non-superseded assertions for a subject, optionally by predicate."""
+        """Non-superseded assertions for a subject, optionally by predicate.
+
+        ``predicate`` accepts what a caller knows at the call site: a bare
+        local name in the core vocabulary (``memberOf``) or an absolute
+        property IRI — both resolve to the ledger's ``predicate_iri``.
+
+        Raises:
+            ValueError: On a blank ``predicate``.
+        """
+        wanted = resolve_predicate_iri(predicate) if predicate is not None else None
         return [
             entry
             for entry in (
@@ -484,7 +495,7 @@ class ReadModel:
                 for aid, record in self._assertions.items()
                 if record.subject_id == subject_id
                 and record.status == "asserted"
-                and (predicate is None or record.predicate == predicate)
+                and (wanted is None or record.predicate_iri == wanted)
             )
             if entry is not None
         ]

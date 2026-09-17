@@ -1,16 +1,23 @@
-"""Document and Assertion model (foundation — docs/architecture.md §4.2).
+"""Document and Assertion model (docs/architecture.md §4.2).
 
 Separates "the fact that we learned something" (an event) from "a statement
-about the world" (an assertion). Every assertion is a first-class record with
-its own stable id, generic provenance and bi-temporal timestamps:
+about the world" (an assertion — an ``assertion:Assertion``, i.e. an
+``InformationObject``, never an event). Every assertion is a first-class record
+with its own stable id, generic provenance and bi-temporal timestamps:
 
     assertion_id (urn:assert:<hex>)   stable handle for correct/retract
     subject_id                        canonical entity the assertion is about
-    predicate                         e.g. locatedAt, memberOf
+    predicate_iri                     absolute relation IRI (core:locatedAt)
     object                            {kind: entity|location|literal, value}
     valid_from / valid_to             valid time (when it holds in the world)
     source_ids[]                      provenance (documents / source records)
     confidence                        optional 0..1
+
+``predicate_iri`` is what the RDF mapping needs: the relation is a node in the
+graph, so ``locatedAt`` and ``memberOf`` about the same subject and object are
+two distinct statements instead of one. On the write path a bare local name
+(``locatedAt``) resolves against the core vocabulary; anything else must be an
+absolute property IRI (``foundry.namespaces.resolve_predicate_iri``).
 
 Corrections never rewrite anything (ADR-0002): superseding an assertion emits
 an ``AssertionSuperseded`` event that references the original id, and the read
@@ -18,9 +25,9 @@ model keeps the full assertion ledger with statuses. ``LocationObserved``-style
 events keep working; the assertion layer is the target model new fact types
 should build on.
 
-Ontology mapping (SHACL shapes for assertions) is deliberately deferred: this
-module fixes the event contract and the ledger; shapes land with the ontology
-work in the next phase.
+Ontology presence: ``ontology/middle/assertion.ttl`` declares the classes and
+properties, ``shapes/assertion_shapes.ttl`` mirrors the write-path validation,
+and :func:`assertion_to_rdf` maps the events onto that model.
 """
 
 from __future__ import annotations
@@ -39,7 +46,13 @@ from foundry.events import (
     utc_now_iso,
 )
 from foundry.identity import IdentityService
-from foundry.namespaces import new_assertion_id, new_document_id
+from foundry.namespaces import (
+    ASSERTION_MIDDLE_NS,
+    CORE_ONTOLOGY_NS,
+    new_assertion_id,
+    new_document_id,
+    resolve_predicate_iri,
+)
 from foundry.readmodel import parse_instant
 
 OBJECT_KINDS = ("entity", "location", "literal")
@@ -119,7 +132,9 @@ def build_assertion(
 
     Args:
         subject_id: Canonical entity the statement is about.
-        predicate: Relation name (e.g. ``locatedAt``).
+        predicate: Relation reference — a bare local name in the core
+            vocabulary (``locatedAt``) or an absolute property IRI. Recorded as
+            ``predicate_iri``.
         object_kind: One of ``entity``, ``location``, ``literal``.
         object_value: The object's id or literal value.
         valid_from: Valid time (when the statement holds in the world).
@@ -136,8 +151,7 @@ def build_assertion(
     """
     if not source_ids:
         raise ValueError("at least one source_id is required")
-    if not predicate.strip():
-        raise ValueError("predicate must be non-empty")
+    predicate_iri = resolve_predicate_iri(predicate)  # blank rejected; name → core IRI
     if object_kind not in OBJECT_KINDS:
         raise ValueError(f"object_kind must be one of {list(OBJECT_KINDS)}, got {object_kind!r}")
     if not object_value.strip():
@@ -155,7 +169,7 @@ def build_assertion(
         {
             "assertion_id": new_assertion_id(),
             "subject_id": subject_id,
-            "predicate": predicate,
+            "predicate_iri": predicate_iri,
             "object": {"kind": object_kind, "value": object_value},
             "valid_from": valid_from,
             "valid_to": None,
@@ -184,7 +198,9 @@ def make_assertion(
     Args:
         log: Event log to append the assertion to.
         subject_id: Canonical entity the statement is about.
-        predicate: Relation name (e.g. ``locatedAt``).
+        predicate: Relation reference — a bare local name in the core
+            vocabulary (``locatedAt``) or an absolute property IRI. Recorded as
+            ``predicate_iri``.
         object_kind: One of ``entity``, ``location``, ``literal``.
         object_value: The object's id or literal value.
         valid_from: Valid time (when the statement holds in the world).
@@ -270,12 +286,12 @@ def dump_assertions(ledger: dict[str, dict[str, Any]]) -> str:
 from rdflib import Graph, Literal, URIRef  # noqa: E402
 from rdflib.namespace import RDF, XSD  # noqa: E402
 
-ASSERTION_NS = "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#"
-CORE_NS = "https://damminhtien.github.io/ontology-research/ontology/core#"
+ASSERTION_NS = ASSERTION_MIDDLE_NS
+CORE_NS = CORE_ONTOLOGY_NS
 _OBJECT_PREDICATES = {
     "entity": (ASSERTION_NS, "hasObject"),
     "location": (ASSERTION_NS, "hasObject"),
-    "literal": (CORE_NS, "name"),
+    "literal": (ASSERTION_NS, "literalValue"),
 }
 
 
@@ -297,14 +313,19 @@ def document_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
 def assertion_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
     """Add the RDF mapping of one ``AssertionMade`` event; returns its node.
 
-    Mapping (ontology/middle/assertion.ttl): subject via ``core:describes``,
-    object via ``assertion:hasObject`` (entity/location) or ``core:name``
-    (literal), valid time via ``core:validFrom``/``core:validUntil``, provenance
-    via ``core:hasSource`` (cited Documents), optional ``core:hasConfidence``
-    and the correction link ``assertion:supersedes``.
+    Mapping (ontology/middle/assertion.ttl): the relation is a node in the
+    graph (``assertion:predicate`` → the event's ``predicate_iri``, so two
+    statements differing only in their relation are different RDF), subject via
+    ``core:describes``, object via ``assertion:hasObject`` (entity/location) or
+    ``assertion:literalValue`` (literal), valid time via
+    ``core:validFrom``/``core:validUntil``, provenance via ``core:hasSource``
+    (cited Documents), optional ``core:hasConfidence`` and the correction link
+    ``assertion:supersedes``.
 
     Raises:
-        ValueError: On a non-AssertionMade event or an unknown object kind.
+        ValueError: On a non-AssertionMade event, an unknown object kind, or a
+            payload without ``predicate_iri`` (a record written before the
+            event-schema rename that never went through the log upcaster).
     """
     if event.event_type != EVENT_TYPE_ASSERTION_MADE:
         raise ValueError(f"expected AssertionMade, got {event.event_type}")
@@ -313,10 +334,15 @@ def assertion_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
     kind = obj["kind"]
     if kind not in _OBJECT_PREDICATES:
         raise ValueError(f"unknown object kind {kind!r}")
+    try:
+        predicate_iri = payload["predicate_iri"]
+    except KeyError as exc:
+        raise ValueError("AssertionMade payload is missing predicate_iri") from exc
 
     node = URIRef(payload["assertion_id"])
     graph.add((node, RDF.type, URIRef(ASSERTION_NS + "Assertion")))
     graph.add((node, URIRef(CORE_NS + "describes"), URIRef(payload["subject_id"])))
+    graph.add((node, URIRef(ASSERTION_NS + "predicate"), URIRef(predicate_iri)))
 
     ns, local = _OBJECT_PREDICATES[kind]
     graph.add(

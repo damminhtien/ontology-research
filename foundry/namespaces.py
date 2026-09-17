@@ -20,8 +20,32 @@ import uuid
 ONTOLOGY_BASE = "https://damminhtien.github.io/ontology-research/ontology"
 CORE_ONTOLOGY_NS = f"{ONTOLOGY_BASE}/core#"
 LOCATION_MIDDLE_NS = f"{ONTOLOGY_BASE}/middle/location#"
+ASSERTION_MIDDLE_NS = f"{ONTOLOGY_BASE}/middle/assertion#"
 TRACKING_DOMAIN_NS = f"{ONTOLOGY_BASE}/domain/tracking#"
 IDENTITY_MIDDLE_NS = f"{ONTOLOGY_BASE}/middle/identity#"
+
+
+def resolve_predicate_iri(predicate: str) -> str:
+    """Resolve a predicate reference to the absolute IRI carried in events.
+
+    An absolute IRI (``http(s)://…`` or ``urn:…``) is taken as given; a bare
+    local name resolves against the core vocabulary — the default predicate
+    namespace, mirroring the ``core:`` prefix used by the ontology modules.
+
+    The rule is deliberately ontology-independent (it never loads a graph), so
+    the write path (:mod:`foundry.assertions`) and the log upcaster
+    (:mod:`foundry.events`) resolve the same reference to the same IRI.
+
+    Raises:
+        ValueError: On a blank predicate.
+    """
+    name = predicate.strip()
+    if not name:
+        raise ValueError("predicate must be non-empty")
+    if "://" in name or name.startswith("urn:"):
+        return name
+    return f"{CORE_ONTOLOGY_NS}{name}"
+
 
 # ---------------------------------------------------------------------------
 # Runtime identifier schemes.

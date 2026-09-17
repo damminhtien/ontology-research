@@ -7,6 +7,27 @@ hành nằm trong file `VERSION` ở gốc repo; source code đọc qua
 
 ## event_schema
 
+### 3 — 2026-09-17
+
+- `AssertionMade` payload: `predicate` (tên quan hệ dạng chuỗi, vd `locatedAt`)
+  → **`predicate_iri`** (IRI tuyệt đối, vd
+  `https://…/ontology/core#locatedAt`). Root cause: RDF mapping không đưa quan
+  hệ vào graph nên hai assertion chỉ khác predicate sinh ra **cùng một** RDF
+  form. Nay `assertion:predicate` là một node trong graph
+  (`ontology/middle/assertion.ttl`).
+- Cùng thay đổi: `assertion:Assertion` không còn ⊑ `core:Event` mà ⊑
+  `core:InformationObject` (event ghi thay đổi mệnh đề là `AssertionMade`);
+  object dạng literal map sang `assertion:literalValue` thay vì `core:name`
+  trên assertion node.
+- Tên quan hệ dạng trần (`locatedAt`) resolve về vocabulary `core`; quy tắc nằm
+  một chỗ — `foundry.namespaces.resolve_predicate_iri` — dùng chung bởi write
+  path (`foundry/assertions.py`) và upcaster.
+- Upcaster v2→v3 đăng ký trong `UPCASTERS` (`foundry/events.py`): record v2 vẫn
+  replay được — ADR-0002/0009; regression test đọc một record v2 `AssertionMade`
+  trong `tests/test_events.py`. Log trong repo hiện không có record
+  `AssertionMade` v2 nào, nhưng producer đã tồn tại từ Phase 2 nên bump kèm
+  upcaster thay vì amend im lặng.
+
 ### 2 — amendment 2026-09-02
 
 - `AffiliationAssessed` **xoá khỏi `EVENT_TYPES`** — superseded bởi generic

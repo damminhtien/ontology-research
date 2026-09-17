@@ -2,9 +2,10 @@
 
 Canonical knowledge changes are recorded as facts-on-a-log: events are never
 mutated or deleted in place; corrections are new events that supersede older
-ones. This module defines the event contract (schema v1) and a JSONL-backed
-append-only store. The store is deliberately boring so the transport can be
-swapped for a Kafka-style stream later without touching the payload contract.
+ones. This module defines the event contract (versioned in the root ``VERSION``
+file, history in ``CHANGELOG-DATA.md``) and a JSONL-backed append-only store.
+The store is deliberately boring so the transport can be swapped for a
+Kafka-style stream later without touching the payload contract.
 
 Invariant: once appended, bytes in the log file are never rewritten.
 """
@@ -21,6 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from foundry.namespaces import resolve_predicate_iri
 from foundry.versioning import EVENT_SCHEMA_VERSION
 
 EVENT_TYPE_ENTITY_CREATED = "EntityCreated"
@@ -138,11 +140,35 @@ def _upcast_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def _upcast_v2_to_v3(data: dict[str, Any]) -> dict[str, Any]:
+    """v2 → v3: ``AssertionMade`` payload carries ``predicate_iri``.
+
+    v2 recorded the relation as a bare name (``locatedAt``) which the RDF
+    mapping could not place in the graph — two assertions differing only in
+    their relation mapped to identical RDF. v3 records the absolute property
+    IRI (``…/ontology/core#locatedAt``) instead; a bare v2 name resolves
+    against the core vocabulary, exactly as the write path does.
+
+    Only the payload of ``AssertionMade`` changes; every other event type just
+    advances its version marker.
+    """
+    data = dict(data)
+    data["schema_version"] = 3
+    if data.get("event_type") == EVENT_TYPE_ASSERTION_MADE:
+        payload = dict(data.get("payload") or {})
+        predicate = payload.pop("predicate", None)
+        if isinstance(predicate, str) and "predicate_iri" not in payload:
+            payload["predicate_iri"] = resolve_predicate_iri(predicate)
+        data["payload"] = payload
+    return data
+
+
 #: Upcast chain: maps a record's schema version to the function rewriting it
 #: one version forward. Every historical version must stay registered here —
 #: removing one breaks replay of logs written under it.
 UPCASTERS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: _upcast_v1_to_v2,
+    2: _upcast_v2_to_v3,
 }
 
 

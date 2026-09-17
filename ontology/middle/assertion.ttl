@@ -1,6 +1,7 @@
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
 @prefix vann: <http://purl.org/vocab/vann/> .
 @prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
@@ -8,7 +9,7 @@
 
 <https://damminhtien.github.io/ontology-research/ontology/middle/assertion> a owl:Ontology ;
     dcterms:title "Middle Layer: Document/Assertion Model"@en ;
-    dcterms:description "Generic assertion mapping (docs/architecture.md §4.2). An Assertion reifies one statement about the world with provenance and bi-temporal validity; every concrete fact type builds on it. Reuses core properties (core:describes, core:hasSource, core:validFrom, core:validUntil, core:hasConfidence) — this module adds only the two classes and the supersedes relation."@en ;
+    dcterms:description "Generic assertion mapping (docs/architecture.md §4.2). An Assertion reifies one statement about the world with provenance and bi-temporal validity; every concrete fact type builds on it. Reuses core properties (core:describes, core:hasSource, core:validFrom, core:validUntil, core:hasConfidence) — this module adds the two classes, the predicate/object properties and the supersedes relation. The event that records a statement is AssertionMade; an Assertion is the statement itself, not an event."@en ;
     dcterms:version "0.1.0" ;
     owl:imports <https://damminhtien.github.io/ontology-research/ontology/core> ;
     vann:preferredNamespacePrefix "assertion" ;
@@ -22,17 +23,25 @@ assertion:Document a owl:Class ; rdfs:subClassOf core:Source ;
     rdfs:label "Document"@en ;
     rdfs:comment "A provenance source document (report, record, crawl). Assertions cite documents via core:hasSource."@en .
 
-assertion:Assertion a owl:Class ; rdfs:subClassOf core:Event ;
+assertion:Assertion a owl:Class ; rdfs:subClassOf core:InformationObject ;
     rdfs:label "Assertion"@en ;
-    rdfs:comment "One reified statement about the world: core:describes names the subject entity, assertion:hasObject carries the object (entity, location or literal), core:validFrom/core:validUntil carry valid time, core:hasSource cites Documents, core:hasConfidence is optional."@en .
+    rdfs:comment "One reified statement about the world — a derived information object, never an event. core:describes names the subject entity, assertion:predicate names the relation IRI, the object is an entity or location (assertion:hasObject) or a literal (assertion:literalValue), core:validFrom/core:validUntil carry valid time, core:hasSource cites Documents, core:hasConfidence is optional."@en .
 
 #################################################################
 # Properties
 #################################################################
 
+assertion:predicate a owl:ObjectProperty ; rdfs:domain assertion:Assertion ; rdfs:range rdf:Property ;
+    rdfs:label "predicate"@en ;
+    rdfs:comment "The relation the statement asserts, referenced by IRI (e.g. core:locatedAt) so two statements with different relations never share an RDF form. Carried in events as predicate_iri."@en .
+
 assertion:hasObject a owl:ObjectProperty ; rdfs:domain assertion:Assertion ; rdfs:range core:Entity ;
     rdfs:label "has object"@en ;
-    rdfs:comment "Entity or Location the statement points at. Literal-valued objects use core:name on the assertion instead."@en .
+    rdfs:comment "Entity or Location the statement points at. Literal-valued objects use assertion:literalValue instead."@en .
+
+assertion:literalValue a owl:DatatypeProperty ; rdfs:domain assertion:Assertion ; rdfs:range xsd:string ;
+    rdfs:label "literal value"@en ;
+    rdfs:comment "Literal object of the statement (e.g. a nickname). Entity/location objects use assertion:hasObject instead."@en .
 
 assertion:supersedes a owl:ObjectProperty ; rdfs:domain assertion:Assertion ; rdfs:range assertion:Assertion ;
     rdfs:label "supersedes"@en ;

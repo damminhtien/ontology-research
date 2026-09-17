@@ -34,7 +34,7 @@ thay vì một central KG): xem `docs/architecture.md` §2.
 | Console | ⚠️ v0.1 read-only | `foundry/console/` — FastAPI + SPA; projection hydrate từ snapshot; **chưa có write ops/auth** |
 | Governance | ✅ | `tools/manage_ontology.py` — SemVer registry, blast-radius, stability, migration/alignment |
 | Benchmarks | ✅ | micro (`tools/benchmark.py`) + e2e per-stage gate (`tools/benchmark_e2e.py`) |
-| Ontology | ✅ | 7 modules / 27 classes / 41 properties — `docs/guides/ontology-status.md` |
+| Ontology | ✅ | 7 modules / 27 classes / 43 properties — `docs/guides/ontology-status.md` |
 
 **Production facts**: 24.217 canonical entities Wikidata (song ngữ VI–EN) trong
 lake Parquet; 47.628 events trong production log; unresolved_rate ≈ 0 với nguồn
