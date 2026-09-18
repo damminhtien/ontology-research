@@ -8,13 +8,25 @@
 
 <https://damminhtien.github.io/ontology-research/ontology/core> a owl:Ontology ;
     dcterms:title "Semantic Core Kernel"@en ;
-    dcterms:description "Semantic kernel v0.1: only stable, cross-domain classes and predicates."@en ;
-    dcterms:version "0.1.0" ;
+    dcterms:description "Semantic kernel: only stable, cross-domain classes and predicates. The hierarchy splits into disjoint branches — an information object (what we know: sources, statements) is never an event (what happened)."@en ;
+    dcterms:version "1.0.0" ;
     vann:preferredNamespacePrefix "core" ;
     vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/core#" .
 
 #################################################################
 # Classes (20) — Entity taxonomy, max depth kept shallow
+#
+#   Entity
+#     ├── PhysicalObject ── Artifact ── {Platform, Facility}
+#     ├── Agent ── {Person, Organization}
+#     ├── System, Location, Role, Capability, Quality, State
+#     ├── InformationObject ── {Source, LocationAssertion} ── (middle: assertion:Assertion)
+#     └── Event ── {Activity, Observation}
+#
+# The two branches are disjoint by design: a statement is an information
+# object, a happening is an event. Runtime events `AssertionMade` (creates an
+# assertion) and `AssertionSuperseded` (affects one) are Events that mutate
+# the information branch — nothing here is both.
 #################################################################
 
 core:Entity a owl:Class ; rdfs:label "Entity"@en ; rdfs:comment "Root of all things with identity."@en .
@@ -30,17 +42,20 @@ core:Facility a owl:Class ; rdfs:subClassOf core:Artifact ; rdfs:label "Facility
 
 core:System a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "System"@en ;
     rdfs:comment "Engineered system of interacting components."@en .
-core:InformationObject a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Information Object"@en .
+core:InformationObject a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Information Object"@en ;
+    rdfs:comment "A piece of information with identity — a source, a statement. Disjoint from core:Event: information is what we know, an event is what happened."@en ;
+    owl:disjointWith core:Event .
 core:Source a owl:Class ; rdfs:subClassOf core:InformationObject ; rdfs:label "Source"@en ;
     rdfs:comment "Provenance anchor for assertions and observations."@en .
 core:Location a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Location"@en .
 
-core:Event a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Event"@en .
+core:Event a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Event"@en ;
+    rdfs:comment "Something that happens at a time. Events record change (an act of observing, an activity); the proposition itself lives in the information branch (core:InformationObject, e.g. assertion:Assertion)."@en .
 core:Activity a owl:Class ; rdfs:subClassOf core:Event ; rdfs:label "Activity"@en .
 core:Observation a owl:Class ; rdfs:subClassOf core:Event ; rdfs:label "Observation"@en ;
     rdfs:comment "An act of observing, anchored in time and to a source."@en .
-core:LocationAssertion a owl:Class ; rdfs:subClassOf core:Event ; rdfs:label "Location Assertion"@en ;
-    rdfs:comment "Reified claim that an entity was located somewhere from some time."@en .
+core:LocationAssertion a owl:Class ; rdfs:subClassOf core:InformationObject ; rdfs:label "Location Assertion"@en ;
+    rdfs:comment "Reified claim that an entity was located somewhere from some time — an informational statement, not an event. Written by the LocationObserved lane; the generic assertion:Assertion lane (ontology/middle/assertion.ttl) is the target model that lane migrates onto."@en .
 
 core:Role a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Role"@en .
 core:Capability a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Capability"@en .
@@ -106,8 +121,8 @@ core:describes a owl:ObjectProperty ; rdfs:domain core:InformationObject ; rdfs:
     rdfs:label "describes"@en .
 core:describedBy a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:InformationObject ;
     owl:inverseOf core:describes ; rdfs:label "described by"@en .
-core:hasSource a owl:ObjectProperty ; rdfs:domain core:Event ; rdfs:range core:Source ;
-    rdfs:label "has source"@en ; rdfs:comment "Provenance link from an assertion/event to its source(s)."@en .
+core:hasSource a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:Source ;
+    rdfs:label "has source"@en ; rdfs:comment "Generic provenance link: any entity (an assertion, an observation, a derived product) cites the source(s) it came from. Deliberately domain-agnostic so both events and information objects can carry provenance; mapped to PROV-O prov:wasDerivedFrom in the middle layer instead of inventing a parallel vocabulary."@en .
 
 #################################################################
 # Datatype properties (9)
@@ -125,9 +140,9 @@ core:startTime a owl:DatatypeProperty ; rdfs:domain core:Event ; rdfs:range xsd:
     rdfs:label "start time"@en .
 core:endTime a owl:DatatypeProperty ; rdfs:domain core:Event ; rdfs:range xsd:dateTime ;
     rdfs:label "end time"@en .
-core:validFrom a owl:DatatypeProperty ; rdfs:domain core:Event ; rdfs:range xsd:dateTime ;
-    rdfs:label "valid from"@en ; rdfs:comment "Temporal validity start of an asserted fact."@en .
-core:validUntil a owl:DatatypeProperty ; rdfs:domain core:Event ; rdfs:range xsd:dateTime ;
+core:validFrom a owl:DatatypeProperty ; rdfs:domain core:InformationObject ; rdfs:range xsd:dateTime ;
+    rdfs:label "valid from"@en ; rdfs:comment "Temporal validity start of an asserted fact. Domain is the information object (the statement), not the event that recorded it — an assertion stays valid after the assertion event happened."@en .
+core:validUntil a owl:DatatypeProperty ; rdfs:domain core:InformationObject ; rdfs:range xsd:dateTime ;
     rdfs:label "valid until"@en .
-core:hasConfidence a owl:DatatypeProperty ; rdfs:domain core:Event ; rdfs:range xsd:decimal ;
-    rdfs:label "has confidence"@en ; rdfs:comment "Assessed confidence in [0,1]. Constrained by SHACL."@en .
+core:hasConfidence a owl:DatatypeProperty ; rdfs:domain core:Entity ; rdfs:range xsd:decimal ;
+    rdfs:label "has confidence"@en ; rdfs:comment "Assessed confidence in [0,1]. Constrained by SHACL. Carried by events (an observation act) and by derived information objects (an assertion), hence the domain-agnostic core:Entity."@en .

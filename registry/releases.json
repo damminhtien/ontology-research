@@ -61,6 +61,89 @@
       "module_iri": "https://damminhtien.github.io/ontology-research/ontology/middle/identity",
       "severity": "NONE",
       "version": "0.1.0"
+    },
+    {
+      "changes": [],
+      "commit": "4227a35",
+      "date": "2026-09-17T12:02:07Z",
+      "file": "ontology/middle/assertion.ttl",
+      "migration": null,
+      "migration_script": null,
+      "module_iri": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion",
+      "severity": "NONE",
+      "version": "0.1.0"
+    },
+    {
+      "changes": [
+        {
+          "detail": "comment: updated",
+          "kind": "changed",
+          "severity": "PATCH",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/core#Event"
+        },
+        {
+          "detail": "comment: updated",
+          "kind": "changed",
+          "severity": "PATCH",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/core#InformationObject"
+        },
+        {
+          "detail": "comment: updated; parents removed: ['https://damminhtien.github.io/ontology-research/ontology/core#Event']; parents added: ['https://damminhtien.github.io/ontology-research/ontology/core#InformationObject']",
+          "kind": "changed",
+          "severity": "MAJOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/core#LocationAssertion"
+        },
+        {
+          "detail": "domain: 'https://damminhtien.github.io/ontology-research/ontology/core#Event' -> 'https://damminhtien.github.io/ontology-research/ontology/core#Entity'",
+          "kind": "changed",
+          "severity": "MAJOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/core#hasConfidence"
+        },
+        {
+          "detail": "domain: 'https://damminhtien.github.io/ontology-research/ontology/core#Event' -> 'https://damminhtien.github.io/ontology-research/ontology/core#Entity'",
+          "kind": "changed",
+          "severity": "MAJOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/core#hasSource"
+        },
+        {
+          "detail": "domain: 'https://damminhtien.github.io/ontology-research/ontology/core#Event' -> 'https://damminhtien.github.io/ontology-research/ontology/core#InformationObject'",
+          "kind": "changed",
+          "severity": "MAJOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/core#validFrom"
+        },
+        {
+          "detail": "domain: 'https://damminhtien.github.io/ontology-research/ontology/core#Event' -> 'https://damminhtien.github.io/ontology-research/ontology/core#InformationObject'",
+          "kind": "changed",
+          "severity": "MAJOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/core#validUntil"
+        }
+      ],
+      "commit": "4227a35",
+      "date": "2026-09-17T12:02:11Z",
+      "file": "ontology/core/core.ttl",
+      "migration": "A statement is an information object, never an event. Domain changes: core:validFrom/core:validUntil now core:InformationObject, core:hasSource/core:hasConfidence now core:Entity and core:LocationAssertion subclassed core:InformationObject instead of core:Event, so an assertion carrying validity, provenance and confidence is not inferred as an event. Re-run make validate and re-materialize derived graphs.",
+      "migration_script": null,
+      "module_iri": "https://damminhtien.github.io/ontology-research/ontology/core",
+      "severity": "MAJOR",
+      "version": "1.0.0"
+    },
+    {
+      "changes": [
+        {
+          "detail": "range: 'http://www.w3.org/2001/XMLSchema#string' -> 'http://www.w3.org/2000/01/rdf-schema#Literal'",
+          "kind": "changed",
+          "severity": "MAJOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#literalValue"
+        }
+      ],
+      "commit": "4227a35",
+      "date": "2026-09-17T12:02:35Z",
+      "file": "ontology/middle/assertion.ttl",
+      "migration": "assertion:literalValue range widened xsd:string -> rdfs:Literal so a typed (xsd:decimal) or language-tagged literal object can be mapped without losing its datatype. Existing data is unchanged; the SHACL shape now requires a literal rather than a string, and object representation is hasObject XOR literalValue.",
+      "migration_script": null,
+      "module_iri": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion",
+      "severity": "MAJOR",
+      "version": "1.0.0"
     }
   ]
 }

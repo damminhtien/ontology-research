@@ -29,6 +29,7 @@ from foundry.assertions import (
     assertion_to_rdf,
     build_assertion,
     document_to_rdf,
+    is_known_predicate,
     register_document,
 )
 from foundry.events import (
@@ -165,6 +166,9 @@ class IngestionPipeline:
         self._sensor_events: dict[str, SemanticEvent] = {}
         self._sensor_context_loaded = False
         self._observation_events: dict[str, SemanticEvent] = {}
+        # registered ontology modules, loaded lazily once per run: the
+        # allowlist that decides which relation IRIs may be asserted
+        self._ontology_graph: Graph | None = None
 
     # -- structured entities ------------------------------------------------
 
@@ -402,13 +406,15 @@ class IngestionPipeline:
         self,
         *,
         subject_id: str,
-        predicate: str,
+        predicate_iri: str,
         object_kind: str,
         object_value: str,
         valid_from: str,
         source_ids: list[str],
         confidence: float | None = None,
         supersedes: str | None = None,
+        literal_datatype_iri: str | None = None,
+        literal_language: str | None = None,
     ) -> IngestResult:
         """Record one reified assertion about a known canonical entity.
 
@@ -417,13 +423,27 @@ class IngestionPipeline:
         assertion, then validated against the SHACL contract before anything
         is appended — nothing reaches the log unless it conforms.
 
-        Malformed input raises ``ValueError`` (caller bug); an unknown subject
-        is a data problem — it is durably queued for review like every other
-        unresolved reference. A SHACL violation (e.g. a cited document that
-        was never registered) is rejected with a structured receipt.
+        Two validation layers meet here. *Syntax* is :func:`build_assertion`'s
+        job and raises: a relative ``predicate_iri``, a datatype on an IRI
+        object, a malformed timestamp. *Semantics* is this boundary's: the
+        relation must be a property the registered ontology declares
+        (``is_known_predicate``) — an unknown relation is rejected with a
+        structured receipt instead of being appended, so no caller (least of
+        all an LLM) can mint vocabulary the model never defined.
+
+        Malformed input raises ``ValueError`` (caller bug); an unknown
+        predicate or subject is a data problem — an unknown subject is durably
+        queued for review like every other unresolved reference. A SHACL
+        violation (e.g. a cited document that was never registered) is rejected
+        with a structured receipt.
         """
         if not source_ids:
             raise ValueError("at least one source_id is required")
+        if not is_known_predicate(self._predicate_registry(), predicate_iri):
+            return _reject(
+                subject_id,
+                f"predicate {predicate_iri!r} is not declared by the registered ontology",
+            )
         if not self._identity.knows(subject_id):
             queue_event = self._queue_review(
                 reference_name=subject_id,
@@ -437,13 +457,15 @@ class IngestionPipeline:
         self._load_assertion_context()
         event = build_assertion(
             subject_id=subject_id,
-            predicate=predicate,
+            predicate_iri=predicate_iri,
             object_kind=object_kind,
             object_value=object_value,
             valid_from=valid_from,
             source_ids=source_ids,
             confidence=confidence,
             supersedes=supersedes,
+            literal_datatype_iri=literal_datatype_iri,
+            literal_language=literal_language,
             known_assertions=frozenset(self._assertion_events),
         )
         graph = self._build_assertion_graph(event)
@@ -579,7 +601,7 @@ class IngestionPipeline:
             results.append(
                 self.ingest_assertion(
                     subject_id=found.canonical_id,
-                    predicate=candidate.predicate,
+                    predicate_iri=candidate.predicate_iri,
                     object_kind=object_kind,
                     object_value=object_value,
                     valid_from=candidate.valid_from,
@@ -764,6 +786,23 @@ class IngestionPipeline:
             return _reject(subject_entity_id, f"SHACL violation: {results_text.strip()}")
         self._log.append(event)
         return _accept(subject_entity_id, event)
+
+    def _predicate_registry(self) -> Graph:
+        """The registered ontology model used as the predicate allowlist.
+
+        Parsed once per pipeline run: every module under ``ontology/`` (core,
+        middle, domains) so a domain relation such as ``sensor:detectedBy`` is
+        assertable, while a relation no module declares stays rejected.
+        """
+        if self._ontology_graph is None:
+            graph = Graph()
+            graph.parse(self._ontology_path.as_posix(), format="turtle")
+            ontology_root = self._ontology_path.parent.parent
+            for module_path in sorted(ontology_root.rglob("*.ttl")):
+                if module_path != self._ontology_path:
+                    graph.parse(module_path.as_posix(), format="turtle")
+            self._ontology_graph = graph
+        return self._ontology_graph
 
     def _build_domain_graph(self, event: SemanticEvent, *, mappers: list) -> Graph:
         """Map one domain event to RDF over the domain ontology modules."""

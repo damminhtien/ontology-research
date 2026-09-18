@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from foundry.namespaces import resolve_predicate_iri
+from foundry.namespaces import DEFAULT_LITERAL_DATATYPE, resolve_legacy_predicate
 from foundry.versioning import EVENT_SCHEMA_VERSION
 
 EVENT_TYPE_ENTITY_CREATED = "EntityCreated"
@@ -141,16 +141,26 @@ def _upcast_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _upcast_v2_to_v3(data: dict[str, Any]) -> dict[str, Any]:
-    """v2 → v3: ``AssertionMade`` payload carries ``predicate_iri``.
+    """v2 → v3: ``AssertionMade`` payload carries the semantic contract.
 
     v2 recorded the relation as a bare name (``locatedAt``) which the RDF
     mapping could not place in the graph — two assertions differing only in
     their relation mapped to identical RDF. v3 records the absolute property
-    IRI (``…/ontology/core#locatedAt``) instead; a bare v2 name resolves
-    against the core vocabulary, exactly as the write path does.
+    IRI (``…/ontology/core#locatedAt``) instead, and states a literal object's
+    type explicitly (``datatype_iri`` XOR ``language``, ``xsd:string`` by
+    default) so ``"250"`` no longer loses whether it was a string or a number.
+
+    The v2 bare name is mapped through :data:`LEGACY_PREDICATE_IRIS` — an
+    explicit table, never ``core#<name>`` for whatever name the record happens
+    to carry. An unknown legacy name raises: failing loudly beats silently
+    fabricating a relation IRI that no release ever declared.
 
     Only the payload of ``AssertionMade`` changes; every other event type just
     advances its version marker.
+
+    Raises:
+        ValueError: On a v2 ``AssertionMade`` carrying a bare relation name
+            outside the legacy table, or a malformed object.
     """
     data = dict(data)
     data["schema_version"] = 3
@@ -158,7 +168,13 @@ def _upcast_v2_to_v3(data: dict[str, Any]) -> dict[str, Any]:
         payload = dict(data.get("payload") or {})
         predicate = payload.pop("predicate", None)
         if isinstance(predicate, str) and "predicate_iri" not in payload:
-            payload["predicate_iri"] = resolve_predicate_iri(predicate)
+            payload["predicate_iri"] = resolve_legacy_predicate(predicate)
+
+        obj = dict(payload.get("object") or {})
+        if obj.get("kind") == "literal":
+            obj.setdefault("datatype_iri", DEFAULT_LITERAL_DATATYPE)
+            obj.setdefault("language", None)
+        payload["object"] = obj
         data["payload"] = payload
     return data
 

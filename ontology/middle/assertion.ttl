@@ -10,7 +10,7 @@
 <https://damminhtien.github.io/ontology-research/ontology/middle/assertion> a owl:Ontology ;
     dcterms:title "Middle Layer: Document/Assertion Model"@en ;
     dcterms:description "Generic assertion mapping (docs/architecture.md §4.2). An Assertion reifies one statement about the world with provenance and bi-temporal validity; every concrete fact type builds on it. Reuses core properties (core:describes, core:hasSource, core:validFrom, core:validUntil, core:hasConfidence) — this module adds the two classes, the predicate/object properties and the supersedes relation. The event that records a statement is AssertionMade; an Assertion is the statement itself, not an event."@en ;
-    dcterms:version "0.1.0" ;
+    dcterms:version "1.0.0" ;
     owl:imports <https://damminhtien.github.io/ontology-research/ontology/core> ;
     vann:preferredNamespacePrefix "assertion" ;
     vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#" .
@@ -39,9 +39,9 @@ assertion:hasObject a owl:ObjectProperty ; rdfs:domain assertion:Assertion ; rdf
     rdfs:label "has object"@en ;
     rdfs:comment "Entity or Location the statement points at. Literal-valued objects use assertion:literalValue instead."@en .
 
-assertion:literalValue a owl:DatatypeProperty ; rdfs:domain assertion:Assertion ; rdfs:range xsd:string ;
+assertion:literalValue a owl:DatatypeProperty ; rdfs:domain assertion:Assertion ; rdfs:range rdfs:Literal ;
     rdfs:label "literal value"@en ;
-    rdfs:comment "Literal object of the statement (e.g. a nickname). Entity/location objects use assertion:hasObject instead."@en .
+    rdfs:comment "Literal object of the statement. The datatype is carried per value (events carry literal_datatype_iri / literal_language), so the range is the widest literal class rather than xsd:string — a typed (``12000``^^xsd:decimal) or language-tagged (``Việt Nam``@vi) value is not a string. Entity/location objects use assertion:hasObject instead."@en .
 
 assertion:supersedes a owl:ObjectProperty ; rdfs:domain assertion:Assertion ; rdfs:range assertion:Assertion ;
     rdfs:label "supersedes"@en ;

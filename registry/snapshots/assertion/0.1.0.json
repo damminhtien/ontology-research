@@ -1,0 +1,49 @@
+{
+  "date": "2026-09-17T12:02:07Z",
+  "file": "ontology/middle/assertion.ttl",
+  "module_iri": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion",
+  "snapshot_version": 1,
+  "terms": {
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion": {
+      "comment": "One reified statement about the world — a derived information object, never an event. core:describes names the subject entity, assertion:predicate names the relation IRI, the object is an entity or location (assertion:hasObject) or a literal (assertion:literalValue), core:validFrom/core:validUntil carry valid time, core:hasSource cites Documents, core:hasConfidence is optional.",
+      "kind": "class",
+      "label": "Assertion",
+      "parents": [
+        "https://damminhtien.github.io/ontology-research/ontology/core#InformationObject"
+      ]
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Document": {
+      "comment": "A provenance source document (report, record, crawl). Assertions cite documents via core:hasSource.",
+      "kind": "class",
+      "label": "Document",
+      "parents": [
+        "https://damminhtien.github.io/ontology-research/ontology/core#Source"
+      ]
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#hasObject": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion",
+      "kind": "object-property",
+      "label": "has object",
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#literalValue": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion",
+      "kind": "data-property",
+      "label": "literal value",
+      "range": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#predicate": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion",
+      "kind": "object-property",
+      "label": "predicate",
+      "range": "http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#supersedes": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion",
+      "kind": "object-property",
+      "label": "supersedes",
+      "range": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion"
+    }
+  },
+  "version": "0.1.0"
+}

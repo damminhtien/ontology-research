@@ -15,6 +15,7 @@ from foundry.extraction import (
 )
 from foundry.identity import IdentityService
 from foundry.ingestion import IngestionPipeline
+from foundry.namespaces import CORE_LOCATED_AT, CORE_MEMBER_OF
 
 VN_TEXT = (
     "Cảnh sát biển Việt Nam đặt tại Đà Nẵng từ 2026-05-01. "
@@ -45,7 +46,7 @@ class TestPatternExtractor:
         candidates = PatternExtractor().extract("Đơn vị X đặt tại Đà Nẵng từ 2026-05-01.")
         assert len(candidates) == 1
         assert candidates[0].subject_name == "Đơn vị X"
-        assert candidates[0].predicate == "locatedAt"
+        assert candidates[0].predicate_iri == CORE_LOCATED_AT
         assert candidates[0].object_value == "Đà Nẵng"
         assert candidates[0].valid_from == "2026-05-01T00:00:00Z"
         assert candidates[0].confidence == CAP_EXTRACTED_CONFIDENCE
@@ -53,15 +54,15 @@ class TestPatternExtractor:
     def test_extracts_english_part_of(self):
         candidates = PatternExtractor().extract("Alpha Unit is part of Region 7 Command.")
         assert len(candidates) == 1
-        assert candidates[0].predicate == "memberOf"
+        assert candidates[0].predicate_iri == CORE_MEMBER_OF
         assert candidates[0].object_kind == "entity"
         assert candidates[0].object_value == "Region 7 Command"
 
     def test_extracts_multiple_patterns_from_one_text(self):
         candidates = PatternExtractor().extract(VN_TEXT)
-        predicates = [c.predicate for c in candidates]
-        assert predicates.count("locatedAt") == 2
-        assert predicates.count("memberOf") == 1
+        predicates = [c.predicate_iri for c in candidates]
+        assert predicates.count(CORE_LOCATED_AT) == 2
+        assert predicates.count(CORE_MEMBER_OF) == 1
 
     def test_no_candidates_from_plain_text(self):
         assert PatternExtractor().extract("Không có gì để trích xuất ở đây.") == []
@@ -77,13 +78,13 @@ class TestLlmExtractor:
             [
                 {
                     "subject_name": "Org A",
-                    "predicate": "locatedAt",
+                    "predicate_iri": CORE_LOCATED_AT,
                     "object_kind": "location",
                     "object_value": "Đà Nẵng",
                     "valid_from": "2026-08-01T00:00:00Z",
                     "confidence": 0.99,  # must be capped
                 },
-                {"subject_name": "", "predicate": "locatedAt", "object_value": "x"},
+                {"subject_name": "", "predicate_iri": CORE_LOCATED_AT, "object_value": "x"},
             ]
         )
         candidates = LlmExtractor(complete=lambda _text: completion).extract("text")

@@ -25,15 +25,22 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from foundry.namespaces import CORE_LOCATED_AT, CORE_MEMBER_OF
+
 CAP_EXTRACTED_CONFIDENCE = 0.7
 
 
 @dataclass(frozen=True)
 class CandidateFact:
-    """One proposed fact from an unstructured document."""
+    """One proposed fact from an unstructured document.
+
+    ``predicate_iri`` is an absolute relation IRI (never a local name): an
+    extractor proposes a *relation the ontology declares*, and the pipeline
+    rejects anything outside the registered model.
+    """
 
     subject_name: str
-    predicate: str
+    predicate_iri: str
     object_kind: str  # entity | location | literal
     object_value: str
     valid_from: str | None
@@ -52,7 +59,7 @@ class Extractor(Protocol):
 @dataclass(frozen=True)
 class _Pattern:
     regex: re.Pattern[str]
-    predicate: str
+    predicate_iri: str
     object_kind: str
 
 
@@ -68,19 +75,19 @@ class PatternExtractor:
     _PATTERNS: tuple[_Pattern, ...] = (
         _Pattern(
             re.compile(r"(?P<subj>[^.,;\n]{3,80}?)\s+đặt tại\s+(?P<obj>[^.,;\n]{2,80})"),
-            "locatedAt",
+            CORE_LOCATED_AT,
             "location",
         ),
         _Pattern(
             re.compile(r"(?P<subj>[^.,;\n]{3,80}?)\s+có trụ sở tại\s+(?P<obj>[^.,;\n]{2,80})"),
-            "locatedAt",
+            CORE_LOCATED_AT,
             "location",
         ),
         _Pattern(
             re.compile(
                 r"(?P<subj>[^.,;\n]{3,80}?)\s+hiện (?:đóng|nằm) tại\s+(?P<obj>[^.,;\n]{2,80})"
             ),
-            "locatedAt",
+            CORE_LOCATED_AT,
             "location",
         ),
         _Pattern(
@@ -89,12 +96,12 @@ class PatternExtractor:
                 r"(?P<obj>[^.,;\n]{2,80})",
                 re.IGNORECASE,
             ),
-            "locatedAt",
+            CORE_LOCATED_AT,
             "location",
         ),
         _Pattern(
             re.compile(r"(?P<subj>[^.,;\n]{3,80}?)\s+thuộc\s+(?P<obj>[^.,;\n]{2,80})"),
-            "memberOf",
+            CORE_MEMBER_OF,
             "entity",
         ),
         _Pattern(
@@ -102,7 +109,7 @@ class PatternExtractor:
                 r"(?P<subj>[^.,;\n]{3,80}?)\s+(?:is\s+)?part\s+of\s+(?P<obj>[^.,;\n]{2,80})",
                 re.IGNORECASE,
             ),
-            "memberOf",
+            CORE_MEMBER_OF,
             "entity",
         ),
     )
@@ -140,7 +147,7 @@ class PatternExtractor:
                 candidates.append(
                     CandidateFact(
                         subject_name=subject,
-                        predicate=pattern.predicate,
+                        predicate_iri=pattern.predicate_iri,
                         object_kind=pattern.object_kind,
                         object_value=obj,
                         valid_from=valid_from,
@@ -155,9 +162,12 @@ class LlmExtractor:
     """LLM-backed extractor behind the same protocol.
 
     The completion callable receives the document text and must return a JSON
-    array of candidate facts — nothing else. The call itself is injected, so
-    tests and offline environments never touch a network, and switching LLM
-    vendors never touches the pipeline.
+    array of candidate facts — nothing else. Each item carries
+    ``predicate_iri``: an absolute relation IRI the ontology declares, since a
+    proposal naming a relation the registered model does not define is rejected
+    (never mapped onto a guessed IRI). The call itself is injected, so tests and
+    offline environments never touch a network, and switching LLM vendors never
+    touches the pipeline.
 
     Raises:
         ValueError: At construction when no completion callable is configured.
@@ -189,13 +199,13 @@ class LlmExtractor:
         for item in items:
             candidate = CandidateFact(
                 subject_name=str(item.get("subject_name", "")).strip(),
-                predicate=str(item.get("predicate", "")).strip(),
+                predicate_iri=str(item.get("predicate_iri", "")).strip(),
                 object_kind=str(item.get("object_kind", "")).strip(),
                 object_value=str(item.get("object_value", "")).strip(),
                 valid_from=item.get("valid_from"),
                 confidence=min(float(item.get("confidence", 0.0)), CAP_EXTRACTED_CONFIDENCE),
                 snippet=str(item.get("snippet", ""))[:200],
             )
-            if candidate.subject_name and candidate.predicate and candidate.object_value:
+            if candidate.subject_name and candidate.predicate_iri and candidate.object_value:
                 candidates.append(candidate)
         return candidates

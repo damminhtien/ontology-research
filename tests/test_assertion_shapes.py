@@ -13,11 +13,12 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from conftest import REPO_ROOT
+import pytest
+from conftest import REPO_ROOT, type_closure
 from ontology_utils import materialize_type_closure
 from pyshacl import validate
-from rdflib import RDF, Graph, Literal, URIRef
-from rdflib.namespace import XSD
+from rdflib import RDF, RDFS, Graph, Literal, URIRef
+from rdflib.namespace import OWL, XSD
 
 from foundry.assertions import (
     assertion_to_rdf,
@@ -35,6 +36,12 @@ ENTITY = "urn:world:entity:" + "7" * 32
 LOCATION = "urn:world:location:" + "8" * 32
 DOC = "urn:doc:" + "9" * 32
 INSTANT = "2026-08-01T00:00:00Z"
+
+#: A relation from outside the shipped vocabulary. The low-level mapper tests
+#: use it to prove the mapping is predicate-agnostic; production ingestion
+#: rejects it (the pipeline only accepts predicates the registered model
+#: declares), which is why it lives here and not in foundry/namespaces.py.
+EX_HAS_NICKNAME = "https://example.org/ontology#hasNickname"
 
 
 def _shapes() -> Graph:
@@ -61,6 +68,9 @@ def _seed_graph() -> Graph:
     # the subject and location must exist as typed entities in the graph
     g.add((URIRef(ENTITY), RDF.type, URIRef(CORE + "Organization")))
     g.add((URIRef(LOCATION), RDF.type, URIRef(CORE + "Location")))
+    # the test-only relation is declared where a production ontology would
+    # declare it, so the mapper is exercised on a real property node
+    g.add((URIRef(EX_HAS_NICKNAME), RDF.type, OWL.DatatypeProperty))
     return g
 
 
@@ -93,7 +103,7 @@ def _mapped_log(tmp_path):
     made = make_assertion(
         log=log,
         subject_id=ENTITY,
-        predicate="locatedAt",
+        predicate_iri=CORE + "locatedAt",
         object_kind="location",
         object_value=LOCATION,
         valid_from=INSTANT,
@@ -126,7 +136,7 @@ class TestShaclConformance:
         assert conforms, f"mapped assertion must conform:\n{report}"
 
     def test_predicate_is_mapped_as_a_relation_iri(self, tmp_path):
-        """A bare core name on the write path becomes the property IRI in RDF."""
+        """The relation IRI on the write path reaches the graph as a property IRI."""
         _log, doc, made = _mapped_log(tmp_path)
         g = _seed_graph()
         document_to_rdf(g, doc)
@@ -145,7 +155,7 @@ class TestShaclConformance:
         member = make_assertion(
             log=log,
             subject_id=ENTITY,
-            predicate="memberOf",
+            predicate_iri=CORE + "memberOf",
             object_kind="location",
             object_value=LOCATION,
             valid_from=INSTANT,
@@ -166,6 +176,10 @@ class TestShaclConformance:
         assert statement(member_node) - statement(located_node) == {
             (URIRef(ASSERTION + "predicate"), URIRef(CORE + "memberOf"))
         }
+        # the two statements stay distinguishable by predicate alone
+        assert set(g.objects(located_node, URIRef(ASSERTION + "predicate"))) != set(
+            g.objects(member_node, URIRef(ASSERTION + "predicate"))
+        )
         conforms, report = _run_shacl(g)
         assert conforms, f"both statements must conform together:\n{report}"
 
@@ -174,7 +188,7 @@ class TestShaclConformance:
         made = make_assertion(
             log=_log,
             subject_id=ENTITY,
-            predicate="hasNickname",
+            predicate_iri=EX_HAS_NICKNAME,
             object_kind="literal",
             object_value="Alpha",
             valid_from=INSTANT,
@@ -190,16 +204,63 @@ class TestShaclConformance:
             Literal("Alpha", datatype=XSD.string),
         ) in g
         assert not list(g.objects(node, URIRef(CORE + "name")))
-        assert (node, URIRef(ASSERTION + "predicate"), URIRef(CORE + "hasNickname")) in g
+        assert (node, URIRef(ASSERTION + "predicate"), URIRef(EX_HAS_NICKNAME)) in g
         conforms, report = _run_shacl(g)
         assert conforms, f"literal-object assertion must conform:\n{report}"
+
+    def test_literal_datatype_is_preserved(self, tmp_path):
+        """A typed literal keeps its datatype through the event → RDF mapping."""
+        _log, doc, _made = _mapped_log(tmp_path)
+        made = make_assertion(
+            log=_log,
+            subject_id=ENTITY,
+            predicate_iri=EX_HAS_NICKNAME,
+            object_kind="literal",
+            object_value="12000",
+            valid_from=INSTANT,
+            source_ids=[doc.payload["document_id"]],
+            literal_datatype_iri=str(XSD.decimal),
+        )
+        g = _seed_graph()
+        document_to_rdf(g, doc)
+        node = assertion_to_rdf(g, made)
+        assert (
+            node,
+            URIRef(ASSERTION + "literalValue"),
+            Literal("12000", datatype=XSD.decimal),
+        ) in g
+        assert (
+            node,
+            URIRef(ASSERTION + "literalValue"),
+            Literal("12000", datatype=XSD.string),
+        ) not in g
+
+    def test_language_tag_is_preserved(self, tmp_path):
+        """A language-tagged literal keeps its tag instead of collapsing to xsd:string."""
+        _log, doc, _made = _mapped_log(tmp_path)
+        made = make_assertion(
+            log=_log,
+            subject_id=ENTITY,
+            predicate_iri=EX_HAS_NICKNAME,
+            object_kind="literal",
+            object_value="Việt Nam",
+            valid_from=INSTANT,
+            source_ids=[doc.payload["document_id"]],
+            literal_language="vi",
+        )
+        g = _seed_graph()
+        document_to_rdf(g, doc)
+        node = assertion_to_rdf(g, made)
+        assert (node, URIRef(ASSERTION + "literalValue"), Literal("Việt Nam", lang="vi")) in g
+        conforms, report = _run_shacl(g)
+        assert conforms, f"language-tagged literal must conform:\n{report}"
 
     def test_supersede_link_conforms(self, tmp_path):
         _log, doc, made = _mapped_log(tmp_path)
         second = make_assertion(
             log=_log,
             subject_id=ENTITY,
-            predicate="locatedAt",
+            predicate_iri=CORE + "locatedAt",
             object_kind="location",
             object_value=LOCATION,
             valid_from="2026-08-02T00:00:00Z",
@@ -255,8 +316,74 @@ class TestShaclConformance:
         conforms, _report = _run_shacl(g)
         assert not conforms, "assertion stating no object must be rejected"
 
+    @pytest.mark.parametrize(
+        ("iri_object", "literal_object", "conforms_expected"),
+        [
+            (True, False, True),
+            (False, True, True),
+            (True, True, False),
+            (False, False, False),
+        ],
+        ids=["hasObject-only", "literalValue-only", "both", "neither"],
+    )
+    def test_object_representation_is_hasobject_xor_literalvalue(
+        self, iri_object, literal_object, conforms_expected
+    ):
+        """Exactly one object representation: hasObject XOR literalValue.
+
+        Both forms at once would make one statement carry two objects, and
+        neither form states nothing at all.
+        """
+        g = _seed_graph()
+        node = _add_assertion_skeleton(g, URIRef("urn:assert:bad"))
+        g.add((node, URIRef(ASSERTION + "predicate"), URIRef(CORE + "locatedAt")))
+        if iri_object:
+            g.add((node, URIRef(ASSERTION + "hasObject"), URIRef(LOCATION)))
+        if literal_object:
+            g.add(
+                (
+                    node,
+                    URIRef(ASSERTION + "literalValue"),
+                    Literal("Alpha", datatype=XSD.string),
+                )
+            )
+        conforms, report = _run_shacl(g)
+        assert conforms is conforms_expected, report
+
     def test_document_without_name_rejected(self):
         g = _seed_graph()
         g.add((URIRef(DOC), RDF.type, URIRef(ASSERTION + "Document")))
         conforms, _report = _run_shacl(g)
         assert not conforms, "document without a name must be rejected"
+
+
+class TestAssertionClassification:
+    """An Assertion is an information object; the events about it are events."""
+
+    @pytest.fixture()
+    def model(self) -> Graph:
+        g = Graph()
+        g.parse((REPO_ROOT / "ontology" / "core" / "core.ttl").as_posix(), format="turtle")
+        g.parse((REPO_ROOT / "ontology" / "middle" / "assertion.ttl").as_posix(), format="turtle")
+        return g
+
+    def test_assertion_is_information_object_not_event(self, model):
+        assertion_class = URIRef(ASSERTION + "Assertion")
+        assert (assertion_class, RDFS.subClassOf, URIRef(CORE + "InformationObject")) in model
+        assert (assertion_class, RDFS.subClassOf, URIRef(CORE + "Event")) not in model
+
+        # the consequence for a real assertion node: its type closure reaches
+        # InformationObject and never Event
+        node = URIRef("urn:assert:" + "e" * 32)
+        model.add((node, RDF.type, assertion_class))
+        closure = type_closure(model, node)
+        assert URIRef(CORE + "InformationObject") in closure
+        assert URIRef(CORE + "Event") not in closure
+
+    def test_information_object_is_disjoint_from_event(self, model):
+        """The split is enforced by the kernel, not just by one module's choice."""
+        assert (
+            URIRef(CORE + "InformationObject"),
+            OWL.disjointWith,
+            URIRef(CORE + "Event"),
+        ) in model

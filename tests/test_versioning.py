@@ -38,7 +38,7 @@ class TestModuleIdentity:
     def test_reads_core_module(self):
         iri, version = mgmt.module_identity(mgmt.load_graph(CORE_ONTOLOGY))
         assert iri == "https://damminhtien.github.io/ontology-research/ontology/core"
-        assert version == "0.1.0"
+        assert version == "1.0.0"
 
     def test_rejects_missing_version_header(self, tmp_path):
         module = tmp_path / "broken.ttl"

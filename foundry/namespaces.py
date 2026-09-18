@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from urllib.parse import urlparse
 
 # ---------------------------------------------------------------------------
 # Ontology namespaces (mirror the @prefix declarations in ontology/*.ttl).
@@ -24,27 +25,79 @@ ASSERTION_MIDDLE_NS = f"{ONTOLOGY_BASE}/middle/assertion#"
 TRACKING_DOMAIN_NS = f"{ONTOLOGY_BASE}/domain/tracking#"
 IDENTITY_MIDDLE_NS = f"{ONTOLOGY_BASE}/middle/identity#"
 
+# ---------------------------------------------------------------------------
+# Semantic vocabulary: the relation IRIs the assertion lane records.
+#
+# Event payloads carry a property IRI, never a local name, so these constants
+# are the only place a relation is spelled out in code. Extractors, the write
+# path and the read model all reference them instead of a string literal.
+# ---------------------------------------------------------------------------
 
-def resolve_predicate_iri(predicate: str) -> str:
-    """Resolve a predicate reference to the absolute IRI carried in events.
+#: ``core:locatedAt`` — the entity is at the location.
+CORE_LOCATED_AT = f"{CORE_ONTOLOGY_NS}locatedAt"
 
-    An absolute IRI (``http(s)://…`` or ``urn:…``) is taken as given; a bare
-    local name resolves against the core vocabulary — the default predicate
-    namespace, mirroring the ``core:`` prefix used by the ontology modules.
+#: ``core:memberOf`` — the entity is part of the referenced entity.
+CORE_MEMBER_OF = f"{CORE_ONTOLOGY_NS}memberOf"
 
-    The rule is deliberately ontology-independent (it never loads a graph), so
-    the write path (:mod:`foundry.assertions`) and the log upcaster
-    (:mod:`foundry.events`) resolve the same reference to the same IRI.
+#: Datatype of a literal object given without an explicit datatype: the event
+#: contract says "datatype XOR language tag, default xsd:string". Spelled out
+#: here rather than imported from rdflib so the payload contract (events,
+#: upcasters) does not depend on the RDF toolkit.
+DEFAULT_LITERAL_DATATYPE = "http://www.w3.org/2001/XMLSchema#string"
+
+
+def require_absolute_iri(value: str, field: str) -> str:
+    """Return ``value`` once it is known to be an absolute IRI.
+
+    Any scheme is accepted (``https:``, ``urn:``, …) — the contract is "an
+    IRI, not a local name", not "an HTTP URL". A bare local name such as
+    ``locatedAt`` is rejected: resolving one here would mint an IRI for a
+    relation the ontology may never have declared, which is exactly how two
+    different statements end up sharing one RDF form.
 
     Raises:
-        ValueError: On a blank predicate.
+        ValueError: On a blank value or one without a scheme.
+    """
+    name = value.strip()
+    if not name:
+        raise ValueError(f"{field} must be non-empty")
+    if not urlparse(name).scheme:
+        raise ValueError(f"{field} must be an absolute IRI, got {value!r}")
+    return name
+
+
+#: v2 ``AssertionMade`` events carried a bare relation name. Only these
+#: mappings exist: a legacy record naming anything else is not upcastable, and
+#: inventing ``core#<name>`` for it would fabricate semantics that no release
+#: ever declared.
+LEGACY_PREDICATE_IRIS = {
+    "locatedAt": CORE_LOCATED_AT,
+    "memberOf": CORE_MEMBER_OF,
+}
+
+
+def resolve_legacy_predicate(predicate: str) -> str:
+    """Map a v2 bare relation name to its IRI (log upcasting only).
+
+    Reads historical records; the write path never accepts a bare name. An
+    absolute IRI passes through, since v2 already allowed one.
+
+    Raises:
+        ValueError: On a blank name, or on a bare name outside
+            :data:`LEGACY_PREDICATE_IRIS`.
     """
     name = predicate.strip()
     if not name:
         raise ValueError("predicate must be non-empty")
-    if "://" in name or name.startswith("urn:"):
+    if urlparse(name).scheme:
         return name
-    return f"{CORE_ONTOLOGY_NS}{name}"
+    try:
+        return LEGACY_PREDICATE_IRIS[name]
+    except KeyError as exc:
+        raise ValueError(
+            f"unknown legacy predicate {predicate!r}; add an explicit mapping to "
+            "LEGACY_PREDICATE_IRIS instead of guessing an IRI"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

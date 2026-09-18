@@ -13,7 +13,7 @@ from foundry.events import (
     event_to_dict,
     make_event,
 )
-from foundry.namespaces import CORE_ONTOLOGY_NS
+from foundry.namespaces import CORE_ONTOLOGY_NS, DEFAULT_LITERAL_DATATYPE
 from foundry.versioning import EVENT_SCHEMA_VERSION as SCHEMA_VERSION
 
 
@@ -252,6 +252,58 @@ class TestUpcasters:
         assert events[0].schema_version == SCHEMA_VERSION
         assert events[0].payload["predicate_iri"] == CORE_ONTOLOGY_NS + "locatedAt"
         assert "predicate" not in events[0].payload
+
+    def test_v2_literal_object_gains_explicit_type_on_upcast(self, tmp_path):
+        """Pre-typed v2 literals become ``xsd:string`` with no language tag.
+
+        v2 recorded only the lexical form, so ``"250"`` was ambiguous. The
+        upcast states the type once so every v3 reader sees the same thing the
+        writer meant.
+        """
+        path = tmp_path / "events.jsonl"
+        legacy = {
+            "event_id": "c0ffee" + "0" * 26,
+            "event_type": "AssertionMade",
+            "schema_version": 2,
+            "occurred_at": "2026-08-01T00:00:00Z",
+            "payload": {
+                "assertion_id": "urn:assert:legacy-literal",
+                "subject_id": "urn:world:entity:legacy",
+                "predicate": "memberOf",
+                "object": {"kind": "literal", "value": "Alpha"},
+                "valid_from": "2026-08-01T00:00:00Z",
+                "source_ids": ["urn:doc:1"],
+                "confidence": None,
+            },
+        }
+        path.write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+        events = EventLog(path).read_all()
+        obj = events[0].payload["object"]
+        assert obj == {
+            "kind": "literal",
+            "value": "Alpha",
+            "datatype_iri": DEFAULT_LITERAL_DATATYPE,
+            "language": None,
+        }
+
+    def test_v2_unknown_legacy_predicate_is_rejected(self):
+        """An unknown bare relation name fails loudly instead of inventing an IRI."""
+        record = {
+            "event_id": "badbad" + "0" * 26,
+            "event_type": "AssertionMade",
+            "schema_version": 2,
+            "occurred_at": "2026-08-01T00:00:00Z",
+            "payload": {
+                "assertion_id": "urn:assert:unknown-relation",
+                "subject_id": "urn:world:entity:legacy",
+                "predicate": "someRandomRelation",
+                "object": {"kind": "entity", "value": "urn:world:entity:x"},
+                "valid_from": "2026-08-01T00:00:00Z",
+                "source_ids": ["urn:doc:1"],
+            },
+        }
+        with pytest.raises(ValueError, match="unknown legacy predicate"):
+            event_from_dict(record)
 
     def test_v2_non_assertion_record_upcasts_untouched(self):
         """Only AssertionMade payloads change; other types keep their payload."""

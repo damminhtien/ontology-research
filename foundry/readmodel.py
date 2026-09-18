@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from foundry.namespaces import resolve_predicate_iri
+from foundry.namespaces import require_absolute_iri
 
 
 def parse_instant(text: str) -> datetime:
@@ -477,17 +477,21 @@ class ReadModel:
             "status": record.status,
         }
 
-    def active_assertions(self, subject_id: str, predicate: str | None = None) -> list[dict]:
-        """Non-superseded assertions for a subject, optionally by predicate.
+    def active_assertions(self, subject_id: str, predicate_iri: str | None = None) -> list[dict]:
+        """Non-superseded assertions for a subject, optionally by relation.
 
-        ``predicate`` accepts what a caller knows at the call site: a bare
-        local name in the core vocabulary (``memberOf``) or an absolute
-        property IRI — both resolve to the ledger's ``predicate_iri``.
+        ``predicate_iri`` is the absolute relation IRI the ledger stores
+        (``core:memberOf``); a bare local name is rejected rather than
+        resolved, so a query can never silently match the wrong relation.
 
         Raises:
-            ValueError: On a blank ``predicate``.
+            ValueError: On a blank or relative ``predicate_iri``.
         """
-        wanted = resolve_predicate_iri(predicate) if predicate is not None else None
+        wanted = (
+            require_absolute_iri(predicate_iri, "predicate_iri")
+            if predicate_iri is not None
+            else None
+        )
         return [
             entry
             for entry in (

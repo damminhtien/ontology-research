@@ -18,29 +18,53 @@ from foundry.assertions import (
 from foundry.events import EventLog, make_event
 from foundry.identity import IdentityService
 from foundry.ingestion import IngestionPipeline
-from foundry.namespaces import CORE_ONTOLOGY_NS, resolve_predicate_iri
+from foundry.namespaces import (
+    CORE_LOCATED_AT,
+    CORE_MEMBER_OF,
+    CORE_ONTOLOGY_NS,
+    require_absolute_iri,
+    resolve_legacy_predicate,
+)
 from foundry.projector import replay_log
 
 E1 = "urn:world:entity:" + "a" * 32
 LOC = "urn:world:location:" + "b" * 32
 
 
-class TestPredicateResolution:
-    def test_bare_name_resolves_against_the_core_vocabulary(self):
-        assert resolve_predicate_iri("locatedAt") == CORE_ONTOLOGY_NS + "locatedAt"
-        assert resolve_predicate_iri("  memberOf  ") == CORE_ONTOLOGY_NS + "memberOf"
+class TestPredicateIriContract:
+    """The write path takes an absolute IRI and never resolves a local name."""
+
+    def test_bare_local_name_is_rejected(self):
+        with pytest.raises(ValueError, match="must be an absolute IRI"):
+            require_absolute_iri("locatedAt", "predicate_iri")
 
     @pytest.mark.parametrize(
         "absolute",
         ["https://example.org/vocab#operatesIn", "http://example.org/x", "urn:x:relation"],
     )
     def test_absolute_iri_is_kept_verbatim(self, absolute):
-        assert resolve_predicate_iri(absolute) == absolute
+        assert require_absolute_iri(absolute, "predicate_iri") == absolute
 
     @pytest.mark.parametrize("blank", ["", "   "])
     def test_blank_predicate_rejected(self, blank):
-        with pytest.raises(ValueError, match="predicate must be non-empty"):
-            resolve_predicate_iri(blank)
+        with pytest.raises(ValueError, match="predicate_iri must be non-empty"):
+            require_absolute_iri(blank, "predicate_iri")
+
+
+class TestLegacyPredicateResolution:
+    """v2 log upcasting: an explicit table, never a guessed IRI."""
+
+    def test_known_legacy_names_map_through_the_table(self):
+        assert resolve_legacy_predicate("locatedAt") == CORE_LOCATED_AT
+        assert resolve_legacy_predicate("  memberOf  ") == CORE_MEMBER_OF
+
+    def test_absolute_iri_passes_through(self):
+        assert resolve_legacy_predicate("urn:x:relation") == "urn:x:relation"
+
+    @pytest.mark.parametrize("unknown", ["someRandomRelation", ""])
+    def test_unknown_legacy_name_fails_loudly(self, unknown):
+        with pytest.raises(ValueError):
+            resolve_legacy_predicate(unknown)
 
 
 @pytest.fixture()
@@ -80,7 +104,7 @@ class TestMakeAssertion:
         event = make_assertion(
             log=log,
             subject_id=E1,
-            predicate="locatedAt",
+            predicate_iri=CORE_LOCATED_AT,
             object_kind="location",
             object_value=LOC,
             valid_from="2026-08-01T00:00:00Z",
@@ -90,7 +114,7 @@ class TestMakeAssertion:
         )
         assert event.event_type == "AssertionMade"
         assert event.payload["assertion_id"].startswith("urn:assert:")
-        assert event.payload["predicate_iri"] == CORE_ONTOLOGY_NS + "locatedAt"
+        assert event.payload["predicate_iri"] == CORE_LOCATED_AT
         assert event.payload["object"] == {"kind": "location", "value": LOC}
         assert event.payload["valid_to"] is None
 
@@ -98,7 +122,7 @@ class TestMakeAssertion:
         event = make_assertion(
             log=log,
             subject_id=E1,
-            predicate="https://example.org/vocab#operatesIn",
+            predicate_iri="https://example.org/vocab#operatesIn",
             object_kind="location",
             object_value=LOC,
             valid_from="2026-08-01T00:00:00Z",
@@ -112,7 +136,7 @@ class TestMakeAssertion:
             make_assertion(
                 log=log,
                 subject_id="urn:world:entity:missing",
-                predicate="locatedAt",
+                predicate_iri=CORE_LOCATED_AT,
                 object_kind="location",
                 object_value=LOC,
                 valid_from="2026-08-01T00:00:00Z",
@@ -124,17 +148,38 @@ class TestMakeAssertion:
     @pytest.mark.parametrize(
         ("kwargs", "match"),
         [
-            ({"predicate": "  "}, "predicate must be non-empty"),
+            ({"predicate_iri": "  "}, "predicate_iri must be non-empty"),
+            ({"predicate_iri": "locatedAt"}, "must be an absolute IRI"),
             ({"object_kind": "vibe"}, "object_kind must be one of"),
             ({"object_value": " "}, "object_value must be non-empty"),
             ({"valid_from": "not-a-date"}, "invalid instant"),
             ({"confidence": 1.5}, r"outside \[0, 1\]"),
+            (
+                {"object_kind": "literal", "literal_language": ""},
+                "literal_language must be non-empty",
+            ),
+            (
+                {
+                    "object_kind": "literal",
+                    "literal_language": "vi",
+                    "literal_datatype_iri": "urn:x:t",
+                },
+                "never both",
+            ),
+            (
+                {"object_kind": "literal", "literal_datatype_iri": "not-an-iri"},
+                "literal_datatype_iri must be an absolute IRI",
+            ),
+            (
+                {"object_kind": "location", "literal_datatype_iri": "urn:x:t"},
+                "only valid for object_kind='literal'",
+            ),
         ],
     )
     def test_validation_rejects_malformed_input(self, log, kwargs, match):
         base = {
             "subject_id": E1,
-            "predicate": "locatedAt",
+            "predicate_iri": CORE_LOCATED_AT,
             "object_kind": "location",
             "object_value": LOC,
             "valid_from": "2026-08-01T00:00:00Z",
@@ -149,7 +194,7 @@ class TestMakeAssertion:
         first = make_assertion(
             log=log,
             subject_id=E1,
-            predicate="locatedAt",
+            predicate_iri=CORE_LOCATED_AT,
             object_kind="location",
             object_value=LOC,
             valid_from="2026-08-01T00:00:00Z",
@@ -161,7 +206,7 @@ class TestMakeAssertion:
         replacement = make_assertion(
             log=log,
             subject_id=E1,
-            predicate="locatedAt",
+            predicate_iri=CORE_LOCATED_AT,
             object_kind="location",
             object_value="urn:world:location:" + "c" * 32,
             valid_from="2026-08-02T00:00:00Z",
@@ -184,7 +229,7 @@ class TestMakeAssertion:
             make_assertion(
                 log=log,
                 subject_id=E1,
-                predicate="locatedAt",
+                predicate_iri=CORE_LOCATED_AT,
                 object_kind="location",
                 object_value=LOC,
                 valid_from="2026-08-01T00:00:00Z",
@@ -198,7 +243,7 @@ class TestLedgerReplay:
         first = make_assertion(
             log=log,
             subject_id=E1,
-            predicate="locatedAt",
+            predicate_iri=CORE_LOCATED_AT,
             object_kind="location",
             object_value=LOC,
             valid_from="2026-08-01T00:00:00Z",
@@ -245,7 +290,7 @@ class TestPipelineAssertions:
         )
         result = pipeline.ingest_assertion(
             subject_id=created.canonical_id,
-            predicate="locatedAt",
+            predicate_iri=CORE_LOCATED_AT,
             object_kind="location",
             object_value=LOC,
             valid_from="2026-08-01T00:00:00Z",
@@ -266,7 +311,7 @@ class TestPipelineAssertions:
         created = pipeline.ingest_entity(name="Org A", entity_type="Organization", source_id="s")
         result = pipeline.ingest_assertion(
             subject_id=created.canonical_id,
-            predicate="locatedAt",
+            predicate_iri=CORE_LOCATED_AT,
             object_kind="location",
             object_value=LOC,
             valid_from="2026-08-01T00:00:00Z",
@@ -287,7 +332,7 @@ class TestPipelineAssertions:
         )
         first = pipeline.ingest_assertion(
             subject_id=created.canonical_id,
-            predicate="locatedAt",
+            predicate_iri=CORE_LOCATED_AT,
             object_kind="location",
             object_value=LOC,
             valid_from="2026-08-01T00:00:00Z",
@@ -295,7 +340,7 @@ class TestPipelineAssertions:
         )
         second = pipeline.ingest_assertion(
             subject_id=created.canonical_id,
-            predicate="locatedAt",
+            predicate_iri=CORE_LOCATED_AT,
             object_kind="location",
             object_value="urn:world:location:" + "c" * 32,
             valid_from="2026-08-02T00:00:00Z",
@@ -306,12 +351,78 @@ class TestPipelineAssertions:
         events = EventLog(log_path).read_all()
         assert [e.event_type for e in events].count("AssertionMade") == 2
 
+    def test_unknown_predicate_iri_never_reaches_the_log(self, tmp_path):
+        """The ontology is the allowlist: only declared relations are assertable."""
+        log_path = tmp_path / "events.jsonl"
+        pipeline = self._pipeline(log_path)
+        created = pipeline.ingest_entity(name="Org A", entity_type="Organization", source_id="s")
+        doc = pipeline.register_document(
+            uri="https://example.org/report-1",
+            title="Weekly report",
+            source_system="crawler",
+        )
+        result = pipeline.ingest_assertion(
+            subject_id=created.canonical_id,
+            predicate_iri="https://example.org/vocab#inventedRelation",
+            object_kind="location",
+            object_value=LOC,
+            valid_from="2026-08-01T00:00:00Z",
+            source_ids=[doc.payload["document_id"]],
+        )
+        assert not result.accepted
+        assert "not declared by the registered ontology" in result.reason
+        assert [e.event_type for e in EventLog(log_path).read_all()] == [
+            "EntityCreated",
+            "DocumentRegistered",
+        ]
+
+    def test_bare_predicate_name_is_a_caller_bug(self, tmp_path):
+        """The boundary never resolves a local name into an IRI."""
+        pipeline = self._pipeline(tmp_path / "events.jsonl")
+        created = pipeline.ingest_entity(name="Org A", entity_type="Organization", source_id="s")
+        with pytest.raises(ValueError, match="must be an absolute IRI"):
+            pipeline.ingest_assertion(
+                subject_id=created.canonical_id,
+                predicate_iri="locatedAt",
+                object_kind="location",
+                object_value=LOC,
+                valid_from="2026-08-01T00:00:00Z",
+                source_ids=["urn:doc:1"],
+            )
+
+    def test_literal_object_type_is_recorded_end_to_end(self, tmp_path):
+        """A language-tagged literal keeps its tag in the event payload."""
+        log_path = tmp_path / "events.jsonl"
+        pipeline = self._pipeline(log_path)
+        created = pipeline.ingest_entity(name="Org A", entity_type="Organization", source_id="s")
+        doc = pipeline.register_document(
+            uri="https://example.org/report-1",
+            title="Weekly report",
+            source_system="crawler",
+        )
+        result = pipeline.ingest_assertion(
+            subject_id=created.canonical_id,
+            predicate_iri=CORE_ONTOLOGY_NS + "alias",
+            object_kind="literal",
+            object_value="Đà Nẵng",
+            valid_from="2026-08-01T00:00:00Z",
+            source_ids=[doc.payload["document_id"]],
+            literal_language="vi",
+        )
+        assert result.accepted
+        assert result.event.payload["object"] == {
+            "kind": "literal",
+            "value": "Đà Nẵng",
+            "datatype_iri": None,
+            "language": "vi",
+        }
+
     def test_unknown_subject_is_queued_not_crashed(self, tmp_path):
         log_path = tmp_path / "events.jsonl"
         pipeline = self._pipeline(log_path)
         result = pipeline.ingest_assertion(
             subject_id="urn:world:entity:ghost",
-            predicate="locatedAt",
+            predicate_iri=CORE_LOCATED_AT,
             object_kind="location",
             object_value=LOC,
             valid_from="2026-08-01T00:00:00Z",
@@ -328,7 +439,7 @@ class TestPipelineAssertions:
         with pytest.raises(ValueError, match="outside"):
             pipeline.ingest_assertion(
                 subject_id=created.canonical_id,
-                predicate="locatedAt",
+                predicate_iri=CORE_LOCATED_AT,
                 object_kind="location",
                 object_value=LOC,
                 valid_from="2026-08-01T00:00:00Z",
@@ -348,7 +459,7 @@ class TestAssertionProjection:
         assertion = make_assertion(
             log=log,
             subject_id=e_dup,
-            predicate="memberOf",
+            predicate_iri=CORE_MEMBER_OF,
             object_kind="entity",
             object_value=e_org,
             valid_from="2026-08-01T00:00:00Z",
@@ -371,11 +482,13 @@ class TestAssertionProjection:
         assert stats.applied == 4
         entry = model.get_assertion(aid)
         assert entry is not None and entry["subject_id"] == e_org  # followed the merge
-        assert entry["predicate_iri"] == CORE_ONTOLOGY_NS + "memberOf"
-        # callers may filter by bare name or by the property IRI
-        assert model.active_assertions(e_org, "memberOf")
-        assert model.active_assertions(e_org, CORE_ONTOLOGY_NS + "memberOf")
-        assert model.active_assertions(e_org, "locatedAt") == []
+        assert entry["predicate_iri"] == CORE_MEMBER_OF
+        # the relation filter takes the absolute IRI; a bare local name is
+        # rejected rather than resolved, so a query can never match silently
+        assert model.active_assertions(e_org, CORE_MEMBER_OF)
+        with pytest.raises(ValueError, match="must be an absolute IRI"):
+            model.active_assertions(e_org, "memberOf")
+        assert model.active_assertions(e_org, CORE_LOCATED_AT) == []
 
         log.append(
             make_event(
@@ -385,14 +498,14 @@ class TestAssertionProjection:
         )
         model2, _stats2 = replay_log(log)
         assert model2.get_assertion(aid)["status"] == "superseded"
-        assert model2.active_assertions(e_org, "memberOf") == []
+        assert model2.active_assertions(e_org, CORE_MEMBER_OF) == []
 
 
 def test_json_serializable_payload(log):
     event = make_assertion(
         log=log,
         subject_id=E1,
-        predicate="locatedAt",
+        predicate_iri=CORE_LOCATED_AT,
         object_kind="literal",
         object_value="đà nẵng",
         valid_from="2026-08-01T00:00:00Z",

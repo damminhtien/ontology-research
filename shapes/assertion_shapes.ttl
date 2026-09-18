@@ -41,15 +41,19 @@ assertion:AssertionShape a sh:NodeShape ;
         sh:class core:Entity ;
         sh:message "Assertion may point at at most one object entity/location."@en ;
     ] ;
+    # The literal object is typed per value (xsd:decimal, xsd:integer, plain
+    # string, language tag), so the shape constrains it to a literal rather
+    # than to one datatype. "datatype XOR language tag, default xsd:string" is
+    # a syntax rule enforced once in the write path (foundry/assertions.py).
     sh:property [
         sh:path assertion:literalValue ;
         sh:maxCount 1 ;
-        sh:datatype xsd:string ;
-        sh:message "Assertion may carry at most one xsd:string literal object."@en ;
+        sh:nodeKind sh:Literal ;
+        sh:message "Assertion may carry at most one literal object."@en ;
     ] ;
-    # Exactly one object: an entity/location or a literal, never both, never
-    # neither (foundry/assertions.py takes a single object_kind).
-    sh:or (
+    # Exactly one object representation: hasObject XOR literalValue — never
+    # both, never neither (foundry/assertions.py takes a single object_kind).
+    sh:xone (
         [ sh:property [ sh:path assertion:hasObject ; sh:minCount 1 ] ]
         [ sh:property [ sh:path assertion:literalValue ; sh:minCount 1 ] ]
     ) ;

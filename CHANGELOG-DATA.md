@@ -19,14 +19,39 @@ hành nằm trong file `VERSION` ở gốc repo; source code đọc qua
   `core:InformationObject` (event ghi thay đổi mệnh đề là `AssertionMade`);
   object dạng literal map sang `assertion:literalValue` thay vì `core:name`
   trên assertion node.
-- Tên quan hệ dạng trần (`locatedAt`) resolve về vocabulary `core`; quy tắc nằm
-  một chỗ — `foundry.namespaces.resolve_predicate_iri` — dùng chung bởi write
-  path (`foundry/assertions.py`) và upcaster.
+- Write path **chỉ nhận IRI tuyệt đối**: `predicate_iri` là tên trần bị từ chối
+  (`foundry.namespaces.require_absolute_iri`), không resolve ngầm — resolve một
+  cái tên trần là tự chế ra một quan hệ mà ontology có thể chưa từng khai báo.
+  Chỉ log cũ v2 mới được map, qua bảng tường minh
+  `foundry.namespaces.LEGACY_PREDICATE_IRIS` (`locatedAt`, `memberOf`); tên
+  legacy ngoài bảng ⇒ `ValueError` (fail loudly, không đoán IRI).
+- Object literal mang **type tường minh**: `datatype_iri` XOR `language`, mặc
+  định `xsd:string`. Trước đây `{"kind": "literal", "value": "250"}` không còn
+  cho biết `"250"` là string hay number; nay datatype/language tag đi tới RDF
+  nguyên vẹn (`assertion:literalValue "12000"^^xsd:decimal`, `"Việt Nam"@vi`).
 - Upcaster v2→v3 đăng ký trong `UPCASTERS` (`foundry/events.py`): record v2 vẫn
   replay được — ADR-0002/0009; regression test đọc một record v2 `AssertionMade`
   trong `tests/test_events.py`. Log trong repo hiện không có record
   `AssertionMade` v2 nào, nhưng producer đã tồn tại từ Phase 2 nên bump kèm
-  upcaster thay vì amend im lặng.
+  upcaster thay vì amend im lặng. Log đã ghi **không bao giờ bị rewrite**: raw v2
+  trên đĩa giữ nguyên bytes, upcast chỉ diễn ra trong bộ nhớ khi đọc.
+- Đổi theo governance (kèm migration note trong `registry/releases.json`):
+  `assertion:literalValue` range `xsd:string` → `rdfs:Literal` (một datatype cố
+  định không chở được literal có type); `core:validFrom`/`core:validUntil`
+  domain → `core:InformationObject`; `core:hasSource`/`core:hasConfidence`
+  domain → `core:Entity`; `core:LocationAssertion` subclass của
+  `core:InformationObject`; `core:InformationObject owl:disjointWith
+  core:Event`. Domain `core:Event` cũ suy ra sai rằng một mệnh đề là một event.
+  Core `0.1.0 → 1.0.0`, assertion `0.1.0 → 1.0.0` (MAJOR).
+- Hai tầng validation tách bạch: `build_assertion()` chỉ kiểm *syntax* (IRI
+  tuyệt đối, object hợp lệ, timestamp, confidence); `IngestionPipeline` kiểm
+  *semantic* — `foundry.assertions.is_known_predicate` đối chiếu registry
+  ontology, predicate không khai báo bị từ chối với structured receipt (LLM hay
+  extractor không mint được vocabulary); SHACL giữ ràng buộc cấu trúc
+  (`assertion:predicate` đúng 1 IRI, `assertion:hasObject` ⊕
+  `assertion:literalValue`).
+- Ngoài scope Task 1: lane `LocationObserved` / `core:LocationAssertion` chưa
+  migrate sang `AssertionMade(predicate_iri=core:locatedAt)`.
 
 ### 2 — amendment 2026-09-02
 

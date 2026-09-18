@@ -23,7 +23,7 @@ class TestShellAndOverview:
         data = client.get("/api/overview").json()
         assert data["modules"], "expected at least the core module"
         core = next(m for m in data["modules"] if m["name"] == "core")
-        assert core["version"] == "0.1.0"
+        assert core["version"] == "1.0.0"
         assert {"classes", "properties"} <= set(core.keys())
         for key in ("version_check", "stability", "events", "cq"):
             assert key in data
@@ -66,7 +66,7 @@ class TestRegistryEndpoints:
         core_entries = data["modules"][
             "https://damminhtien.github.io/ontology-research/ontology/core"
         ]
-        assert core_entries[0]["version"] == "0.1.0"
+        assert core_entries[0]["version"] == "1.0.0"
 
     def test_pending_with_no_changes_is_clean(self, client):
         data = client.get("/api/releases/core/pending").json()
@@ -86,13 +86,17 @@ class TestRegistryEndpoints:
         data = client.get("/api/versions/check").json()
         assert data["passed"] is True
         core = next(m for m in data["modules"] if m["module"] == "core")
-        assert core["declared_version"] == "0.1.0"
-        assert core["latest_version"] == "0.1.0"
+        assert core["declared_version"] == "1.0.0"
+        assert core["latest_version"] == "1.0.0"
 
-    def test_stability_core_meets_threshold(self, client):
+    def test_stability_reports_core_breaking_release(self, client):
+        """The assertion/event split is a recorded MAJOR release, not a silent edit."""
         data = client.get("/api/stability").json()
         core = next(m for m in data["modules"] if m["module"] == "core")
-        assert core["ok"] is True and core["stability"] == 1.0
+        assert core["breaking"] >= 1
+        expected = round(1 - core["breaking"] / core["releases"], 4)
+        assert core["stability"] == expected
+        assert core["ok"] is (core["stability"] >= core["threshold"])
 
 
 class TestImpactEndpoint:

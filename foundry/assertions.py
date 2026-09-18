@@ -8,16 +8,28 @@ with its own stable id, generic provenance and bi-temporal timestamps:
     assertion_id (urn:assert:<hex>)   stable handle for correct/retract
     subject_id                        canonical entity the assertion is about
     predicate_iri                     absolute relation IRI (core:locatedAt)
-    object                            {kind: entity|location|literal, value}
+    object                            {kind: entity|location|literal, value, ...}
     valid_from / valid_to             valid time (when it holds in the world)
     source_ids[]                      provenance (documents / source records)
     confidence                        optional 0..1
 
 ``predicate_iri`` is what the RDF mapping needs: the relation is a node in the
 graph, so ``locatedAt`` and ``memberOf`` about the same subject and object are
-two distinct statements instead of one. On the write path a bare local name
-(``locatedAt``) resolves against the core vocabulary; anything else must be an
-absolute property IRI (``foundry.namespaces.resolve_predicate_iri``).
+two distinct statements instead of one. The write path takes an *absolute* IRI
+only — a bare local name is rejected, never resolved
+(:func:`foundry.namespaces.require_absolute_iri`), because resolving one would
+mint a relation the ontology may never have declared. Historical v2 records
+that carried a bare name are mapped by the log upcaster through an explicit
+table (``foundry.namespaces.LEGACY_PREDICATE_IRIS``).
+
+A literal object keeps its type: the payload carries ``datatype_iri`` or
+``language`` (exactly one non-null; ``xsd:string`` by default), so ``"250"``
+does not silently become a string in RDF and a Vietnamese label keeps its tag.
+
+Validation is split in two layers: :func:`build_assertion` checks *syntax*
+(absolute IRIs, well-formed object, timestamp, confidence) and the ingestion
+pipeline checks the *semantic* contract (``is_known_predicate`` against the
+registered ontology); SHACL then enforces the structural RDF constraints.
 
 Corrections never rewrite anything (ADR-0002): superseding an assertion emits
 an ``AssertionSuperseded`` event that references the original id, and the read
@@ -36,6 +48,9 @@ import json
 from collections.abc import Collection
 from typing import Any
 
+from rdflib import Graph, Literal, URIRef
+from rdflib.namespace import OWL, RDF, XSD
+
 from foundry.events import (
     EVENT_TYPE_ASSERTION_MADE,
     EVENT_TYPE_ASSERTION_SUPERSEDED,
@@ -49,9 +64,10 @@ from foundry.identity import IdentityService
 from foundry.namespaces import (
     ASSERTION_MIDDLE_NS,
     CORE_ONTOLOGY_NS,
+    DEFAULT_LITERAL_DATATYPE,
     new_assertion_id,
     new_document_id,
-    resolve_predicate_iri,
+    require_absolute_iri,
 )
 from foundry.readmodel import parse_instant
 
@@ -114,13 +130,15 @@ def is_superseded(log: EventLog, assertion_id: str) -> bool:
 def build_assertion(
     *,
     subject_id: str,
-    predicate: str,
+    predicate_iri: str,
     object_kind: str,
     object_value: str,
     valid_from: str,
     source_ids: list[str],
     confidence: float | None = None,
     supersedes: str | None = None,
+    literal_datatype_iri: str | None = None,
+    literal_language: str | None = None,
     identity: IdentityService | None = None,
     known_assertions: Collection[str],
 ) -> SemanticEvent:
@@ -130,32 +148,50 @@ def build_assertion(
     run the SHACL gate against the built event *before* anything reaches the
     append-only log (:func:`make_assertion` is this plus the append).
 
+    Syntax only: this function never loads an ontology graph. Whether the
+    predicate is a relation the registered model actually declares is a
+    semantic check the pipeline layer owns (``is_known_predicate``).
+
     Args:
         subject_id: Canonical entity the statement is about.
-        predicate: Relation reference — a bare local name in the core
-            vocabulary (``locatedAt``) or an absolute property IRI. Recorded as
-            ``predicate_iri``.
+        predicate_iri: Absolute relation IRI (``core:locatedAt``); a bare
+            local name is rejected — see
+            :func:`foundry.namespaces.require_absolute_iri`.
         object_kind: One of ``entity``, ``location``, ``literal``.
-        object_value: The object's id or literal value.
+        object_value: The object's id IRI, or the literal's lexical form.
         valid_from: Valid time (when the statement holds in the world).
         source_ids: Provenance references (non-empty).
         confidence: Optional 0..1.
         supersedes: Assertion id this statement replaces.
+        literal_datatype_iri: Datatype of a literal object. Mutually exclusive
+            with ``literal_language``; defaults to ``xsd:string``. Forbidden
+            for entity/location objects.
+        literal_language: BCP 47 language tag of a literal object
+            (``"vi"``). Forbidden for entity/location objects.
         identity: Optional registry; when given, the subject must be known.
         known_assertions: Assertion ids already recorded; a ``supersedes``
             target must be among them.
 
     Raises:
-        ValueError: On malformed input, an unknown subject, or a ``supersedes``
-            target that is not in ``known_assertions``.
+        ValueError: On malformed input (relative predicate IRI, unknown object
+            kind, a datatype/language tag on an IRI object, both a datatype and
+            a language tag on a literal, a malformed timestamp, confidence
+            outside ``[0, 1]``), an unknown subject, or a ``supersedes`` target
+            that is not in ``known_assertions``.
     """
     if not source_ids:
         raise ValueError("at least one source_id is required")
-    predicate_iri = resolve_predicate_iri(predicate)  # blank rejected; name → core IRI
+    relation_iri = require_absolute_iri(predicate_iri, "predicate_iri")
     if object_kind not in OBJECT_KINDS:
         raise ValueError(f"object_kind must be one of {list(OBJECT_KINDS)}, got {object_kind!r}")
     if not object_value.strip():
         raise ValueError("object_value must be non-empty")
+    object_field = _literal_object(
+        object_kind,
+        object_value,
+        datatype_iri=literal_datatype_iri,
+        language=literal_language,
+    )
     parse_instant(valid_from)  # validates the xsd:dateTime form
     if confidence is not None and not 0.0 <= confidence <= 1.0:
         raise ValueError(f"confidence {confidence} outside [0, 1]")
@@ -169,8 +205,8 @@ def build_assertion(
         {
             "assertion_id": new_assertion_id(),
             "subject_id": subject_id,
-            "predicate_iri": predicate_iri,
-            "object": {"kind": object_kind, "value": object_value},
+            "predicate_iri": relation_iri,
+            "object": object_field,
             "valid_from": valid_from,
             "valid_to": None,
             "source_ids": list(source_ids),
@@ -180,17 +216,65 @@ def build_assertion(
     )
 
 
+def _literal_object(
+    object_kind: str,
+    object_value: str,
+    *,
+    datatype_iri: str | None,
+    language: str | None,
+) -> dict[str, Any]:
+    """Build the payload ``object`` of an assertion, validating its shape.
+
+    An entity/location object is just ``{kind, value}``: a datatype or a
+    language tag on an IRI object is a caller bug. A literal object always
+    carries both ``datatype_iri`` and ``language`` keys (exactly one non-null,
+    ``xsd:string`` by default) so a reader never has to guess whether ``"250"``
+    was a string or a number.
+
+    Raises:
+        ValueError: On a datatype/language tag on an IRI object, both a
+            datatype and a language tag at once, a blank language tag, or a
+            relative datatype IRI.
+    """
+    if object_kind != "literal":
+        if datatype_iri is not None or language is not None:
+            raise ValueError(
+                f"literal_datatype_iri/literal_language are only valid for object_kind='literal', "
+                f"got object_kind={object_kind!r}"
+            )
+        return {"kind": object_kind, "value": object_value}
+
+    if datatype_iri is not None and language is not None:
+        raise ValueError("a literal object carries a datatype or a language tag, never both")
+    if language is not None:
+        tag = language.strip()
+        if not tag:
+            raise ValueError("literal_language must be non-empty when given")
+        return {"kind": "literal", "value": object_value, "datatype_iri": None, "language": tag}
+    return {
+        "kind": "literal",
+        "value": object_value,
+        "datatype_iri": require_absolute_iri(
+            datatype_iri if datatype_iri is not None else DEFAULT_LITERAL_DATATYPE,
+            "literal_datatype_iri",
+        ),
+        "language": None,
+    }
+
+
 def make_assertion(
     *,
     log: EventLog,
     subject_id: str,
-    predicate: str,
+    predicate_iri: str,
     object_kind: str,
     object_value: str,
     valid_from: str,
     source_ids: list[str],
     confidence: float | None = None,
     supersedes: str | None = None,
+    literal_datatype_iri: str | None = None,
+    literal_language: str | None = None,
     identity: IdentityService | None = None,
 ) -> SemanticEvent:
     """Record one statement about the world as a reified assertion.
@@ -198,15 +282,17 @@ def make_assertion(
     Args:
         log: Event log to append the assertion to.
         subject_id: Canonical entity the statement is about.
-        predicate: Relation reference — a bare local name in the core
-            vocabulary (``locatedAt``) or an absolute property IRI. Recorded as
-            ``predicate_iri``.
+        predicate_iri: Absolute relation IRI (``core:locatedAt``). A bare local
+            name is rejected: see :func:`build_assertion`.
         object_kind: One of ``entity``, ``location``, ``literal``.
-        object_value: The object's id or literal value.
+        object_value: The object's id IRI or the literal's lexical form.
         valid_from: Valid time (when the statement holds in the world).
         source_ids: Provenance references.
         confidence: Optional 0..1.
         supersedes: Assertion id this statement replaces.
+        literal_datatype_iri: Datatype of a literal object (default
+            ``xsd:string``); mutually exclusive with ``literal_language``.
+        literal_language: BCP 47 language tag of a literal object.
         identity: Optional registry; when given, the subject must be known.
 
     Raises:
@@ -222,13 +308,15 @@ def make_assertion(
         }
     event = build_assertion(
         subject_id=subject_id,
-        predicate=predicate,
+        predicate_iri=predicate_iri,
         object_kind=object_kind,
         object_value=object_value,
         valid_from=valid_from,
         source_ids=source_ids,
         confidence=confidence,
         supersedes=supersedes,
+        literal_datatype_iri=literal_datatype_iri,
+        literal_language=literal_language,
         identity=identity,
         known_assertions=known,
     )
@@ -283,9 +371,6 @@ def dump_assertions(ledger: dict[str, dict[str, Any]]) -> str:
 
 # -- RDF/SHACL mapping (ontology/middle/assertion.ttl + shapes/assertion_shapes.ttl) --
 
-from rdflib import Graph, Literal, URIRef  # noqa: E402
-from rdflib.namespace import RDF, XSD  # noqa: E402
-
 ASSERTION_NS = ASSERTION_MIDDLE_NS
 CORE_NS = CORE_ONTOLOGY_NS
 _OBJECT_PREDICATES = {
@@ -293,6 +378,30 @@ _OBJECT_PREDICATES = {
     "location": (ASSERTION_NS, "hasObject"),
     "literal": (ASSERTION_NS, "literalValue"),
 }
+
+
+def is_known_predicate(graph: Graph, predicate_iri: str) -> bool:
+    """True when ``predicate_iri`` is a property the registered model declares.
+
+    The ontology is the allowlist: a relation no module declares can never be
+    asserted, so a free-text or LLM-proposed relation cannot mint graph
+    vocabulary (roadmap Phase 2: *LLM chỉ đề xuất; semantic system quyết định
+    acceptance*). This is the semantic layer of validation — the syntax layer
+    (:func:`build_assertion`) only checks that the value is an absolute IRI.
+
+    Args:
+        graph: Loaded ontology modules (the registered model).
+        predicate_iri: Absolute property IRI to look up.
+
+    Raises:
+        ValueError: On a blank or relative IRI.
+    """
+    node = URIRef(require_absolute_iri(predicate_iri, "predicate_iri"))
+    return (node, RDF.type, OWL.ObjectProperty) in graph or (
+        node,
+        RDF.type,
+        OWL.DatatypeProperty,
+    ) in graph
 
 
 def document_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
@@ -317,15 +426,17 @@ def assertion_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
     graph (``assertion:predicate`` → the event's ``predicate_iri``, so two
     statements differing only in their relation are different RDF), subject via
     ``core:describes``, object via ``assertion:hasObject`` (entity/location) or
-    ``assertion:literalValue`` (literal), valid time via
-    ``core:validFrom``/``core:validUntil``, provenance via ``core:hasSource``
-    (cited Documents), optional ``core:hasConfidence`` and the correction link
-    ``assertion:supersedes``.
+    ``assertion:literalValue`` (literal, carrying its datatype or language tag),
+    valid time via ``core:validFrom``/``core:validUntil``, provenance via
+    ``core:hasSource`` (cited Documents), optional ``core:hasConfidence`` and
+    the correction link ``assertion:supersedes``.
 
     Raises:
-        ValueError: On a non-AssertionMade event, an unknown object kind, or a
+        ValueError: On a non-AssertionMade event, an unknown object kind, a
             payload without ``predicate_iri`` (a record written before the
-            event-schema rename that never went through the log upcaster).
+            event-schema rename that never went through the log upcaster), a
+            non-absolute predicate/object IRI, or a literal object carrying
+            both a language tag and a datatype.
     """
     if event.event_type != EVENT_TYPE_ASSERTION_MADE:
         raise ValueError(f"expected AssertionMade, got {event.event_type}")
@@ -342,18 +453,21 @@ def assertion_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
     node = URIRef(payload["assertion_id"])
     graph.add((node, RDF.type, URIRef(ASSERTION_NS + "Assertion")))
     graph.add((node, URIRef(CORE_NS + "describes"), URIRef(payload["subject_id"])))
-    graph.add((node, URIRef(ASSERTION_NS + "predicate"), URIRef(predicate_iri)))
-
-    ns, local = _OBJECT_PREDICATES[kind]
     graph.add(
         (
             node,
-            URIRef(ns + local),
-            URIRef(obj["value"])
-            if kind != "literal"
-            else Literal(obj["value"], datatype=XSD.string),
+            URIRef(ASSERTION_NS + "predicate"),
+            URIRef(require_absolute_iri(predicate_iri, "predicate_iri")),
         )
     )
+
+    ns, local = _OBJECT_PREDICATES[kind]
+    object_node: URIRef | Literal = (
+        _literal_object_value(obj)
+        if kind == "literal"
+        else URIRef(require_absolute_iri(obj["value"], "object.value"))
+    )
+    graph.add((node, URIRef(ns + local), object_node))
 
     graph.add(
         (
@@ -384,3 +498,28 @@ def assertion_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
     if payload.get("supersedes") is not None:
         graph.add((node, URIRef(ASSERTION_NS + "supersedes"), URIRef(payload["supersedes"])))
     return node
+
+
+def _literal_object_value(obj: dict[str, Any]) -> Literal:
+    """Build the RDF literal of a literal-valued assertion object.
+
+    The event payload carries ``datatype_iri`` or ``language`` (exactly one, by
+    contract), so the lexical form maps to the same RDF term the writer meant:
+    ``"250"`` with ``xsd:decimal`` stays a number, ``"Việt Nam"@vi`` stays a
+    language-tagged string. A payload missing both falls back to
+    ``xsd:string`` — the documented default, and what a pre-typed v3 record
+    written before this field existed means.
+
+    Raises:
+        ValueError: On a payload carrying a language tag and a datatype at once.
+    """
+    language = obj.get("language")
+    datatype_iri = obj.get("datatype_iri")
+    if language and datatype_iri:
+        raise ValueError("literal object carries both a language tag and a datatype")
+    if language:
+        return Literal(obj["value"], lang=language)
+    return Literal(
+        obj["value"],
+        datatype=URIRef(require_absolute_iri(datatype_iri or DEFAULT_LITERAL_DATATYPE, "datatype")),
+    )
