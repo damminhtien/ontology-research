@@ -136,6 +136,36 @@ class TestMonitorEndpoints:
         recent = client.get("/api/monitor/events/recent", params={"limit": 1}).json()
         assert recent["returned"] == 1
 
+    def test_archived_only_log_remains_visible(self, tmp_path, monkeypatch, client):
+        from foundry.console.api import projection
+        from foundry.events import EventLog, make_event
+
+        log_path = tmp_path / "events.jsonl"
+        EventLog(log_path, max_segment_bytes=1).append(
+            make_event(
+                "EntityCreated",
+                {
+                    "entity_id": "urn:x:archived",
+                    "entity_type": "Platform",
+                    "name": "Archived Vessel",
+                    "source_id": "s1",
+                    "confidence": 1.0,
+                },
+            )
+        )
+        assert not log_path.exists()
+        monkeypatch.setenv("FOUNDRY_EVENT_LOG", str(log_path))
+        projection.reset_cache()
+
+        stats = client.get("/api/monitor/events/stats").json()
+        recent = client.get("/api/monitor/events/recent", params={"limit": 1}).json()
+        projected = client.get("/api/projection").json()
+
+        assert stats["exists"] is True and stats["total"] == 1
+        assert recent["returned"] == 1 and recent["total"] == 1
+        assert projected["exists"] is True and projected["entities"] == 1
+        projection.reset_cache()
+
     def test_validation_conforms(self, client):
         data = client.get("/api/monitor/validation").json()
         assert data["conforms"] is True

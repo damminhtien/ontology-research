@@ -10,6 +10,7 @@ from conftest import CORE_ONTOLOGY, SHAPES_FILE
 from foundry.events import EventLog
 from foundry.identity import IdentityService
 from foundry.ingestion import IngestionPipeline
+from foundry.merge import rebuild_identity
 from foundry.projector import replay_log
 from foundry.tracking import FeedRecord, parse_feed
 
@@ -112,6 +113,23 @@ class TestTrackingVertical:
         second = self._register_sensor(pipeline, platform)
         assert first.canonical_id == second.canonical_id
         assert second.event is not None  # re-registration is a recorded fact
+
+    def test_sensor_identity_survives_registry_rebuild(self, tmp_path):
+        pipeline = _pipeline(tmp_path)
+        platform = self._register_platform(pipeline)
+        first = self._register_sensor(pipeline, platform)
+
+        identity = rebuild_identity(pipeline._log)
+        restarted = IngestionPipeline(
+            identity=identity,
+            log=EventLog(tmp_path / "events.jsonl"),
+            ontology_path=CORE_ONTOLOGY,
+            shapes_path=SHAPES_FILE,
+        )
+        second = self._register_sensor(restarted, platform)
+
+        assert second.canonical_id == first.canonical_id
+        assert len(identity) == 2  # one platform and one sensor artifact
 
     def test_observation_gates_through_observation_shape(self, pipeline):
         platform = self._register_platform(pipeline)

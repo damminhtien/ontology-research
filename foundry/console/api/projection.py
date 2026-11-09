@@ -39,7 +39,7 @@ def projection_benchmark() -> dict:
 
 
 _model_cache: ReadModel | None = None
-_model_log_mtime: float | None = None
+_model_log_fingerprint: tuple[tuple[str, int, int], ...] | None = None
 _model_lock = threading.Lock()
 
 
@@ -62,20 +62,20 @@ def _read_model() -> ReadModel:
     3. anything missing or corrupt degrades to a full replay — the snapshot is
        a cache, never a source of truth (ADR-0002/0004).
     """
-    global _model_cache, _model_log_mtime
+    global _model_cache, _model_log_fingerprint
     with _model_lock:
         path = event_log_path()
-        if not path.exists():
+        log = EventLog(path)
+        fingerprint = log.fingerprint()
+        if not fingerprint:
             _model_cache = ReadModel()
-            _model_log_mtime = None
+            _model_log_fingerprint = None
             return _model_cache
 
-        current_mtime = path.stat().st_mtime
-        if _model_cache is not None and _model_log_mtime == current_mtime:
+        if _model_cache is not None and _model_log_fingerprint == fingerprint:
             return _model_cache
 
         snapshot_path, meta_path = _snapshot_paths(path)
-        size = path.stat().st_size
         model = ReadModel.load_snapshot(snapshot_path)
         meta: dict = {}
         if model is not None and snapshot_path.exists():
@@ -85,36 +85,55 @@ def _read_model() -> ReadModel:
                 meta = {}
 
         checkpoint = model.checkpoint_sequence if model is not None else None
+        previous_segments = meta.get("segments")
+        current_segments = [list(segment) for segment in fingerprint]
+        active_grew = (
+            isinstance(previous_segments, list)
+            and len(previous_segments) == len(current_segments)
+            and bool(current_segments)
+            and previous_segments[:-1] == current_segments[:-1]
+            and isinstance(previous_segments[-1], list)
+            and len(previous_segments[-1]) == 3
+            and previous_segments[-1][0] == path.as_posix()
+            and current_segments[-1][0] == path.as_posix()
+            and isinstance(previous_segments[-1][1], int)
+            and current_segments[-1][1] > previous_segments[-1][1]
+        )
         grew = (
             model is not None
             and checkpoint is not None
             and meta.get("checkpoint_sequence") == checkpoint
-            and meta.get("log_size") is not None
-            and size >= meta["log_size"]
+            and active_grew
         )
         if grew:
             # append-only growth: fold in only what came after the checkpoint
-            events = EventLog(path).read_all()  # validates the entire log
+            events = log.read_all()  # validates the entire log
             Projector(model).replay(events, after_sequence=checkpoint)
         else:
-            model, _stats = replay_log(EventLog(path))
+            model, _stats = replay_log(log)
 
         model.save_snapshot(snapshot_path)
         meta_path.write_text(
-            json.dumps({"checkpoint_sequence": model.checkpoint_sequence, "log_size": size}) + "\n",
+            json.dumps(
+                {
+                    "checkpoint_sequence": model.checkpoint_sequence,
+                    "segments": current_segments,
+                }
+            )
+            + "\n",
             encoding="utf-8",
         )
         _model_cache = model
-        _model_log_mtime = current_mtime
+        _model_log_fingerprint = fingerprint
         return _model_cache
 
 
 def reset_cache() -> None:
     """Invalidate the cached model (used by tests)."""
-    global _model_cache, _model_log_mtime
+    global _model_cache, _model_log_fingerprint
     with _model_lock:
         _model_cache = None
-        _model_log_mtime = None
+        _model_log_fingerprint = None
 
 
 @router.get("")
@@ -123,8 +142,9 @@ def projection_stats() -> dict:
     model = _read_model()
     stats = model.stats()
     lag = stats["lag_seconds"]
+    exists = EventLog(event_log_path()).has_data()
     return {
-        "exists": event_log_path().exists(),
+        "exists": exists,
         "slo_lag_seconds": 5,
         "within_slo": None if lag is None else lag <= 5.0,
         **stats,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -199,6 +201,45 @@ class TestPersistEvents:
     def test_persist_events_empty_batch_is_noop(self, tmp_path: Path) -> None:
         assert persist_events([], tmp_path) == []
         assert LakeWriter(tmp_path).verify() == 0
+
+    def test_concurrent_flushes_serialize_manifest_updates(self, tmp_path, monkeypatch):
+        first_at_manifest = threading.Event()
+        release_first = threading.Event()
+        second_at_manifest = threading.Event()
+        original_write_manifest = LakeWriter._write_manifest
+
+        def controlled_write_manifest(self, manifest):
+            thread_name = threading.current_thread().name
+            if thread_name == "lake-first":
+                first_at_manifest.set()
+                if not release_first.wait(timeout=5):
+                    raise TimeoutError("test did not release the first lake writer")
+            elif thread_name == "lake-second":
+                second_at_manifest.set()
+            original_write_manifest(self, manifest)
+
+        monkeypatch.setattr(LakeWriter, "_write_manifest", controlled_write_manifest)
+        first = LakeWriter(tmp_path)
+        first.write_events(_events(2, prefix="first"))
+        second = LakeWriter(tmp_path)
+        second.write_events(_events(2, prefix="second"))
+
+        def flush_as(writer, name):
+            threading.current_thread().name = name
+            return writer.flush()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first_future = executor.submit(flush_as, first, "lake-first")
+            assert first_at_manifest.wait(timeout=5)
+            second_future = executor.submit(flush_as, second, "lake-second")
+            try:
+                assert not second_at_manifest.wait(timeout=0.2)
+            finally:
+                release_first.set()
+            first_future.result(timeout=5)
+            second_future.result(timeout=5)
+
+        assert LakeWriter(tmp_path).verify() == 4
 
 
 class TestDedupAndCompaction:

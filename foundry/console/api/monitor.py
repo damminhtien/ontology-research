@@ -51,7 +51,8 @@ def _validation_graphs() -> tuple[Graph, Graph, list[str], list[str]]:
 def event_stats() -> dict:
     """Aggregate the event log: total count and counts per event type."""
     path = event_log_path()
-    if not path.exists():
+    log = EventLog(path)
+    if not log.has_data():
         return {
             "exists": False,
             "path": str(path),
@@ -59,7 +60,7 @@ def event_stats() -> dict:
             "by_type": {},
             "message": "no event log yet; run tools/seed_console_data.py",
         }
-    events = EventLog(path).read_all()
+    events = log.read_all()
     by_type: dict[str, int] = {}
     for event in events:
         by_type[event.event_type] = by_type.get(event.event_type, 0) + 1
@@ -71,7 +72,8 @@ def recent_events(limit: Annotated[int, Query(le=500)]) -> dict:
     """Return the most recent events, newest first."""
     limit_value = min(limit, 500)
     path = event_log_path()
-    events = EventLog(path).read_all() if path.exists() else []
+    log = EventLog(path)
+    events = log.read_all() if log.has_data() else []
     recent = [
         {
             "event_id": event.event_id,

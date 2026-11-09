@@ -20,6 +20,7 @@ from foundry.events import (
     EVENT_TYPE_ENTITY_MERGED,
     EVENT_TYPE_ENTITY_SPLIT,
     EVENT_TYPE_EXTERNAL_ID_BOUND,
+    EVENT_TYPE_SENSOR_REGISTERED,
     EventLog,
     SemanticEvent,
     make_event,
@@ -116,6 +117,18 @@ def rebuild_identity(log: EventLog) -> IdentityService:
         elif event.event_type == EVENT_TYPE_EXTERNAL_ID_BOUND:
             identity.add_external_id(
                 payload["entity_id"], payload["source"], payload["external_id"]
+            )
+        elif event.event_type == EVENT_TYPE_SENSOR_REGISTERED:
+            identity.register(
+                entity_id=payload["sensor_entity_id"],
+                entity_type="Artifact",
+                aliases=[payload["name"]],
+                external_ids={"sensor-registry": payload["sensor_id"]},
+            )
+            identity.register(
+                entity_id=payload["platform_entity_id"],
+                entity_type="Platform",
+                aliases=[payload["platform_name"]],
             )
         elif event.event_type == EVENT_TYPE_ENTITY_SPLIT:
             identity.split_entity(

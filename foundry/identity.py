@@ -297,7 +297,7 @@ class InMemoryIdentityStore(IdentityStore):
         for alias in moved_aliases:
             self.unbind_alias(alias, entity_id)
         for source, ext in moved_external:
-            self._by_external.pop(f"{source}::{ext}", None)
+            self.unbind_external(source, ext, entity_id)
         record.aliases.clear()
         record.external_ids.clear()
         return moved_aliases, moved_external

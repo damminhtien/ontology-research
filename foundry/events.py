@@ -324,6 +324,22 @@ class EventLog:
             segments.append(self._path)
         return segments
 
+    def has_data(self) -> bool:
+        """Return whether any active or archived segment exists."""
+        return bool(self._segments())
+
+    def fingerprint(self) -> tuple[tuple[str, int, int], ...]:
+        """Return segment paths, sizes, and mtimes in replay order.
+
+        Consumers use this to invalidate projections when an archive is
+        created or the active segment grows.
+        """
+        fingerprint = []
+        for segment in self._segments():
+            stat = segment.stat()
+            fingerprint.append((segment.as_posix(), stat.st_size, stat.st_mtime_ns))
+        return tuple(fingerprint)
+
     def _roll_if_needed(self) -> None:
         """Rename the active segment to the next archive when it is full."""
         if not self._path.exists() or self._path.stat().st_size < self._max_segment_bytes:
@@ -415,6 +431,10 @@ class EventLog:
         lock = self._writer_lock()
         try:
             self._recover_tail()
+            # Another EventLog instance may have appended since this instance
+            # last wrote. Refresh under the lock so sequence remains a global
+            # physical offset across all writers.
+            self._next_seq = self._physical_count() + 1
             self._path.parent.mkdir(parents=True, exist_ok=True)
             with self._path.open("a", encoding="utf-8") as handle:
                 for event in events:

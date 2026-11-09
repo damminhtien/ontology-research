@@ -647,6 +647,14 @@ class IngestionPipeline:
             external_id=sensor_id,
             entity_type="Artifact",
         )
+        # Keep every name recorded on SensorRegistered available as an alias
+        # after both this run and a registry rebuild from the event log.
+        self._identity.register(
+            entity_id=sensor.canonical_id,
+            entity_type="Artifact",
+            aliases=[name],
+            external_ids={"sensor-registry": sensor_id},
+        )
         platform = self._identity.resolve(name=platform_name, entity_type="Platform")
 
         from foundry.tracking import sensor_event, sensor_to_rdf

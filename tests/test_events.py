@@ -109,6 +109,16 @@ class TestSequenceStamping:
         EventLog(path).extend([make_event("EntityCreated", {"n": 3}) for _ in range(2)])
         assert [e.sequence for e in EventLog(path).read_all()] == [1, 2, 3, 4]
 
+    def test_reused_writer_refreshes_sequence_after_other_instance_appends(self, tmp_path):
+        path = tmp_path / "events.jsonl"
+        writer = EventLog(path)
+        writer.append(make_event("EntityCreated", {"n": 1}))
+
+        EventLog(path).append(make_event("EntityCreated", {"n": 2}))
+        writer.append(make_event("EntityCreated", {"n": 3}))
+
+        assert [e.sequence for e in EventLog(path).read_all()] == [1, 2, 3]
+
     def test_discontinuity_fails_loudly(self, tmp_path):
         """A record claiming a sequence other than its position is corruption."""
         path = tmp_path / "events.jsonl"

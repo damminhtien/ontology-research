@@ -24,9 +24,12 @@ over Parquet via ``read_parquet`` with ``hive_partitioning=true``.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -153,6 +156,27 @@ class LakeWriter:
         """Absolute path of the manifest file."""
         return self._root / MANIFEST_NAME
 
+    @property
+    def lock_path(self) -> Path:
+        """Lock file serializing manifest read-modify-write operations."""
+        return self._root / f"{MANIFEST_NAME}.lock"
+
+    @contextmanager
+    def _manifest_lock(self) -> Iterator[None]:
+        """Hold the lake-wide writer lock for a complete manifest update."""
+        self._root.mkdir(parents=True, exist_ok=True)
+        handle = self.lock_path.open("a+")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        except OSError:
+            handle.close()
+            raise
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
+
     def write_events(self, events: list[SemanticEvent]) -> int:
         """Buffer events for the next flush; validates the contract on entry."""
         for event in events:
@@ -180,6 +204,11 @@ class LakeWriter:
         ``event_id`` is already registered — or duplicated within the batch —
         are skipped, so persisting the same batch twice is idempotent.
         """
+        with self._manifest_lock():
+            return self._flush_locked()
+
+    def _flush_locked(self) -> list[LakeFile]:
+        """Write buffered files while holding the lake-wide manifest lock."""
         if not self._buffer:
             return []
 
@@ -252,6 +281,11 @@ class LakeWriter:
         partition already has exactly one file. Integrity is verified after
         the swap.
         """
+        with self._manifest_lock():
+            return self._compact_locked()
+
+    def _compact_locked(self) -> list[LakeFile]:
+        """Compact partitions while holding the lake-wide manifest lock."""
         entries = self.read_manifest()
         per_partition: dict[str, list[LakeFile]] = {}
         for entry in entries:

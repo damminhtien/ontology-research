@@ -227,6 +227,26 @@ class TestMultiValuedExternalIds:
         _, _, external_ids = svc.identity(entity)
         assert external_ids["mnis"] == frozenset({"1234", "5678"})
 
+    def test_merge_preserves_other_owners_of_shared_external_id(self):
+        survivor, duplicate, other = ("urn:world:entity:" + letter * 32 for letter in "abc")
+        svc = IdentityService()
+        for entity_id in (survivor, duplicate, other):
+            svc.register(
+                entity_id=entity_id,
+                entity_type="Organization",
+                external_ids={"wikidata": "Q123"},
+            )
+
+        svc.merge_entities(survivor, duplicate)
+
+        result = svc.lookup(
+            external_source="wikidata",
+            external_id="Q123",
+            entity_type="Organization",
+        )
+        assert result.method == "ambiguous"
+        assert set(result.candidates) == {survivor, other}
+
 
 class TestFuzzyBlockingIndex:
     """The token blocking index must be an exact match for a full scan."""
