@@ -62,6 +62,7 @@ nav:
   - Guides:
       - Kiến trúc hệ thống: architecture.md
       - Ontology status: guides/ontology-status.md
+      - Ontology quality: guides/ontology-quality.md
       - Data & correction workflows: guides/workflows.md
       - CLI reference: guides/cli-reference.md
   - Engineering docs:

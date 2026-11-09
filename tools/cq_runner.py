@@ -56,19 +56,20 @@ def load_benchmark_graph(
     return graph
 
 
-def run_query_spec(graph: Graph, spec: dict) -> dict:
+def run_query_spec(graph: Graph, spec: dict, *, queries_dir: Path = QUERIES_DIR) -> dict:
     """Run one competency query spec and compare against its ground truth."""
     result: dict = {
         "id": spec.get("id"),
         "group": spec.get("group"),
         "query_file": spec.get("query_file"),
         "passed": False,
-        "expected_rows": len(spec.get("rows", [])),
+        "expected_rows": 0,
         "actual_rows": [],
         "error": None,
     }
     try:
-        query_text = (QUERIES_DIR / spec["query_file"]).read_text(encoding="utf-8")
+        result["expected_rows"] = len(spec["rows"])
+        query_text = (queries_dir / spec["query_file"]).read_text(encoding="utf-8")
         binding_result = graph.query(prepareQuery(query_text))
 
         variables = [str(v) for v in binding_result.vars]

@@ -7,28 +7,30 @@ Mỗi CQ được gán một nhóm (Q1–Q6) và một SLO p95. Bảng dưới l
 mở rộng dần đến 50–100. Mỗi CQ mới phải có: query SPARQL (hoặc spec),
 dataset xác định, và expected results để làm regression test.
 
-| ID | Nhóm | Question | Target p95 |
-|----|------|----------|-----------|
-| CQ-001 | Q1 | Find entity by identifier/name. | < 50ms |
-| CQ-002 | Q1 | Return all attributes of entity X. | < 50ms |
-| CQ-003 | Q2 | Which organization operates platform X? | < 100ms |
-| CQ-004 | Q2 | Who are members of organization Y? | < 100ms |
-| CQ-005 | Q2 | What capabilities does system Z have? | < 100ms |
-| CQ-006 | Q3 | Find platforms operated by organizations located in region X. | < 300ms |
-| CQ-007 | Q3 | Find facilities within administrative region R (transitive). | < 300ms |
-| CQ-008 | Q4 | Where was entity X at time T? | < 500ms |
-| CQ-009 | Q4 | Show location history of entity X between T1 and T2. | < 500ms |
-| CQ-010 | Q5 | Which sources support fact/assertion F? | < 500ms |
-| CQ-011 | Q5 | List all facts derived from source S in interval [T1,T2]. | < 500ms |
-| CQ-012 | Q6 | Count entities grouped by type/region/time. (chạy OLAP, không graph store) | n/a |
-| CQ-013 | Q3 | Which organizations report (transitively) to organization Y? | < 300ms |
-| CQ-014 | Q2 | Which entity does track T resolve to? | < 100ms |
-| CQ-015 | Q3 | Which tracks belong to entities operated by organizations in region X? | < 300ms |
-| CQ-016 | Q5 | Which sensors produced the observations a track derives from? | < 500ms |
+| ID | Nhóm | Question | Target p95 | Evidence |
+|----|------|----------|------------|----------|
+| CQ-001 | Q1 | Find entity by identifier/name. | < 50ms | Required |
+| CQ-002 | Q1 | Return all attributes of entity X. | < 50ms | Backlog |
+| CQ-003 | Q2 | Which organization operates platform X? | < 100ms | Required |
+| CQ-004 | Q2 | Who are members of organization Y? | < 100ms | Backlog |
+| CQ-005 | Q2 | What capabilities does system Z have? | < 100ms | Backlog |
+| CQ-006 | Q3 | Find platforms operated by organizations located in region X. | < 300ms | Required |
+| CQ-007 | Q3 | Find facilities within administrative region R (transitive). | < 300ms | Backlog |
+| CQ-008 | Q4 | Where was entity X at time T? | < 500ms | Required |
+| CQ-009 | Q4 | Show location history of entity X between T1 and T2. | < 500ms | Backlog |
+| CQ-010 | Q5 | Which sources support fact/assertion F? | < 500ms | Required |
+| CQ-011 | Q5 | List all facts derived from source S in interval [T1,T2]. | < 500ms | Backlog |
+| CQ-012 | Q6 | Count entities grouped by type/region/time. (chạy OLAP, không graph store) | n/a | Required |
+| CQ-013 | Q3 | Which organizations report (transitively) to organization Y? | < 300ms | Required |
+| CQ-014 | Q2 | Which entity does track T resolve to? | < 100ms | Required |
+| CQ-015 | Q3 | Which tracks belong to entities operated by organizations in region X? | < 300ms | Required |
+| CQ-016 | Q5 | Which sensors produced the observations a track derives from? | < 500ms | Required |
 
-Runtime coverage hiện tại: 10/16 câu hỏi có query và expected result trong
-`benchmarks/queries/` và `benchmarks/expected_results/`. CI và Console chỉ báo
-trạng thái của 10 câu đã triển khai; 6 câu còn lại là backlog của contract.
+`make quality` dùng cột Evidence để kiểm tra từng CQ. Mỗi câu `Required`
+phải có một expected result trong `benchmarks/expected_results/`, cùng ID
+và nhóm với bảng, tham chiếu đến một query trong `benchmarks/queries/`.
+Khi bổ sung query và expected result cho một câu `Backlog`, đổi trạng thái
+sang `Required` trong cùng commit. Console hiện hiển thị các câu đã có spec.
 
 Nhóm query:
 

@@ -3,6 +3,8 @@
 Báo cáo đánh giá định kỳ của ontology — nguồn số liệu: `tools/manage_ontology.py
 stats / stability / blast-radius / report`, audit usage chạy trên toàn bộ
 `foundry/`, `shapes/`, `benchmarks/queries`.
+Chạy `make quality` để lấy số liệu mới về khai báo schema, focus node của
+SHACL và kết quả CQ; xem [phương pháp đánh giá](ontology-quality.md).
 
 ## 1. Inventory: 7 modules, 27 classes, 43 properties
 
@@ -77,9 +79,11 @@ vào queries (0) — competency queries chỉ phụ thuộc class hierarchy, đ�
 | assertion_shapes.ttl | AssertionShape, DocumentShape | pipeline gate (assertion lane) + `make validate` |
 | identity_shapes.ttl | UnresolvedReferenceShape | pipeline gate (pending) + `make validate` |
 
-SHACL contracts được kiểm tra trong `make check`. Runtime competency suite có
-10 query đã triển khai trên 16 câu hỏi trong contract; sáu câu còn lại chưa có
-expected result trong CI (xem [Competency Questions](../generated/competency_questions.md)).
+SHACL contracts được kiểm tra trong `make check`. Trong corpus benchmark hiện
+tại, 5/8 shape có focus node; `AssertionShape`, `DocumentShape` và
+`UnresolvedReferenceShape` cần thêm dữ liệu đại diện vào corpus chung.
+10 CQ bắt buộc khớp đáp án, 6 câu là backlog
+(xem [Competency Questions](../generated/competency_questions.md)).
 
 ## 5. Gaps & hành động
 

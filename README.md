@@ -137,7 +137,9 @@ event log**: merge/split ghi `actor` trong payload; backfill ghi các event
 make visualize-ontology   # build/ontology.html (D3) + ontology.mmd (Mermaid)
 ```
 
-Đánh giá ontology định kỳ: `docs/guides/ontology-status.md`.
+`make quality` sinh báo cáo schema, SHACL và competency questions tại
+`build/ontology-quality.json`. Xem [phương pháp đánh giá](docs/guides/ontology-quality.md)
+và [hiện trạng ontology](docs/guides/ontology-status.md).
 
 ## Benchmarks & SLO
 

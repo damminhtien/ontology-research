@@ -3,11 +3,13 @@ name: ci
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "mkdocs.yml"
-      - "requirements-docs.txt"
-      - "**.md"
+    paths:
+      - "**"
+      - "!docs/**"
+      - "!mkdocs.yml"
+      - "!requirements-docs.txt"
+      - "!**.md"
+      - "requirements/competency_questions.md"
   pull_request:
     branches: [main]
 
@@ -32,8 +34,17 @@ jobs:
       - name: Dependency consistency
         run: .venv/bin/pip check
 
-      - name: Full check (lint, versions, SHACL, DAG, tests, SLO gate)
+      - name: Full check (quality, lint, versions, SHACL, DAG, tests, SLO gate)
         run: make check
+
+      - name: Upload ontology quality report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ontology-quality
+          path: build/ontology-quality.json
+          if-no-files-found: ignore
+          retention-days: 90
 
       - name: Benchmark (default scale)
         run: .venv/bin/python tools/benchmark.py --out build
