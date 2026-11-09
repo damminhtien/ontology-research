@@ -93,12 +93,13 @@ confidence bị cap 0.7; provenance là document id; mọi assertion qua SHACL.
 
 Bề mặt review queue: mọi rejection identity-stage được ghi thành
 `ResolutionReviewQueued` — đọc được, replay được, không mất khi process chết.
-Drain queue bằng cách resolve reference rồi merge/import theo receipt.
+Xử lý queue bằng cách resolve reference rồi thực hiện merge/import theo receipt;
+`POST /api/admin/review` chỉ liệt kê item, không xóa event khỏi append-only log.
 
 ## 5. Kiểm tra sức khoẻ sau mọi thao tác
 
 ```bash
-make check   # lint + versions + SHACL(3 shapes) + DAG + tests + 2 SLO gates
+make check   # lint + versions + alignment + SHACL(4 files) + DAG + tests + 2 SLO gates
 ```
 
 Log luôn tự validate toàn bộ (sequence discontinuity = corruption); lake

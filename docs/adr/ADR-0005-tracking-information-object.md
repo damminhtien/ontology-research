@@ -58,3 +58,10 @@ terms be wired into the `foundry` ingestion pipeline now?
 
 - Roadmap Phase 4 (first domain module)
 - Definition of Done for ontology modules (`CODING_CONVENTIONS.md`)
+
+## Implementation update (2026-11-09)
+
+The planned tracking ingestion shipped in Phase 4: `tools/ingest_tracking_feed.py`
+maps feeds through `foundry/tracking.py`, and `shapes/domain_shapes.ttl` gates
+the records. This supersedes the Phase 6 timing note above; the modeling
+decision itself is unchanged.

@@ -16,7 +16,7 @@ không phải toàn bộ dự án. Nguyên tắc xuyên suốt:
 | **Ingestion** | Append-only event log, identity resolution precision-first, SHACL gate | `foundry/` |
 | **Read model** | CQRS projector + query latency benchmark với SLO gate | `foundry/projector.py` |
 | **Governance** | SemVer registry, migration gate cho MAJOR, blast radius, stability | `registry/` |
-| **Console UI** | Dashboard / Explorer / Versions / Impact / Monitor / Projection | `make console` |
+| **Console UI** | Dashboard / Explorer / Versions / Impact / Monitor / Projection / token-gated Admin | `make console` |
 
 ## Quickstart — 5 phút tới trạng thái xanh
 
@@ -24,7 +24,7 @@ không phải toàn bộ dự án. Nguyên tắc xuyên suốt:
 git clone https://github.com/damminhtien/ontology-research.git
 cd ontology-research
 make setup     # tạo .venv + cài dependencies
-make check     # lint + version check + SHACL validate + DAG + tests + SLO gate
+make check     # lint + versions + semantic alignment + SHACL + DAG + tests + SLO gates
 ```
 
 Kết quả mong đợi:
@@ -32,7 +32,7 @@ Kết quả mong đợi:
 ```text
 All checks passed!
 ...
-254 passed
+pytest: all collected tests passed
 SLO regression gate PASSED
 ```
 
@@ -42,7 +42,7 @@ Nếu gặp lỗi, bắt đầu với [Tutorial 01 — Getting started](tutorial
 
 | Bạn muốn… | Đọc |
 |-----------|-----|
-| Hiểu kiến trúc tổng thể và hướng thiết kế lại | [Kiến trúc hệ thống](architecture.md) |
+| Hiểu kiến trúc hiện tại và các vấn đề đã xử lý | [Kiến trúc hệ thống](architecture.md) |
 | Hiểu cách hệ thống chạy end-to-end | [Tutorials 01–06](tutorials/01-getting-started.md) |
 | Nạp dữ liệu thật từ Wikidata vào lake | [Tutorial 03 — Ingestion](tutorials/03-ingestion.md) |
 | Chạy các luồng sửa dữ liệu và data lanes | [Workflows guide](guides/workflows.md) |
@@ -61,6 +61,6 @@ foundry/            # platform: events (schema v3), identity, ingestion, project
 tools/              # CLI: validate, DAG check, manage_ontology, benchmark, check_slo,
                     #      ingest_wikidata, merge_entities, backfill_external_ids
 registry/           # release registry (SemVer enforcement)
-benchmarks/         # competency queries + expected results + baseline SLO
+benchmarks/         # 10 implemented competency queries + expected results + SLO baselines
 docs/               # bộ tài liệu này
 ```

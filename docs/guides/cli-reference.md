@@ -12,6 +12,9 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 | `release MODULE [--migration TEXT] [--dry-run]` | Ghi release; MAJOR bắt buộc `--migration` |
 | `blast-radius TERM` | Đếm consumers theo 3 lớp: modules/queries/applications |
 | `stability` | `Stability(m) = 1 − N_breaking/N_releases` theo module |
+| `migrate MODULE` | Sinh SPARQL Update migration cho thay đổi breaking |
+| `align add SOURCE TARGET [--relation REL] [--note TEXT]` | Ghi semantic alignment |
+| `align list` / `align check` | Liệt kê hoặc validate alignment registry |
 | `report` | Sinh markdown registry report vào `build/` |
 | `new-module NAME --layer middle\|domain` | Scaffold module mới với header chuẩn |
 
@@ -41,6 +44,7 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 | `.venv/bin/python tools/ingest_wikidata.py [--class QID] [--limit N] [--timeout S] [--from-lane] [--log PATH] [--lake PATH] [--no-lake]` | Nạp entity thật từ Wikidata: mặc định fetch SPARQL trực tiếp, hoặc `--from-lane` đọc snapshot Parquet từ reference lane. Registry derive từ log nên chạy lặp lại là dedupe |
 | `.venv/bin/python tools/ingest_tracking_feed.py --feed feed.jsonl [--log PATH] [--lake PATH]` | Nạp feed AIS JSONL vào tracking vertical: platform resolve theo MMSI, sensor theo serial, observation/track qua domain SHACL |
 | `.venv/bin/python tools/build_reference_lane.py --class QID [--pages N]` | Fetch Wikidata (cursor paging theo QID) → snapshot typed Parquet versioned trong reference lane |
+| `.venv/bin/python tools/measure_wikidata.py [--counts QID,...] [--batches QID:LIMIT,...] [--delay S] [--out PATH]` | Đo số lượng / kích thước batch Wikidata; cần network tới Wikidata |
 | `.venv/bin/python tools/merge_entities.py --survivor ID --duplicate ID [--reason TEXT] [--log PATH] [--lake PATH]` | Repair under-merge: append `EntityMerged` sau khi validate trên registry rebuild từ log; exit 1 không ghi gì nếu bị từ chối |
 | `.venv/bin/python tools/split_entity.py --survivor ID --duplicate ID [--reason TEXT]` | Undo một merge đã ghi: restore set đọc từ `EntityMerged`; append `EntitySplit` |
 | `.venv/bin/python tools/backfill_external_ids.py [--log PATH] [--no-lake]` | Khôi phục QID binding của log cũ (quy ước `source_id: wikidata:QID`) thành `ExternalIdBound` events; idempotent |

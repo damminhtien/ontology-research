@@ -23,11 +23,8 @@ core.ttl khai báo dcterms:version (SemVer)
 .venv/bin/python tools/manage_ontology.py check-versions
 ```
 
-```text
-[ok   ] ontology/core/core.ttl: no changes since 0.1.0
-
-Version check passed.
-```
+Nếu không có semantic change, lệnh xác nhận version check thành công. Giá trị
+version hiện hành đọc từ `VERSION` và release registry.
 
 Bảng chân lý của công cụ:
 
@@ -45,9 +42,7 @@ Bảng chân lý của công cụ:
 .venv/bin/python tools/manage_ontology.py release core --dry-run
 ```
 
-```text
-[error] core: no semantic changes since 0.1.0; nothing to release
-```
+Nếu ontology chưa đổi, lệnh báo không có semantic change để release.
 
 Khi có thay đổi thật, dry-run cho thấy: danh sách changes theo severity,
 **suggested version**, blast radius từng term — trước khi quyết định ghi release.
@@ -72,12 +67,8 @@ Luồng release chuẩn khi có thay đổi hợp lệ:
 .venv/bin/python tools/manage_ontology.py blast-radius Platform
 ```
 
-```text
-Blast radius for 'Platform': BR = 2
-  modules (1): ontology/core/core.ttl
-  queries (0): none
-  applications (1): foundry/ingestion.py
-```
+Kết quả liệt kê điểm BR cùng consumer theo module, query và application; danh
+sách consumer phụ thuộc vào ontology và code hiện hành.
 
 Trước khi sửa/xóa một term, luôn xem BR. BR càng cao → chi phí thay đổi càng lớn →
 cân nhắc giữ term cũ + thêm term mới thay vì redefine.
@@ -89,8 +80,19 @@ cân nhắc giữ term cũ + thêm term mới thay vì redefine.
 ```
 
 ```text
-core                 stability=1.0     (breaking 0/1) [ok]
+core                 stability=0.5     (breaking 1/2) [WARN below 0.99]
+sensor               stability=1.0     (breaking 0/1) [ok]
+tracking             stability=1.0     (breaking 0/1) [ok]
+assertion            stability=0.5     (breaking 1/2) [WARN below 0.95]
+identity             stability=1.0     (breaking 0/1) [ok]
+location             stability=1.0     (breaking 0/1) [ok]
+organization         stability=1.0     (breaking 0/1) [ok]
+
+2 module(s) below their stability threshold.
 ```
+
+Snapshot hiện tại (2026-11-09): `core` và `assertion` đang dưới ngưỡng; các
+module còn lại đạt ngưỡng. Chạy lại lệnh để đọc trạng thái mới nhất.
 
 $$Stability(m) = 1 - \frac{N_{breaking}}{N_{releases}}$$
 

@@ -3,7 +3,7 @@
 Mục tiêu Phase 0: định nghĩa **50–100 competency questions (CQ)** trước khi viết ontology.
 Ontology phải được ép vào shape bởi workload, không ngược lại.
 
-Mỗi CQ được gán một nhóm (Q1–Q6) và một SLO p95. Bảng dưới là 12 CQ khởi điểm;
+Mỗi CQ được gán một nhóm (Q1–Q6) và một SLO p95. Bảng dưới là 16 CQ khởi điểm;
 mở rộng dần đến 50–100. Mỗi CQ mới phải có: query SPARQL (hoặc spec),
 dataset xác định, và expected results để làm regression test.
 
@@ -25,6 +25,10 @@ dataset xác định, và expected results để làm regression test.
 | CQ-014 | Q2 | Which entity does track T resolve to? | < 100ms |
 | CQ-015 | Q3 | Which tracks belong to entities operated by organizations in region X? | < 300ms |
 | CQ-016 | Q5 | Which sensors produced the observations a track derives from? | < 500ms |
+
+Runtime coverage hiện tại: 10/16 câu hỏi có query và expected result trong
+`benchmarks/queries/` và `benchmarks/expected_results/`. CI và Console chỉ báo
+trạng thái của 10 câu đã triển khai; 6 câu còn lại là backlog của contract.
 
 Nhóm query:
 

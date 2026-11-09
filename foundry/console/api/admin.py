@@ -8,8 +8,8 @@ Every mutation is **gated and audited**:
   accident.
 - **Audit trail**: every accepted mutation appends its canonical event
   (``EntityMerged`` / ``EntitySplit`` / ``ExternalIdBound``) to the production
-  event log with the acting principal recorded in the payload ``actor``
-  field — the append-only log *is* the audit trail (ADR-0002).
+  event log. Merge and split events record the requested actor in their
+  payload; the append-only log *is* the audit trail (ADR-0002).
 - **Log discipline**: admin operates on the production log
   (``$FOUNDRY_ADMIN_LOG``, default ``data/production.jsonl``) — never the
   seed demo log — and the identity registry is rebuilt from that log before
@@ -80,8 +80,9 @@ def _persist_to_lake(events: list) -> int:
 
 @router.post("/review")
 def list_review_queue(authorization: Annotated[str | None, Header()] = None) -> dict:
-    """Drain view: every ``ResolutionReviewQueued`` fact in the admin log.
+    """List every ``ResolutionReviewQueued`` fact in the admin log.
 
+    This is a read-only view; it does not remove events from the append-only log.
     POST (not GET) because the list is token-gated — bearer credentials never
     travel in a cacheable URL fetch.
     """

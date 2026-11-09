@@ -1,9 +1,9 @@
 # Kiến trúc Semantic Foundry
 
 - Status: accepted
-- Date: 2026-09-02
-- Tổng hợp từ: ADR-0001…ADR-0010, review kiến trúc trên dữ liệu thật (47.628 events, 24.217 entities)
-- Tài liệu này là **bản đồ kiến trúc hiện tại + thiết kế lại các phần chưa tốt**. Các quyết định riêng lẻ vẫn nằm trong ADR; tài liệu này tổng hợp và chỉ ra hướng đi.
+- Last synchronized with source: 2026-11-09
+- Historical audit baseline: ADR-0001…ADR-0010 and an operational snapshot of 47.628 events / 24.217 entities (2026-09-02)
+- Tài liệu này mô tả kiến trúc hiện tại và giữ lại lịch sử các vấn đề đã phát hiện cùng cách xử lý. Backlog còn mở nằm trong `roadmap.md`; các quyết định ban đầu nằm trong ADR.
 
 ## 1. Nguyên tắc bất diệt
 
@@ -36,25 +36,29 @@ Mọi thiết kế dưới đây phục tùng bốn nguyên tắc này — chún
                                     ▼                          ▼
                     ┌──────────────────────────────┐   ┌───────────────────────────────┐
    REPAIR           │ merge_entities.py            │   │ Console (FastAPI + SPA)       │
-                    │ backfill_external_ids.py     │   │ Dashboard/Monitor/Projection  │
+                    │ backfill_external_ids.py     │   │ read views + token-gated Admin│
                     └──────────────────────────────┘   └───────────────────────────────┘
 ```
 
-Thành phần đang hoạt động tốt (giữ nguyên thiết kế):
+Các số liệu chạy thử dưới đây là kết quả của audit ban đầu, không phải số liệu
+được cập nhật tự động mỗi lần build tài liệu.
+
+Thành phần và invariant đã được triển khai:
 
 | Thành phần | Vì sao tốt |
 |---|---|
-| Event contract v2 (sequence, valid_at, upcasters) | Replay phát hiện tamper; log cũ v1 vẫn đọc được; đã chịu 47k events thật |
+| Event schema v3 (sequence, valid_at, assertion predicate IRI, upcasters) | Replay kiểm tra sequence; log v1/v2 cũ vẫn đọc được |
 | Identity precision-first + blocking index | unresolved_rate = 0% trên nguồn có QID; fuzzy không bao giờ tự merge |
 | Registry = log projection | Restart không mất định danh; re-ingest là external-id hit (đã verify 298/298) |
 | SHACL gate trước log | Không có fact vi phạm contract trong write model |
 | Namespace freeze guards | Không ai đổi URI vô tình — CI chặn |
 | Merge là event không phải edit | 185 cặp trùng repair được, có audit trail, replay được |
 
-## 3. Nợ kiến trúc — có bằng chứng, có severity
+## 3. Các vấn đề trong audit ban đầu (đã khắc phục)
 
-Đánh giá sau khi vận hành trên dữ liệu thật. Mỗi mục kèm bằng chứng cụ thể,
-không phải dự đoán.
+Bảng này giữ lại trạng thái tại audit tháng 9/2026 để giải thích thiết kế. D1–D12
+đều đã được xử lý bằng các thay đổi ở §4 và được đối chiếu trong §6; đây không
+phải backlog hiện tại.
 
 | # | Nợ | Bằng chứng | Mức độ |
 |---|-----|-----------|--------|
@@ -71,15 +75,18 @@ không phải dự đoán.
 | D11 | **Reference data trộn với event facts** | Wikidata fetch là runtime step của ingestion; không có lane reference tĩnh, không có paging (fetch đạt trần LIMIT 3000) | Trung bình |
 | D12 | **SHACL yêu cầu identity đã resolve** | Shape `Observation` bắt buộc tham chiếu entity tồn tại — không biểu diễn được unresolved reference từ nguồn ngoài | Trung bình |
 
-## 4. Thiết kế lại
+## 4. Các invariant đã triển khai
+
+Các tiểu mục sau ghi lại cách repo hiện thực các quyết định trên. Chúng là mô tả
+code hiện tại, không phải kế hoạch chuyển đổi còn mở.
 
 ### 4.1 Một log production duy nhất + transport bền vững (sửa D1, D2)
 
-**Target**: đúng một production log (`data/production.jsonl`). Seed/demo dùng
+**Invariant**: một production log mặc định (`data/production.jsonl`). Seed/demo dùng
 log riêng và **không bao giờ** là default của tool production. Writer an toàn:
 
 ```text
-EventLog (v3 transport, payload contract giữ nguyên v2)
+EventLog (event schema v3; upcaster đọc log v1/v2)
 ├── writer lock file (flock) — writer thứ hai fail nhanh, không xen kẽ
 ├── fsync mỗi batch (mỗi lần extend) — crash không mất batch đã báo thành công
 ├── segment files: production-000001.jsonl, … (roll theo size) — repair một
@@ -118,8 +125,9 @@ Document                          Assertion
 Quy tắc:
 
 - **Event chỉ còn vai trò ghi thay đổi của assertion**: `AssertionMade` (tạo),
-  `AssertionSuperseded` (correct/retract trỏ assertion cũ). `LocationObserved`
-  hiện tại map 1:1 sang `AssertionMade(predicate_iri=core:locatedAt)` khi migrate.
+  `AssertionSuperseded` (correct/retract trỏ assertion cũ). Legacy
+  `LocationObserved` vẫn được hỗ trợ cho location lane; nó chưa được migrate
+  sang assertion lane (xem `CHANGELOG-DATA.md`, event schema v3).
 - **Assertion là information object, không phải event**: `assertion:Assertion ⊑
   core:InformationObject`; quan hệ là một node trong graph
   (`assertion:predicate` → IRI của property, vd `core:locatedAt`), nên hai mệnh
@@ -197,9 +205,9 @@ reference → ingest (identity + SHACL + log) → persist lake → replay projec
 đo throughput/latency từng stage trên phân bố dữ liệu thật (song ngữ, tên trùng,
 alias nhiều). SLO gate mở rộng theo stage thay vì một con số tổng.
 
-## 5. Thứ tự chuyển đổi
+## 5. Thứ tự chuyển đổi đã thực hiện
 
-Phụ thuộc quyết định thứ tự — không làm song song các bước liền kề:
+Đây là thứ tự triển khai đã chọn để giữ các phụ thuộc rõ ràng:
 
 ```text
 B1. 4.1 Log duy nhất + transport bền vững       ← nền cho mọi thứ; dọn D1/D2
@@ -213,7 +221,7 @@ B6. 4.6 Reference lane + paging; 4.7 SHACL unresolved; 4.8 e2e benchmark
 Mỗi bước giữ nguyên bất biến: log không rewrite; mọi migration là upcaster mới
 hoặc event mới. Tiến trình track ở `roadmap.md`, mục "Nền móng production facts".
 
-## 6. Trạng thái triển khai (2026-09-02)
+## 6. Trạng thái triển khai (đối chiếu 2026-11-09)
 
 Toàn bộ thiết kế trong tài liệu này **đã triển khai**:
 
@@ -228,16 +236,19 @@ Toàn bộ thiết kế trong tài liệu này **đã triển khai**:
 | §4.6 Reference lane + cursor paging | `ba3cd8e` |
 | §4.7 SHACL unresolved identity (`identity:UnresolvedReference`) | `a972f8b` |
 | §4.8 E2E per-stage benchmark + gate | `b2cac79` |
-| Phase 5 Console admin write ops (token auth + audit trail) | *phiên 2026-09-02* |
+| Phase 5 Console admin write ops (token auth + audit trail) | `54eab65` |
 
-Còn mở duy nhất từ bảng nợ: không — D1–D12 đã đóng hết. Việc tiếp theo theo
-roadmap: Console write operations (auth + audit), Phase 6 scale ladder.
+D1–D12 đã đóng hết, bao gồm Console write operations. Việc tiếp theo là Phase 6
+scale ladder và federation theo `roadmap.md`.
 
-## 7. Rủi ro của chính bản thiết kế lại này
+## 7. Rủi ro đã ghi nhận trong quá trình triển khai
 
-- **4.2 (Assertion) là breaking change ở tầng khái niệm**: mọi consumer đọc
-  `LocationObserved` phải map sang `AssertionMade`. Giảm rủi ro bằng upcaster
-  v2→v3 để log cũ đọc được mãi, và dual-write một thời gian nếu Console cần.
+Các mục dưới đây là rủi ro rollout được ghi trong audit thiết kế; chúng không
+mô tả backlog còn mở.
+
+- **4.2 (Assertion) là breaking change ở tầng khái niệm**: assertion dùng
+  `AssertionMade`; legacy `LocationObserved` vẫn có consumer riêng. Upcaster
+  v2→v3 giữ khả năng đọc log cũ; hai lane chưa dual-write.
 - **4.3 đổi thứ tự replay** có thể đổi `first_seen`/`last_event_time` trên dữ
   liệu cùng giây — chấp nhận vì đó mới là thứ tự nhân quả đúng; ghi rõ trong
   release note.

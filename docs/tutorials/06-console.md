@@ -10,9 +10,9 @@ make seed-console   # dữ liệu demo (bỏ qua nếu đã chạy)
 make console        # uvicorn tại :8787
 ```
 
-Mở <http://127.0.0.1:8787>. Console là SPA read-only (vanilla JS, không build
-chain) — mọi số liệu đi thẳng từ logic tools/foundry đã test, không có nguồn dữ
-liệu riêng.
+Mở <http://127.0.0.1:8787>. Console là SPA vanilla JS, không cần build chain.
+Các màn hình monitor đọc projection và trạng thái từ logic trong `foundry/` và
+`tools/`; tab Admin có các thao tác ghi được bảo vệ bằng bearer token.
 
 ## Dashboard — health tổng quan
 
@@ -20,7 +20,7 @@ liệu riêng.
 
 - **Version check** — PASS/FAIL từ SemVer registry
 - **Dependency DAG** — có vòng lặp hay import ngược chiều không
-- **CQ regression** — 6 competency queries pass/fail
+- **CQ regression** — 10 competency queries pass/fail
 - **Worst stability** — module kém ổn định nhất
 - **Projection** — số entities + projection lag so SLO 5s
 - **Events logged** — tổng events theo type
@@ -50,8 +50,19 @@ applications bị ảnh hưởng.
 ## Data Monitor — data plane
 
 - Event log: stats theo type + 20 events gần nhất
-- SHACL validation gate trên seed data
+- SHACL validation gate trên ontology modules và benchmark datasets, qua mọi shape file
 - Competency queries: pass/fail từng query
+
+## Admin — corrections có xác thực
+
+Tab **Admin** hỗ trợ xem review queue, merge/split entities và chạy external-id
+backfill. Trước khi khởi động Console, cấu hình `FOUNDRY_CONSOLE_TOKEN`; nếu
+chưa có token thì admin API trả `503`. Merge và split ghi actor trong event;
+backfill ghi `ExternalIdBound` events.
+
+Các thao tác Admin mặc định đọc và ghi `$FOUNDRY_ADMIN_LOG`, mặc định là
+`data/production.jsonl`. Chúng không dùng event log demo `data/events.jsonl`.
+Chỉ dùng Console write operations khi đã trỏ tới log phù hợp.
 
 ## Projection — read model
 
@@ -68,45 +79,28 @@ Mọi view đều gọi REST endpoint — dùng trực tiếp được:
 curl -s http://127.0.0.1:8787/api/projection
 ```
 
-```json
-{
-  "exists": true,
-  "slo_lag_seconds": 5,
-  "within_slo": true,
-  "entities": 3,
-  "with_location": 1,
-  "locations": 1,
-  "last_event_time": "2026-08-27T03:29:43Z",
-  "lag_seconds": 4.0
-}
-```
+Response fields include projection existence, entity/location counts, lag and
+the most recent event time. Values depend on the configured event log and
+current runtime state.
 
 ```bash
 curl -s 'http://127.0.0.1:8787/api/projection/lookup?name=Patrol+Vessel+01'
 ```
 
-```json
-{
-  "query": "Patrol Vessel 01",
-  "matches": [
-    {
-      "entity_id": "urn:world:entity:f073683a41e646ccb51998ab68eaa9bb",
-      "entity_type": "Platform",
-      "name": "Patrol Vessel 01"
-    }
-  ]
-}
-```
+Kết quả có canonical ID, entity type và name của từng match; ID và danh sách
+match thay đổi theo event log.
 
 Swagger đầy đủ tại <http://127.0.0.1:8787/api/docs>.
 
 !!! warning "Bảo mật"
-    Console v0.1 bind localhost, không auth — admin tool nội bộ. Write
-    operations (release) có auth + audit trail sẽ đến ở Phase 3+.
+    Các view monitor không cần đăng nhập. Admin operations cần
+    `FOUNDRY_CONSOLE_TOKEN` và mặc định ghi vào production log. Bảo vệ token như
+    secret và trỏ `$FOUNDRY_ADMIN_LOG` tới log phù hợp trước khi ghi.
 
 ## Bài tập
 
-1. Trong tab Projection, điều gì xảy ra nếu xóa `data/events.jsonl` rồi reload?
+1. Trong tab Projection, điều gì xảy ra nếu xóa log mà `$FOUNDRY_EVENT_LOG`
+   trỏ tới rồi reload?
    (Gợi ý: read model rebuild từ log — log mất thì read model mất.)
 2. Dùng endpoint `/api/projection/entities/{id}/location/as-of?at=...` để hỏi
    "Vessel 01 ở đâu trước khi được quan sát lần đầu?"

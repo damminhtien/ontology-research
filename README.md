@@ -18,7 +18,7 @@ phải toàn bộ dự án.
 ## Kiến trúc một màn hình
 
 ```text
-4 DATA LANES ──► IDENTITY + SHACL GATE ──► EVENT LOG (13 types, append-only)
+4 DATA LANES ──► IDENTITY + SHACL GATE ──► EVENT LOG (12 types, append-only)
   reference (Wikidata, cursor-paged Parquet lane)        │
   tracking (AIS feed → sensor/observation/track)         ├─► read model (CQRS,
   documents (extraction — LLM chỉ đề xuất)               │     checkpointed, Console)
@@ -40,13 +40,13 @@ shapes/                        # 4 SHACL shape files (core/domain/assertion/iden
 foundry/                       # Platform: events, identity, ingestion, lake,
                                #   projector, readmodel, assertions, extraction,
                                #   tracking, reference, merge, namespaces
-foundry/console/               # FastAPI + SPA (Dashboard/Explorer/Versions/Monitor)
-tools/                         # 15 CLI: validate, DAG, manage_ontology, benchmarks,
+foundry/console/               # FastAPI + SPA (Dashboard/Explorer/Versions/Impact/Monitor/Admin)
+tools/                         # 16 CLI: validate, DAG, manage_ontology, benchmarks,
                                #   ingest_wikidata/tracking_feed, build_reference_lane,
                                #   merge/split/backfill/import_events, check_slo…
 registry/                      # Ontology release registry (SemVer enforcement)
-benchmarks/                    # 16 competency queries + baselines + e2e gate
-tests/                         # 380 tests (kernel, SHACL, CQ, lanes, corrections)
+benchmarks/                    # 10 implemented competency queries + baselines + e2e gate
+tests/                         # pytest suite (kernel, SHACL, CQ, lanes, corrections)
 docs/                          # ADRs 0001-0010, architecture, workflows, tutorials
 ```
 
@@ -54,7 +54,7 @@ docs/                          # ADRs 0001-0010, architecture, workflows, tutori
 
 ```bash
 make setup      # .venv + dependencies
-make check      # lint + versions + SHACL(4 shapes) + DAG + 380 tests + 2 SLO gates
+make check      # lint + versions + alignment + SHACL(4 files) + DAG + pytest + 2 SLO gates
 make fmt        # auto-fix trước khi commit
 ```
 
@@ -91,29 +91,36 @@ Chi tiết cả 4 lanes + correction workflows:
 
 ## Ontology Console (UI)
 
-Web console read-only cho quản lý và monitor — tái sử dụng 100% logic của các
-tool đã test, projection hydrate từ snapshot cạnh log:
+Web console cho quản lý và monitor: các màn hình đọc tổng hợp ontology,
+registry, event log và read model; tab Admin cung cấp corrections có token bảo
+vệ và audit trên production log.
 
 ```bash
 make seed-console   # sinh event log demo qua ingestion pipeline thật
 make console        # http://127.0.0.1:8787
 ```
 
+Admin API mặc định bị vô hiệu hóa nếu chưa cấu hình
+`FOUNDRY_CONSOLE_TOKEN`. Các thao tác merge/split/backfill dùng production log
+(`FOUNDRY_ADMIN_LOG`, mặc định `data/production.jsonl`), không dùng log demo.
+
 Views: **Dashboard** (health cards) · **Explorer** (D3 hierarchy + blast
-radius) · **Versions** (SemVer, diff, timeline) · **Data Monitor** (event log,
-SHACL gate, CQ regression) · **Projection** (read model: entity, location
-as-of, snapshot resume).
+radius) · **Versions** (SemVer, diff, timeline) · **Impact** (blast radius) ·
+**Data Monitor** (event log, SHACL gate, CQ regression) · **Projection** (read
+model: entity, location as-of, snapshot resume) · **Admin** (review queue,
+merge/split, external-id backfill).
 
 REST API cùng nguồn dữ liệu: `GET /api/overview`, `/api/ontology/*`,
 `/api/releases/*`, `/api/impact?term=`, `/api/monitor/*`, `/api/projection/*`,
 `/api/admin/*` (xem `/api/docs`).
 
-**Write operations** (Admin view, token-gated): merge/split corrections +
-review-queue drain + external-id backfill. Auth: `Authorization: Bearer
+**Write operations** (Admin view, token-gated): review queue inspection,
+merge/split corrections and external-id backfill. Auth: `Authorization: Bearer
 $FOUNDRY_CONSOLE_TOKEN` (constant-time compare; biến unset → admin API trả
-503 — console không thể có write access do vô tình). **Audit trail = event
-log**: mỗi mutation ghi `EntityMerged`/`EntitySplit` với `actor` trong payload
-vào production log (`$FOUNDRY_ADMIN_LOG`, mặc định `data/production.jsonl`).
+503 — admin routes bị vô hiệu hóa nếu token chưa cấu hình). **Audit trail =
+event log**: merge/split ghi `actor` trong payload; backfill ghi các event
+`ExternalIdBound` vào production log (`$FOUNDRY_ADMIN_LOG`, mặc định
+`data/production.jsonl`).
 
 ## Governance & versioning
 
@@ -189,7 +196,8 @@ Sau khi sửa code, chạy `graphify update .` (hoặc để git hook tự chạ
 
 - [x] Phase 0–1: engineering contract + semantic kernel v0.1 + SHACL + CI
 - [x] Phase 2: production ingestion — 4 data lanes, unstructured-document
-      extraction (extractor pluggable, LLM chỉ đề xuất), 24.217 entities thật
+      extraction (extractor pluggable, LLM chỉ đề xuất); 24.217 entities trong
+      historical production snapshot (xem roadmap §1)
 - [x] Phase 3: projector checkpointed/idempotent + Console v0.1 + 2 SLO gates
 - [x] Phase 4: tracking vertical end-to-end qua domain SHACL contracts
 - [x] Phase 5: merge/split/review tooling + Document/Assertion model + reference

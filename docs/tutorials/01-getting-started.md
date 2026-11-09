@@ -30,28 +30,25 @@ make setup
 make check
 ```
 
-`make check` chạy 6 bước tuần tự — bước nào đỏ dừng ngay tại đó:
+`make check` chạy 7 bước tuần tự — bước nào đỏ dừng ngay tại đó:
 
 | Bước | Lệnh bên dưới | Kiểm tra gì |
 |------|---------------|-------------|
 | `lint` | `ruff check . && ruff format --check .` | Code style senior chuẩn repo |
 | `versions` | `tools/manage_ontology.py check-versions` | SemVer của mọi module khớp release registry |
+| `align` | `tools/manage_ontology.py align check` | Semantic alignments còn hợp lệ với ontology hiện tại |
 | `validate` | `tools/validate.py --shapes ... --data ...` | Seed data conform SHACL contracts |
 | `dag` | `tools/check_dependency_dag.py` | Import module theo chiều core ← middle ← domain |
 | `test` | `pytest` | Toàn bộ test suite |
-| `slo` | `tools/check_slo.py` | Query latency không vượt 1.2× baseline và SLO |
+| `slo` | `tools/check_slo.py` + `tools/benchmark_e2e.py --check` | Read-model và e2e stage nằm trong baseline / SLO |
 
-Kết quả mong đợi (số test có thể tăng theo thời gian):
+Kết quả mong đợi (số test và thời gian chạy thay đổi theo phiên bản và máy):
 
 ```text
 All checks passed!
 ...
-[ok   ] ontology/core/core.ttl: no changes since 0.1.0
-
 Version check passed.
-RESULT: PASS (32 subclass-closure triples materialized)
-Dependency DAG check PASSED (5 files, 4 import edges, no upward deps, no cycles).
-254 passed in 8.19s
+pytest: all collected tests passed
 SLO regression gate PASSED
 ```
 
@@ -65,7 +62,7 @@ SLO regression gate PASSED
 ontology/core/core.ttl     # 20 classes / 33 predicates — semantic kernel
 shapes/core_shapes.ttl     # SHACL: Observation cần atTime=1, source>=1...
 foundry/                   # platform code: events, identity, ingestion, projector
-foundry/console/           # FastAPI + SPA (Dashboard, Explorer, Projection...)
+foundry/console/           # FastAPI + SPA (read views và token-gated Admin)
 tools/                     # CLI quản lý và đo lường
 registry/                  # release registry cho SemVer enforcement
 ```

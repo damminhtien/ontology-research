@@ -40,3 +40,9 @@ Correction là một event, không phải một edit:
 Phiên nạp university 2026-09-02 phát hiện **185 QID bị hai canonical entity
 claim** (do một lượt chạy ghi nhầm vào log khác). Cả 185 cặp được repair bằng
 đúng cơ chế này; sau repair không còn external id nào thuộc nhiều hơn một entity.
+
+## Implementation update (2026-11-09)
+
+Un-merge is now supported by the append-only `EntitySplit` event and
+`tools/split_entity.py`, shipped in Phase 5. This supersedes the consequence
+above that an incorrect merge had no dedicated reversal operation.

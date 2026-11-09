@@ -1,10 +1,11 @@
 """Ontology Console - FastAPI application factory.
 
-Read-only admin console over the existing, tested tooling: API handlers call
-functions from ``tools/`` and ``foundry/`` directly, so the console is a
-projection of the same logic the CLI exposes (no business logic duplication).
+Console over the existing, tested tooling: read views use the ontology,
+registry, event log and read model, while token-gated admin routes append
+corrections to the production log.
 
-Run locally (binds localhost; no auth by design in v1):
+Run locally (Uvicorn binds to localhost by default). Set
+``FOUNDRY_CONSOLE_TOKEN`` to enable admin operations:
 
     .venv/bin/python -m uvicorn foundry.console.app:app --port 8787
 """
@@ -43,7 +44,9 @@ def create_app() -> FastAPI:
     application = FastAPI(
         title="Ontology Console",
         version="0.1.0",
-        description="Read-only administration and monitoring for the semantic platform.",
+        description=(
+            "Read-only monitoring and token-gated, audited corrections for the semantic platform."
+        ),
     )
     for router in (
         overview.router,

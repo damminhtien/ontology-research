@@ -1,4 +1,4 @@
-# Ontology status & evaluation (2026-09-02)
+# Ontology status & evaluation (2026-11-09)
 
 Báo cáo đánh giá định kỳ của ontology — nguồn số liệu: `tools/manage_ontology.py
 stats / stability / blast-radius / report`, audit usage chạy trên toàn bộ
@@ -10,26 +10,39 @@ stats / stability / blast-radius / report`, audit usage chạy trên toàn bộ
 |--------|-----|--------:|----------:|-----------:|--------------------------|
 | core | 0 | 20 | 24 | 9 | mọi module (kernel) |
 | middle/assertion | 1 | 2 | 3 | 1 | `foundry/assertions.py`, `ingestion.py` |
-| middle/identity | 1 | 1 | 0 | 0 | `foundry/ingestion.py` (D12 pending) |
+| middle/identity | 1 | 1 | 0 | 0 | `foundry/ingestion.py` (pending identity flow) |
 | middle/location | 1 | 2 | 0 | 0 | LocationAssertion (gate observation) |
 | middle/organization | 1 | 0 | 1 | 0 | membership mapping (chưa có lane) |
 | domain/sensor | 2 | 1 | 2 | 0 | `foundry/tracking.py` (Phase 4) |
 | domain/tracking | 2 | 1 | 2 | 1 | `foundry/tracking.py`, `readmodel.py` (Phase 4) |
 
-> Cập nhật 2026-09-17: `middle/assertion` tách `Assertion` khỏi `core:Event`
-> (nay ⊑ `core:InformationObject` — `AssertionMade` mới là event) và thêm
-> `assertion:predicate` (quan hệ dạng IRI) + `assertion:literalValue`; số liệu
-> inventory trên đã tính theo module hiện hành (`manage_ontology.py stats`).
+`middle/assertion` tách `Assertion` khỏi `core:Event` (nay ⊑
+`core:InformationObject` — `AssertionMade` mới là event) và có
+`assertion:predicate` (quan hệ dạng IRI) cùng `assertion:literalValue`.
+Inventory được đối chiếu bằng `tools/manage_ontology.py stats` ngày 2026-11-09.
 
 Namespace frozen (ADR-0008), freeze guards trong CI; SemVer registry +
-`check-versions` xanh; **Stability = 1.0 cho cả 6 module** (0 breaking).
+`check-versions` xanh. `tools/manage_ontology.py stability` hiện báo:
 
-## 2. Usage coverage của core kernel: 32/53 terms đang dùng
+| Module | Stability | Breaking / releases | Status |
+|---|---:|---:|---|
+| core | 0.5 | 1 / 2 | dưới ngưỡng 0.99 |
+| assertion | 0.5 | 1 / 2 | dưới ngưỡng 0.95 |
+| sensor | 1.0 | 0 / 1 | đạt ngưỡng |
+| tracking | 1.0 | 0 / 1 | đạt ngưỡng |
+| identity | 1.0 | 0 / 1 | đạt ngưỡng |
+| location | 1.0 | 0 / 1 | đạt ngưỡng |
+| organization | 1.0 | 0 / 1 | đạt ngưỡng |
 
-Kernel giữ 53 terms; **32 terms được shipped code/shapes/queries tham chiếu**
-(mọi terms mà 4 data lanes + correction workflows + SHACL shapes cần). 21 terms
-còn lại là **reserved scaffold** cho Phase 6–7, KHÔNG phải dead weight —
-mỗi nhóm gắn một phase trong roadmap:
+Hai module dưới ngưỡng là cảnh báo governance được báo bởi công cụ; chạy lại
+`stability` sau mỗi release để cập nhật trạng thái.
+
+## 2. Reserved terms và usage coverage
+
+Kernel hiện giữ 53 terms. Usage audit trước đây ghi nhận 32 terms được shipped
+code/shapes/queries tham chiếu; đây là snapshot audit, không được tính lại tự
+động. Các terms chưa có consumer được giữ làm scaffold cho Phase 6–7 theo nhóm
+sau:
 
 | Nhóm reserved | Terms | Phase dự kiến dùng |
 |---|---|---|
@@ -64,7 +77,9 @@ vào queries (0) — competency queries chỉ phụ thuộc class hierarchy, đ�
 | assertion_shapes.ttl | AssertionShape, DocumentShape | pipeline gate (assertion lane) + `make validate` |
 | identity_shapes.ttl | UnresolvedReferenceShape | pipeline gate (pending) + `make validate` |
 
-Mỗi shape đều có unit test riêng; 16 competency questions pass trong CI.
+SHACL contracts được kiểm tra trong `make check`. Runtime competency suite có
+10 query đã triển khai trên 16 câu hỏi trong contract; sáu câu còn lại chưa có
+expected result trong CI (xem [Competency Questions](../generated/competency_questions.md)).
 
 ## 5. Gaps & hành động
 

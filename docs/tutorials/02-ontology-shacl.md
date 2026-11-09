@@ -43,8 +43,9 @@ core:hasSource a owl:ObjectProperty ;
 
 ## SHACL — contract dữ liệu bắt buộc
 
-SHACL shapes trong `shapes/core_shapes.ttl` là **gate dữ liệu**: mọi dữ liệu phải
-conform trước khi vào hệ thống. Ba shape chính:
+SHACL shapes được chia theo contract trong bốn file dưới `shapes/`; các pipeline
+chạy gate phù hợp với loại dữ liệu trước khi ghi event. Ba shape chính trong
+`core_shapes.ttl`:
 
 - `ObservationShape` — đúng 1 `atTime` (xsd:dateTime), ≥ 1 `hasSource`, ≥ 1 `observes`
 - `LocationAssertionShape` — đúng 1 entity, đúng 1 location, đúng 1 `validFrom`, ≥ 1 source
@@ -96,7 +97,7 @@ Kernel không được import module khác; middle/domain chỉ được import 
 ```
 
 ```text
-Dependency DAG check PASSED (5 files, 4 import edges, no upward deps, no cycles).
+Dependency DAG check PASSED (7 files, 6 import edges, no upward deps, no cycles).
 ```
 
 ## Bài tập

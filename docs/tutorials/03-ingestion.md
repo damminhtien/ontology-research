@@ -25,29 +25,18 @@ Ba nguyên tắc thiết kế:
 .venv/bin/python tools/seed_console_data.py --force
 ```
 
-```text
-accepted Coast Guard Region 4 -> urn:world:entity:f9ce072e2d82486ba5909a9c3c13e605
-accepted Maritime Headquarters -> urn:world:entity:52c53fa93efa4660bac315d2f3f64bea
-accepted Patrol Vessel 01 -> urn:world:entity:f073683a41e646ccb51998ab68eaa9bb
-rejected Patrol Vessel 02 ->
-accepted observation of Patrol Vessel 01
-rejected observation of Patrol Vessel 02
-rejected (expected) unresolved-entity reference: entity reference matches candidates
-('urn:world:entity:f073683a41e646ccb51998ab68eaa9bb',); resolve via exact alias or
-external id first
-
-Seeded 4 events into .../data/events.jsonl
-```
+Entity identifiers are generated for each fresh seed run, and the accepted
+records determine the event count. Read the receipts instead of relying on
+fixed UUIDs or a copied count.
 
 ## Bước 2 — Đọc từng kết quả
 
-| Record | Kết quả | Vì sao |
-|--------|---------|--------|
-| Coast Guard Region 4 | ✅ accepted | Entity mới, tạo `urn:world:entity:<uuid>` |
-| Patrol Vessel 01 | ✅ accepted | Entity mới |
-| **Patrol Vessel 02** | ❌ rejected | Overlap token với "Patrol Vessel 01" → phương án an toàn là **review**, không merge bừa |
-| Observation của Vessel 01 | ✅ accepted | Entity đã biết, qua SHACL gate |
-| Observation của Vessel 02 | ❌ rejected | Entity chưa được resolve |
+| Tình huống | Kết quả | Vì sao |
+|-----------|---------|--------|
+| Entity mới có danh tính rõ | accepted | Tạo `EntityCreated` sau khi qua validation |
+| Tên mơ hồ, khớp nhiều candidate | review | Không tự merge; ghi `ResolutionReviewQueued` |
+| Observation của entity đã resolve | accepted nếu conform | Đi qua SHACL gate |
+| Observation mơ hồ hoặc sai contract | pending/rejected theo trường hợp | Identity receipt và SHACL report nêu nguyên nhân |
 
 !!! tip "Đây là tính năng, không phải bug"
     "Vessel 02" rất có thể là đơn vị khác "Vessel 01". Merge nhầm hai entity là lỗi
@@ -66,10 +55,11 @@ Seeded 4 events into .../data/events.jsonl
 cat data/events.jsonl | .venv/bin/python -m json.tool --json-lines | head -20
 ```
 
-Mỗi dòng là một JSON object: `event_id`, `event_type` (`EntityCreated` /
-`LocationObserved`), `schema_version`, `occurred_at` (record-time), `valid_at`
-(valid-time, `null` = trùng record-time), `sequence` (vị trí 1-based trong log),
-`payload`. Đây là **write model** — canonical truth của hệ thống. Contract chi
+Mỗi dòng là một JSON object: `event_id`, `event_type` (ví dụ `EntityCreated`,
+`LocationObserved`, `ResolutionReviewQueued`), `schema_version`, `occurred_at`
+(record-time), `valid_at` (valid-time, `null` = trùng record-time), `sequence`
+(vị trí 1-based trong log), `payload`. Đây là **write model** — canonical truth
+của hệ thống. Contract chi
 tiết: [ADR-0009](../adr/ADR-0009-event-contract-v2-sequence-valid-time-upcasters.md).
 
 Với `EntityCreated`, payload chứa `name` (tên chính), `name_aliases` (các tên
@@ -95,15 +85,17 @@ log riêng `data/production.jsonl`:
   trước khi nạp, nên chạy tiếp bao nhiêu lần cũng dedupe với dữ liệu đã có —
   re-fetch là external-id hit, không tạo entity mới
   ([ADR-0010](../adr/ADR-0010-registry-as-log-projection.md)).
-- **QID là external id đáng tin** (ADR-0006): fuzzy match không ép review;
-  `unresolved_rate` thực tế = 0%.
+- **QID là external id đáng tin** (ADR-0006): fuzzy match không ép review khi
+  nguồn đã xác nhận định danh; rejection và unresolved rate vẫn phụ thuộc dữ liệu
+  của từng lượt ingest.
 - **Binding là sự kiện**: external id bind sau khi entity đã tồn tại (alias-hit)
   được ghi thành `ExternalIdBound` event — restart không mất định danh.
 - **SHACL gate**: record vi phạm contract vẫn bị reject như luồng thường.
 
-Hiện trạng lake sau các lượt nạp thật: **24.217 canonical entities** (23.039 tổ
-chức/đơn vị quân đội + 1.178 university), 47.628 events, mirror 1:1 sang lake
-Parquet.
+Snapshot production trong audit ngày 2026-09-02 có **24.217 canonical
+entities** (23.039 tổ chức/đơn vị quân đội + 1.178 university) và 47.628 events,
+mirror sang lake Parquet. Đây là snapshot lịch sử; production log không nằm
+trong repo nên hãy đo lại trước khi dùng các con số này làm trạng thái hiện tại.
 
 ## Bước 5 — Sửa under-merge khi phát hiện
 
@@ -164,9 +156,10 @@ make console
 
 Mở tab **Data Monitor** tại <http://127.0.0.1:8787/#/monitor>:
 
-- Event log stats: 4 events (3 EntityCreated, 1 LocationObserved)
-- SHACL validation gate: CONFORMS
-- Competency queries: ALL 6 PASS
+- Event log stats: số lượng và event types được seed vào `data/events.jsonl`
+- SHACL validation gate: kết quả trên các ontology modules và benchmark datasets
+  so với toàn bộ shape files
+- Competency queries: 10 implemented queries, trạng thái pass/fail từng câu
 
 Tab **Dashboard** có card "Events logged" hiển thị cùng số liệu.
 
