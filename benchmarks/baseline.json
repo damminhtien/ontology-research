@@ -8,17 +8,17 @@
   },
   "query_latency": {
     "q1_entity_lookup_ms": {
-      "p95_ms": 0.0038,
+      "p95_ms": 0.0005,
       "slo_ms": 50
     },
     "q_current_location_ms": {
-      "p95_ms": 0.0201,
+      "p95_ms": 0.0576,
       "slo_ms": 100
     },
     "q4_temporal_ms": {
-      "p95_ms": 0.0158,
+      "p95_ms": 0.0559,
       "slo_ms": 500
     }
   },
-  "generated_at": "2026-08-27T03:11:01.952874+00:00"
+  "generated_at": "2026-11-09T08:30:38.316733+00:00"
 }
