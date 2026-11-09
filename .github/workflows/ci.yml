@@ -34,8 +34,17 @@ jobs:
       - name: Dependency consistency
         run: .venv/bin/pip check
 
-      - name: Full check (quality, lint, versions, SHACL, DAG, tests, SLO gate)
+      - name: Full check (ontology design, quality, lint, versions, SHACL, DAG, tests, SLO)
         run: make check
+
+      - name: Upload ontology design report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ontology-design
+          path: build/ontology-design.json
+          if-no-files-found: ignore
+          retention-days: 90
 
       - name: Upload ontology quality report
         if: ${{ !cancelled() }}

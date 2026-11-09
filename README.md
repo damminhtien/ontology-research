@@ -140,6 +140,8 @@ make visualize-ontology   # build/ontology.html (D3) + ontology.mmd (Mermaid)
 `make quality` sinh báo cáo schema, SHACL và competency questions tại
 `build/ontology-quality.json`. Xem [phương pháp đánh giá](docs/guides/ontology-quality.md)
 và [hiện trạng ontology](docs/guides/ontology-status.md).
+`make ontology-design` kiểm tra phân cấp lớp và tham chiếu giữa các module;
+xem [hướng dẫn đánh giá thiết kế](docs/guides/ontology-design.md).
 
 ## Benchmarks & SLO
 

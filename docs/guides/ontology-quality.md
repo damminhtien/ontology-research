@@ -60,7 +60,9 @@ corpus chung.
 
 Kết quả đo được mức phù hợp với khai báo, shape và ví dụ trong repo. Chúng
 không chứng minh ontology nhất quán theo OWL DL, dữ liệu thực đầy đủ, hoặc
-các sự kiện có thật. Để đo độ chính xác trên dữ liệu thực, cần một mẫu đã được
-chuyên gia xác minh với nguồn và mốc thời gian rõ ràng; đo precision và
-recall theo từng loại sự kiện hoặc quan hệ trên tập đó. Latency và khả năng
-mở rộng tiếp tục được theo dõi bằng [SLO riêng](../generated/performance_slo.md).
+các sự kiện có thật. Chạy [đánh giá thiết kế](ontology-design.md) để kiểm tra
+phân cấp lớp và tham chiếu giữa các module. Để đo độ chính xác trên dữ liệu
+thực, cần một mẫu đã được chuyên gia xác minh với nguồn và mốc thời gian rõ
+ràng; đo precision và recall theo từng loại sự kiện hoặc quan hệ trên tập
+đó. Latency và khả năng mở rộng tiếp tục được theo dõi bằng
+[SLO riêng](../generated/performance_slo.md).
