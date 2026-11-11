@@ -1,4 +1,4 @@
-# Ontology status & evaluation (2026-11-09)
+# Ontology status & evaluation (2026-11-11)
 
 Báo cáo đánh giá định kỳ của ontology — nguồn số liệu: `tools/manage_ontology.py
 stats / stability / blast-radius / report`, audit usage chạy trên toàn bộ
@@ -21,7 +21,7 @@ SHACL và kết quả CQ; xem [phương pháp đánh giá](ontology-quality.md).
 `middle/assertion` tách `Assertion` khỏi `core:Event` (nay ⊑
 `core:InformationObject` — `AssertionMade` mới là event) và có
 `assertion:predicate` (quan hệ dạng IRI) cùng `assertion:literalValue`.
-Inventory được đối chiếu bằng `tools/manage_ontology.py stats` ngày 2026-11-09.
+Inventory được đối chiếu bằng `tools/manage_ontology.py stats` ngày 2026-11-11.
 
 Namespace frozen (ADR-0008), freeze guards trong CI; SemVer registry +
 `check-versions` xanh. `tools/manage_ontology.py stability` hiện báo:

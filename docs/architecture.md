@@ -221,7 +221,7 @@ B6. 4.6 Reference lane + paging; 4.7 SHACL unresolved; 4.8 e2e benchmark
 Mỗi bước giữ nguyên bất biến: log không rewrite; mọi migration là upcaster mới
 hoặc event mới. Tiến trình track ở `roadmap.md`, mục "Nền móng production facts".
 
-## 6. Trạng thái triển khai (đối chiếu 2026-11-09)
+## 6. Trạng thái triển khai (đối chiếu 2026-11-11)
 
 Toàn bộ thiết kế trong tài liệu này **đã triển khai**:
 
@@ -241,7 +241,7 @@ Toàn bộ thiết kế trong tài liệu này **đã triển khai**:
 
 D1–D12 đã đóng hết, bao gồm Console write operations. Query API chỉ trả
 provenance theo source-ID scope; read request không token nhận dữ liệu không có
-source IDs. Việc tiếp theo là scale ladder và federation theo `roadmap.md`.
+source IDs. Việc tiếp theo là scale ladder theo `roadmap.md`.
 
 ## 7. Rủi ro đã ghi nhận trong quá trình triển khai
 

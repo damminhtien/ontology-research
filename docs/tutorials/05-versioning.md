@@ -91,7 +91,7 @@ organization         stability=1.0     (breaking 0/1) [ok]
 2 module(s) below their stability threshold.
 ```
 
-Snapshot hiện tại (2026-11-09): `core` và `assertion` đang dưới ngưỡng; các
+Snapshot hiện tại (2026-11-11): `core` và `assertion` đang dưới ngưỡng; các
 module còn lại đạt ngưỡng. Chạy lại lệnh để đọc trạng thái mới nhất.
 
 $$Stability(m) = 1 - \frac{N_{breaking}}{N_{releases}}$$

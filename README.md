@@ -5,12 +5,12 @@
 [![License: MIT](https://img.shields.io/badge/LICENSE-blue.svg)](LICENSE)
 
 **Production-first semantic platform**: event-sourced canonical knowledge với
-identity resolution precision-first, 4 data lanes, SHACL contracts ở mọi cửa
-nào, CQRS read model và lake OLAP — ontology là một phần của kiến trúc, không
-phải toàn bộ dự án.
+identity resolution precision-first, 4 data lanes, SHACL contracts ở mọi điểm
+nạp dữ liệu, CQRS read model và lake OLAP — ontology là một phần của kiến trúc,
+không phải toàn bộ dự án.
 
 📚 **Tài liệu & tutorials: <https://damminhtien.github.io/ontology-research/>**
-📊 **Roadmap**: [roadmap.md](roadmap.md) — Phase 0–5 hoàn thành, Phase 6 là milestone kế tiếp
+📊 **Roadmap**: [roadmap.md](roadmap.md) — Phase 0–5 hoàn thành; Phase 6 đang triển khai, mục provenance đã xong
 
 > Quy tắc duy nhất: **Never make the operational query path pay for semantic
 > complexity it does not need.**
@@ -41,7 +41,7 @@ foundry/                       # Platform: events, identity, ingestion, lake,
                                #   projector, readmodel, assertions, extraction,
                                #   tracking, reference, merge, namespaces
 foundry/console/               # FastAPI + SPA (Dashboard/Explorer/Versions/Impact/Monitor/Admin)
-tools/                         # 16 CLI: validate, DAG, manage_ontology, benchmarks,
+tools/                         # 18 CLI scripts: validate, DAG, manage_ontology, benchmarks,
                                #   ingest_wikidata/tracking_feed, build_reference_lane,
                                #   merge/split/backfill/import_events, check_slo…
 registry/                      # Ontology release registry (SemVer enforcement)
@@ -176,18 +176,19 @@ Hai tool hỗ trợ AI coding agents, đã cài đặt đầy đủ:
 ### rtk — token-optimized CLI proxy
 
 ```bash
-rtk ls | rtk git status | rtk deps | rtk test   # luôn prefix lệnh bằng rtk
-rtk gain                                        # xem token savings
+rtk ls       # liệt kê files
+rtk git status --short
+rtk deps     # xem dependency tree
+rtk test     # chạy test suite
+rtk gain     # xem token savings
 ```
 
 Filters: `.rtk/filters.toml`; instructions cho agents trong `CLAUDE.md`.
 
 ### graphify — codebase knowledge graph
 
-Đã cài **đầy đủ workflow**: `graphify-out/graph.json` (1.8k+ nodes) rebuild
-tự động qua git hooks `post-commit`/`post-checkout` (đã verified installed),
-merge driver cho `graph.json`, PreToolUse hooks cho Claude Code
-(`.claude/settings.json`) và Codex (`.codex/hooks.json`).
+Repo có code graph tại `graphify-out/graph.json`. Hiện chưa cài git hooks tự cập
+nhật graph; sau khi sửa code, chạy lệnh cập nhật thủ công:
 
 ```bash
 graphify query "how does identity resolution work"   # BFS traversal → subgraph
@@ -197,8 +198,8 @@ graphify god-nodes --top 5                           # architectural hubs
 graphify update .                                    # rebuild thủ công (no LLM)
 ```
 
-Sau khi sửa code, chạy `graphify update .` (hoặc để git hook tự chạy) rồi
-`graphify query "…"` để agents tra graph thay vì đọc raw source.
+Sau khi sửa code, chạy `graphify update .`, rồi `graphify query "…"` để agents
+tra graph thay vì đọc raw source.
 
 ## Tài liệu
 
@@ -222,8 +223,7 @@ Sau khi sửa code, chạy `graphify update .` (hoặc để git hook tự chạ
 - [x] Phase 5: merge/split/review tooling + Document/Assertion model + reference
       lane + streaming/checkpointed projector + migration/alignment registry +
       **Console admin write ops (token auth + audit trên event log)** — hoàn thành
-- [ ] Access control ở query API layer (mapping config đã quyết định:
-      code-as-mapping)
+- [x] Phase 6 item 1: query API provenance access (`FOUNDRY_PROVENANCE_TOKENS`)
 - [ ] Phase 6: scale ladder 10M–100M; federation; multi-writer log; vector
       candidate generation
 - [ ] Phase 7: Vietnam profile + AI semantic query interface

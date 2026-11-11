@@ -61,7 +61,7 @@ redesign đã triển khai: `docs/architecture.md` §6 (bảng commit mapping).
 |-------|-----------------|
 | **0** — Engineering contract | requirements, scale targets, SLO baseline, CQ harness |
 | **1** — Semantic kernel v0 | core.ttl (20 classes / 33 props) + SHACL + CI; 10 CQ regression đã triển khai trên contract 16 CQ |
-| **2** — Production ingestion | event contract v2 (sequence/valid-time/upcasters), identity precision-first (ADR-0003/0006), SHACL gate, **4 data lanes**, unstructured-document extraction (extractor pluggable — LLM chỉ đề xuất); historical dataset snapshot of 24k entities |
+| **2** — Production ingestion | event schema v3 (sequence/valid-time/upcasters, assertion predicate IRI), identity precision-first (ADR-0003/0006), SHACL gate, **4 data lanes**, unstructured-document extraction (extractor pluggable — LLM chỉ đề xuất); historical dataset snapshot of 24k entities |
 | **3** — Read graph (CQRS) | projector checkpointed + per-event idempotent (ADR-0004), Console v0.1, latency benchmark + SLO gate, e2e per-stage gate (§4.8) |
 | **4** — Domain vertical đầu tiên | location/organization/sensor/tracking modules + domain SHACL + ingestion mapping end-to-end (tracking vertical hoàn thành) |
 | **5** | governance + corrections hoàn chỉnh: SemVer registry, blast-radius, stability, migration/alignment; merge/split/review-queue/backfill/import; Document/Assertion model (§4.2); reference lane (§4.6); streaming projector; identity store boundary (§4.5); **Console admin write ops (auth + audit)** |
@@ -95,7 +95,8 @@ lane (§4.6), unresolved identity SHACL (§4.7), e2e benchmark (§4.8) —
   mapper typed+tested trong code; config engine chỉ khi nguồn generic thứ 5+
   xuất hiện (documented decision, không phải backlog)
 
-Phase 5 **hoàn thành** → Phase 6 là milestone kế tiếp.
+Phase 5 **hoàn thành**. Phase 6 item 1 (query provenance access) đã ship;
+scale ladder là mục tiếp theo.
 
 ### 3.2 Phase 6 — Scale & federation (Month 6–9)
 
@@ -132,7 +133,7 @@ Phase 6/7 chốt design; gỡ term = MAJOR release. Chi tiết:
 | 3 | Query p95 (Q1 / Q-current / Q4) | 50 / 100 / 500 ms | OK (SLO gate) |
 | 4 | ProjectionLag | < 5 s | OK (SLO gate) |
 | 5 | Ingest e2e throughput | ≥ 20 ev/s floor | 85.8 ev/s trong baseline đã commit (`benchmarks/baseline-e2e.json`, 60 entities) |
-| 6 | Semantic Stability | core > 0.99, domain > 0.95 | core 0.5 và assertion 0.5 đang dưới ngưỡng; 5 module còn lại đạt 1.0 (2026-11-09) |
+| 6 | Semantic Stability | core > 0.99, domain > 0.95 | core 0.5 và assertion 0.5 đang dưới ngưỡng; 5 module còn lại đạt 1.0 (2026-11-11) |
 
 ## 5. Rủi ro chính
 
