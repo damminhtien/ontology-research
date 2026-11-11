@@ -2,7 +2,8 @@
 
 Console over the existing, tested tooling: read views use the ontology,
 registry, event log and read model, while token-gated admin routes append
-corrections to the production log.
+corrections to the production log. Query API provenance is source-scoped by
+``FOUNDRY_PROVENANCE_TOKENS``; admin access uses a separate token.
 
 Run locally (Uvicorn binds to localhost by default). Set
 ``FOUNDRY_CONSOLE_TOKEN`` to enable admin operations:

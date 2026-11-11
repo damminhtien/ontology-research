@@ -16,7 +16,7 @@ không phải toàn bộ dự án. Nguyên tắc xuyên suốt:
 | **Ingestion** | Append-only event log, identity resolution precision-first, SHACL gate | `foundry/` |
 | **Read model** | CQRS projector + query latency benchmark với SLO gate | `foundry/projector.py` |
 | **Governance** | SemVer registry, migration gate cho MAJOR, blast radius, stability | `registry/` |
-| **Console UI** | Dashboard / Explorer / Versions / Impact / Monitor / Projection / token-gated Admin | `make console` |
+| **Console UI** | Dashboard / Explorer / Versions / Impact / Monitor / Projection / provenance-scoped reads / token-gated Admin | `make console` |
 
 ## Quickstart — 5 phút tới trạng thái xanh
 

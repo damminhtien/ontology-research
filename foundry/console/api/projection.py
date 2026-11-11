@@ -12,9 +12,14 @@ import threading
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from foundry.console.api.monitor import event_log_path
+from foundry.console.api.provenance_access import (
+    ProvenanceScope,
+    provenance_scope,
+    visible_source_ids,
+)
 from foundry.events import EventLog
 from foundry.projector import Projector, replay_log
 from foundry.readmodel import ReadModel, format_instant, parse_instant
@@ -152,7 +157,10 @@ def projection_stats() -> dict:
 
 
 @router.get("/entities/{entity_id}")
-def entity_by_id(entity_id: str) -> dict:
+def entity_by_id(
+    entity_id: str,
+    scope: Annotated[ProvenanceScope, Depends(provenance_scope)],
+) -> dict:
     """Q1 point lookup against the read model."""
     view = _read_model().get_entity(entity_id)
     if view is None:
@@ -170,7 +178,7 @@ def entity_by_id(entity_id: str) -> dict:
             {
                 "location_uri": location.location_uri,
                 "as_of": location.as_of,
-                "source_ids": list(location.source_ids),
+                "source_ids": visible_source_ids(location.source_ids, scope),
             }
             if location
             else None
@@ -196,7 +204,11 @@ def entity_lookup(name: Annotated[str, Query(min_length=1)]) -> dict:
 
 
 @router.get("/entities/{entity_id}/location/as-of")
-def location_as_of(entity_id: str, at: str) -> dict:
+def location_as_of(
+    entity_id: str,
+    at: str,
+    scope: Annotated[ProvenanceScope, Depends(provenance_scope)],
+) -> dict:
     """Q4 temporal query: location of an entity at a given instant."""
     try:
         instant = parse_instant(at)
@@ -210,7 +222,7 @@ def location_as_of(entity_id: str, at: str) -> dict:
             {
                 "location_uri": fact.location_uri,
                 "as_of": fact.as_of,
-                "source_ids": list(fact.source_ids),
+                "source_ids": visible_source_ids(fact.source_ids, scope),
             }
             if fact
             else None

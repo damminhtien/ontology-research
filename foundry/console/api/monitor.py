@@ -7,12 +7,17 @@ from pathlib import Path
 from typing import Annotated
 
 from cq_runner import run_competency_queries
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from ontology_utils import find_module_files, materialize_type_closure
 from pyshacl import validate as shacl_validate
 from rdflib import RDF, Graph
 from rdflib.namespace import SH
 
+from foundry.console.api.provenance_access import (
+    ProvenanceScope,
+    provenance_scope,
+    visible_source_ids,
+)
 from foundry.events import EventLog
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -68,21 +73,36 @@ def event_stats() -> dict:
 
 
 @router.get("/events/recent")
-def recent_events(limit: Annotated[int, Query(le=500)]) -> dict:
-    """Return the most recent events, newest first."""
+def recent_events(
+    limit: Annotated[int, Query(le=500)],
+    scope: Annotated[ProvenanceScope, Depends(provenance_scope)],
+) -> dict:
+    """Return recent events with provenance limited to the caller's scope."""
     limit_value = min(limit, 500)
     path = event_log_path()
     log = EventLog(path)
     events = log.read_all() if log.has_data() else []
-    recent = [
-        {
-            "event_id": event.event_id,
-            "event_type": event.event_type,
-            "occurred_at": event.occurred_at,
-            "payload": event.payload,
-        }
-        for event in reversed(events[-limit_value:])
-    ]
+    recent = []
+    for event in reversed(events[-limit_value:]):
+        payload = dict(event.payload)
+        if event.event_type == "DocumentRegistered" and not scope.allows(
+            payload.get("document_id")
+        ):
+            # The event contains its URI and title, so hiding only document_id
+            # would still disclose the protected source.
+            continue
+        if "source_ids" in payload:
+            payload["source_ids"] = visible_source_ids(payload["source_ids"], scope)
+        if "source_id" in payload and not scope.allows(payload["source_id"]):
+            payload.pop("source_id")
+        recent.append(
+            {
+                "event_id": event.event_id,
+                "event_type": event.event_type,
+                "occurred_at": event.occurred_at,
+                "payload": payload,
+            }
+        )
     return {"total": len(events), "returned": len(recent), "events": recent}
 
 

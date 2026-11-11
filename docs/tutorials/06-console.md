@@ -90,12 +90,31 @@ curl -s 'http://127.0.0.1:8787/api/projection/lookup?name=Patrol+Vessel+01'
 Kết quả có canonical ID, entity type và name của từng match; ID và danh sách
 match thay đổi theo event log.
 
+## Quyền xem provenance
+
+Read API vẫn cho phép query dữ liệu projection công khai; provenance bị ẩn nếu
+request không có token được cấp. Cấu hình riêng `FOUNDRY_PROVENANCE_TOKENS` là
+JSON map từ bearer token tới source IDs được xem:
+
+```bash
+export FOUNDRY_PROVENANCE_TOKENS='{"reader-token":["urn:doc:123"]}'
+curl -H 'Authorization: Bearer reader-token' \
+  'http://127.0.0.1:8787/api/projection/entities/urn:entity:123'
+```
+
+Mỗi query chỉ trả source IDs nằm trong scope. Giá trị `"*"` cấp toàn bộ
+provenance cho token đó. `/api/monitor/events/recent` áp dụng cùng scope và
+không trả sự kiện `DocumentRegistered` của tài liệu ngoài scope. Token không
+hợp lệ trả `401`; JSON cấu hình sai trả `503`. Đây là token đọc provenance,
+tách biệt với `FOUNDRY_CONSOLE_TOKEN` cho Admin.
+
 Swagger đầy đủ tại <http://127.0.0.1:8787/api/docs>.
 
 !!! warning "Bảo mật"
-    Các view monitor không cần đăng nhập. Admin operations cần
-    `FOUNDRY_CONSOLE_TOKEN` và mặc định ghi vào production log. Bảo vệ token như
-    secret và trỏ `$FOUNDRY_ADMIN_LOG` tới log phù hợp trước khi ghi.
+    Các view monitor không cần đăng nhập; provenance chỉ hiển thị với bearer
+    token có scope trong `FOUNDRY_PROVENANCE_TOKENS`. Admin operations cần
+    `FOUNDRY_CONSOLE_TOKEN` và mặc định ghi vào production log. Bảo vệ cả hai
+    loại token như secret và trỏ `$FOUNDRY_ADMIN_LOG` tới log phù hợp trước khi ghi.
 
 ## Bài tập
 

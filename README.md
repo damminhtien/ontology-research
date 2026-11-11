@@ -114,6 +114,21 @@ REST API cùng nguồn dữ liệu: `GET /api/overview`, `/api/ontology/*`,
 `/api/releases/*`, `/api/impact?term=`, `/api/monitor/*`, `/api/projection/*`,
 `/api/admin/*` (xem `/api/docs`).
 
+Query API giữ nguyên dữ liệu chiếu nhưng mặc định ẩn provenance. Cấu hình
+`FOUNDRY_PROVENANCE_TOKENS` thành JSON map từ bearer token tới danh sách source
+ID được xem; dùng `"*"` để cấp toàn bộ provenance cho một token. Ví dụ:
+
+```bash
+export FOUNDRY_PROVENANCE_TOKENS='{"reader-token":["urn:doc:123"]}'
+curl -H 'Authorization: Bearer reader-token' \
+  http://127.0.0.1:8787/api/projection/entities/urn:entity:123
+```
+
+Request không token nhận `source_ids: []`; token không hợp lệ trả `401`, cấu
+hình sai trả `503`. `/api/monitor/events/recent` chỉ trả source ID trong scope
+và ẩn hẳn `DocumentRegistered` ngoài scope để không lộ URI/tiêu đề. Token này
+độc lập với `FOUNDRY_CONSOLE_TOKEN` dành cho thao tác admin.
+
 **Write operations** (Admin view, token-gated): review queue inspection,
 merge/split corrections and external-id backfill. Auth: `Authorization: Bearer
 $FOUNDRY_CONSOLE_TOKEN` (constant-time compare; biến unset → admin API trả

@@ -15,10 +15,10 @@ thay vì một central KG): xem `docs/architecture.md` §2.
 
 ---
 
-## 1. Snapshot hiện tại (đồng bộ mã nguồn — 2026-11-09)
+## 1. Snapshot hiện tại (đồng bộ mã nguồn — 2026-11-11)
 
 Quality gates: `make check` (lint, versions, alignment, SHACL, DAG, pytest và
-2 SLO gates). Xác minh ngày 2026-11-09: `make check` passed, 428 tests.
+2 SLO gates). Xác minh ngày 2026-11-11: `make check` passed, 445 tests.
 
 | Thành phần | Trạng thái | Bằng chứng trong repo |
 |---|---|---|
@@ -31,7 +31,7 @@ Quality gates: `make check` (lint, versions, alignment, SHACL, DAG, pytest và
 | Extraction | ✅ | `foundry/extraction.py` — `PatternExtractor` deterministic + `LlmExtractor` (completion injectable), confidence cap 0.7, không auto-mint |
 | Reference lane | ✅ | `foundry/reference.py` + `wd.iter_entities` — cursor paging theo QID, snapshot versioned |
 | Tracking vertical | ✅ | `foundry/tracking.py` — `SensorRegistered`/`ObservationRecorded`/`TrackObserved`, gate qua domain SHACL |
-| Console | ✅ read + token-gated writes | `foundry/console/` — FastAPI + SPA; read views dùng projections; Admin hỗ trợ review, merge/split và backfill; writes được audit trong production log |
+| Console | ✅ scoped provenance reads + token-gated writes | `foundry/console/` — FastAPI + SPA; query token được giới hạn source ID; Admin hỗ trợ review, merge/split và backfill; writes được audit trong production log |
 | Governance | ✅ | `tools/manage_ontology.py` — SemVer registry, blast-radius, stability, migration/alignment |
 | Benchmarks | ✅ | micro (`tools/benchmark.py`) + e2e per-stage gate (`tools/benchmark_e2e.py`) |
 | Ontology | ✅ | 7 modules / 27 classes / 43 properties — `docs/guides/ontology-status.md` |
@@ -65,6 +65,7 @@ redesign đã triển khai: `docs/architecture.md` §6 (bảng commit mapping).
 | **3** — Read graph (CQRS) | projector checkpointed + per-event idempotent (ADR-0004), Console v0.1, latency benchmark + SLO gate, e2e per-stage gate (§4.8) |
 | **4** — Domain vertical đầu tiên | location/organization/sensor/tracking modules + domain SHACL + ingestion mapping end-to-end (tracking vertical hoàn thành) |
 | **5** | governance + corrections hoàn chỉnh: SemVer registry, blast-radius, stability, migration/alignment; merge/split/review-queue/backfill/import; Document/Assertion model (§4.2); reference lane (§4.6); streaming projector; identity store boundary (§4.5); **Console admin write ops (auth + audit)** |
+| **6 (item 1)** | Query API provenance access: `FOUNDRY_PROVENANCE_TOKENS` maps bearer tokens to source-ID scopes; anonymous reads redact sources; event monitor hides out-of-scope document metadata |
 
 Kiến trúc nền B1–B8 theo `docs/architecture.md` §4: log transport bền vững
 (§4.1), projector sequence-ordered (§4.3), lake manifest-authoritative (§4.4),
@@ -100,11 +101,10 @@ Phase 5 **hoàn thành** → Phase 6 là milestone kế tiếp.
 
 | # | Việc | Ghi chú |
 |---|------|---------|
-| 1 | **Access control ở query API layer** (ai thấy provenance nào) | chặn Phase 7 AI interface |
-| 2 | **Scale ladder** 10M entities / 100M edges → 100M / 1B | đo: ingest throughput, query p95, memory, index build, recovery |
-| 3 | **Federation** theo domain KG + federated query layer | nhiều domain KG conform core + middle + semantic contracts |
-| 4 | **Multi-writer log** | segment foundation (B1) sẵn sàng; chỉ làm khi scale đo được nhu cầu |
-| 5 | **Vector-based candidate generation** | thay/thêm token-overlap, vẫn qua cùng review gate |
+| 1 | **Scale ladder** 10M entities / 100M edges → 100M / 1B | đo: ingest throughput, query p95, memory, index build, recovery |
+| 2 | **Federation** theo domain KG + federated query layer | nhiều domain KG conform core + middle + semantic contracts |
+| 3 | **Multi-writer log** | segment foundation (B1) sẵn sàng; chỉ làm khi scale đo được nhu cầu |
+| 4 | **Vector-based candidate generation** | thay/thêm token-overlap, vẫn qua cùng review gate |
 
 ### 3.3 Phase 7 — Vietnam profile + AI (Month 6+, song song 6)
 

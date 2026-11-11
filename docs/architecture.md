@@ -1,7 +1,7 @@
 # Kiến trúc Semantic Foundry
 
 - Status: accepted
-- Last synchronized with source: 2026-11-09
+- Last synchronized with source: 2026-11-11
 - Historical audit baseline: ADR-0001…ADR-0010 and an operational snapshot of 47.628 events / 24.217 entities (2026-09-02)
 - Tài liệu này mô tả kiến trúc hiện tại và giữ lại lịch sử các vấn đề đã phát hiện cùng cách xử lý. Backlog còn mở nằm trong `roadmap.md`; các quyết định ban đầu nằm trong ADR.
 
@@ -36,7 +36,7 @@ Mọi thiết kế dưới đây phục tùng bốn nguyên tắc này — chún
                                     ▼                          ▼
                     ┌──────────────────────────────┐   ┌───────────────────────────────┐
    REPAIR           │ merge_entities.py            │   │ Console (FastAPI + SPA)       │
-                    │ backfill_external_ids.py     │   │ read views + token-gated Admin│
+                    │ backfill_external_ids.py     │   │ scoped provenance + Admin auth│
                     └──────────────────────────────┘   └───────────────────────────────┘
 ```
 
@@ -237,9 +237,11 @@ Toàn bộ thiết kế trong tài liệu này **đã triển khai**:
 | §4.7 SHACL unresolved identity (`identity:UnresolvedReference`) | `a972f8b` |
 | §4.8 E2E per-stage benchmark + gate | `b2cac79` |
 | Phase 5 Console admin write ops (token auth + audit trail) | `54eab65` |
+| Phase 6 item 1 query provenance access (`FOUNDRY_PROVENANCE_TOKENS`) | `foundry/console/api/provenance_access.py`, `tests/test_console_api.py` |
 
-D1–D12 đã đóng hết, bao gồm Console write operations. Việc tiếp theo là Phase 6
-scale ladder và federation theo `roadmap.md`.
+D1–D12 đã đóng hết, bao gồm Console write operations. Query API chỉ trả
+provenance theo source-ID scope; read request không token nhận dữ liệu không có
+source IDs. Việc tiếp theo là scale ladder và federation theo `roadmap.md`.
 
 ## 7. Rủi ro đã ghi nhận trong quá trình triển khai
 

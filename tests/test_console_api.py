@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -205,7 +207,7 @@ class TestProjectionEndpoints:
                         "entity_id": "urn:x:patrol-01",
                         "location_uri": "https://data.example/entity/loc-cam-ranh",
                         "valid_from": "2026-08-20T03:00:00Z",
-                        "source_ids": ["s1"],
+                        "source_ids": ["s1", "s2"],
                         "confidence": 0.9,
                     },
                 ),
@@ -226,6 +228,51 @@ class TestProjectionEndpoints:
         data = seeded_client.get("/api/projection/entities/urn:x:patrol-01").json()
         assert data["entity"]["name"] == "Patrol Vessel 01"
         assert data["current_location"]["location_uri"].endswith("loc-cam-ranh")
+        assert data["current_location"]["source_ids"] == []
+
+    def test_provenance_token_scopes_current_location(self, seeded_client, monkeypatch):
+        monkeypatch.setenv(
+            "FOUNDRY_PROVENANCE_TOKENS",
+            json.dumps({"reader-token": ["s1"], "other-token": ["s2"]}),
+        )
+        response = seeded_client.get(
+            "/api/projection/entities/urn:x:patrol-01",
+            headers={"Authorization": "Bearer reader-token"},
+        )
+        assert response.status_code == 200
+        assert response.json()["current_location"]["source_ids"] == ["s1"]
+
+        other = seeded_client.get(
+            "/api/projection/entities/urn:x:patrol-01",
+            headers={"Authorization": "Bearer other-token"},
+        )
+        assert other.json()["current_location"]["source_ids"] == ["s2"]
+
+    def test_wildcard_provenance_token_sees_all_sources(self, seeded_client, monkeypatch):
+        monkeypatch.setenv("FOUNDRY_PROVENANCE_TOKENS", json.dumps({"reader-token": ["*"]}))
+        response = seeded_client.get(
+            "/api/projection/entities/urn:x:patrol-01",
+            headers={"Authorization": "Bearer reader-token"},
+        )
+        assert response.json()["current_location"]["source_ids"] == ["s1", "s2"]
+
+    def test_provenance_token_scopes_temporal_location(self, seeded_client, monkeypatch):
+        monkeypatch.setenv("FOUNDRY_PROVENANCE_TOKENS", json.dumps({"reader-token": ["s1"]}))
+        response = seeded_client.get(
+            "/api/projection/entities/urn:x:patrol-01/location/as-of",
+            params={"at": "2026-08-21T00:00:00Z"},
+            headers={"Authorization": "Bearer reader-token"},
+        )
+        assert response.status_code == 200
+        assert response.json()["location"]["source_ids"] == ["s1"]
+
+    def test_invalid_provenance_token_is_rejected(self, seeded_client, monkeypatch):
+        monkeypatch.setenv("FOUNDRY_PROVENANCE_TOKENS", json.dumps({"reader-token": ["s1"]}))
+        response = seeded_client.get(
+            "/api/projection/entities/urn:x:patrol-01",
+            headers={"Authorization": "Bearer invalid-token"},
+        )
+        assert response.status_code == 401
 
     def test_projection_resumes_incrementally_from_snapshot(self, seeded_client, tmp_path):
         """B6 follow-up: log growth folds in the suffix, never a full re-replay."""
@@ -286,6 +333,78 @@ class TestProjectionEndpoints:
             params={"at": "2026-01-01T00:00:00Z"},
         ).json()
         assert before["location"] is None
+
+    def test_recent_events_redact_ungranted_provenance(self, seeded_client, monkeypatch):
+        monkeypatch.setenv("FOUNDRY_PROVENANCE_TOKENS", json.dumps({"reader-token": ["s1"]}))
+        anonymous = seeded_client.get("/api/monitor/events/recent", params={"limit": 20})
+        anonymous_events = anonymous.json()["events"]
+        location_event = next(
+            event for event in anonymous_events if event["event_type"] == "LocationObserved"
+        )
+        entity_event = next(
+            event for event in anonymous_events if event["event_type"] == "EntityCreated"
+        )
+        assert location_event["payload"]["source_ids"] == []
+        assert "source_id" not in entity_event["payload"]
+
+        authorized = seeded_client.get(
+            "/api/monitor/events/recent",
+            params={"limit": 20},
+            headers={"Authorization": "Bearer reader-token"},
+        )
+        visible_location = next(
+            event
+            for event in authorized.json()["events"]
+            if event["event_type"] == "LocationObserved"
+        )
+        assert visible_location["payload"]["source_ids"] == ["s1"]
+
+    def test_recent_events_hide_ungranted_document_metadata(self, seeded_client, monkeypatch):
+        from foundry.console.api.monitor import event_log_path
+        from foundry.events import EventLog, make_event
+
+        EventLog(event_log_path()).append(
+            make_event(
+                "DocumentRegistered",
+                {
+                    "document_id": "urn:doc:private",
+                    "uri": "https://private.example/report",
+                    "title": "Private report",
+                    "source_system": "internal",
+                    "content_ref": None,
+                    "registered_at": "2026-08-20T00:00:00Z",
+                },
+            )
+        )
+        monkeypatch.setenv(
+            "FOUNDRY_PROVENANCE_TOKENS",
+            json.dumps({"reader-token": ["urn:doc:private"], "other-token": ["s1"]}),
+        )
+
+        anonymous = seeded_client.get("/api/monitor/events/recent", params={"limit": 20}).json()
+        assert all(event["event_type"] != "DocumentRegistered" for event in anonymous["events"])
+
+        other_scope = seeded_client.get(
+            "/api/monitor/events/recent",
+            params={"limit": 20},
+            headers={"Authorization": "Bearer other-token"},
+        ).json()
+        assert all(event["event_type"] != "DocumentRegistered" for event in other_scope["events"])
+
+        authorized = seeded_client.get(
+            "/api/monitor/events/recent",
+            params={"limit": 20},
+            headers={"Authorization": "Bearer reader-token"},
+        ).json()
+        document = next(
+            event for event in authorized["events"] if event["event_type"] == "DocumentRegistered"
+        )
+        assert document["payload"]["title"] == "Private report"
+
+    def test_malformed_provenance_config_fails_closed(self, seeded_client, monkeypatch):
+        monkeypatch.setenv("FOUNDRY_PROVENANCE_TOKENS", "not-json")
+        response = seeded_client.get("/api/monitor/events/recent", params={"limit": 20})
+        assert response.status_code == 503
 
     def test_asof_rejects_bad_timestamp(self, seeded_client):
         response = seeded_client.get(
