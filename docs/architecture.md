@@ -53,6 +53,7 @@ Thành phần và invariant đã được triển khai:
 | SHACL gate trước log | Không có fact vi phạm contract trong write model |
 | Namespace freeze guards | Không ai đổi URI vô tình — CI chặn |
 | Merge là event không phải edit | 185 cặp trùng repair được, có audit trail, replay được |
+| Core ontology boundary | Core giữ vocabulary cross-domain; domain-specific terms thuộc các module/versioned packs |
 
 ## 3. Các vấn đề trong audit ban đầu (đã khắc phục)
 
@@ -229,6 +230,33 @@ alias lookup, streaming replay, in-memory query latency, peak RSS và log storag
 lake → replay projector → lake query; `make check` chạy stage gate ở scale CI.
 Số đo chi tiết và scope nằm trong `requirements/scale_targets.md`. Cả hai harness
 đều chưa chứng minh target 10M/100M; identity và read-model index hiện vẫn in-memory.
+
+### 4.9 Schema evolution preflight
+
+Ontology Turtle và SHACL shapes tiếp tục là schema nguồn. Governance đọc các
+module thành term snapshots, diff theo SemVer và thêm nhãn tương thích
+`SAFE` / `COMPATIBLE` / `BREAKING`: additions là `SAFE`, edit không breaking
+là `COMPATIBLE`, còn mọi thay đổi MAJOR là `BREAKING`. Core giữ các khái niệm
+cross-domain ổn định; khái niệm domain đi trong các module versioned hiện có.
+Thay đổi schema không tự thêm vocabulary hay domain pack.
+
+Trước khi tạo migration MAJOR, chạy `tools/manage_ontology.py migrate MODULE`
+với một `--data PATH` cho từng nguồn dữ liệu authoritative. Lệnh xuất migration
+review được cùng `.impact.json`, gồm các data item nhắc tới term đổi trong RDF,
+JSON/JSONL hoặc Parquet và consumer trong ontology, SHACL, event contract, API,
+read model/index, query và migration cũ. Đây là impact leads để review; lexical
+match không thay thế SHACL hoặc validation theo application. Thư mục lake có
+`manifest.json` chỉ scan các Parquet file đã đăng ký; file mồ côi không tham
+gia. Report ghi rõ các nguồn đã scan. SHA-256 trong report gắn kết quả preflight
+với nội dung migration script; nếu script đổi thì `release --migration-script`
+từ chối report cũ.
+
+Workflow này áp dụng ý tưởng parser → validator → schema diff/codegen trong
+[ODL parser](https://github.com/syzygyhack/open-foundry/blob/main/packages/odl/src/parser/index.ts),
+[validator](https://github.com/syzygyhack/open-foundry/blob/main/packages/odl/src/validator/index.ts),
+[diff](https://github.com/syzygyhack/open-foundry/blob/main/packages/odl/src/diff/index.ts)
+và [codegen](https://github.com/syzygyhack/open-foundry/blob/main/packages/odl/src/codegen/index.ts),
+giữ nguyên Turtle/SHACL và API contracts của repo.
 
 ## 5. Thứ tự chuyển đổi đã thực hiện
 

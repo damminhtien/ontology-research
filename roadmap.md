@@ -18,7 +18,7 @@ thay vì một central KG): xem `docs/architecture.md` §2.
 ## 1. Snapshot hiện tại (đồng bộ mã nguồn — 2026-11-12)
 
 Quality gates: `make check` (lint, versions, alignment, SHACL, DAG, pytest và
-2 SLO gates). Xác minh ngày 2026-11-12: `make check` passed, 495 tests.
+2 SLO gates). Xác minh ngày 2026-11-12: `make check` passed, 503 tests.
 
 | Thành phần | Trạng thái | Bằng chứng trong repo |
 |---|---|---|
@@ -32,10 +32,14 @@ Quality gates: `make check` (lint, versions, alignment, SHACL, DAG, pytest và
 | Reference lane | ✅ | `foundry/reference.py` + `wd.iter_entities` — cursor paging theo QID, snapshot versioned |
 | Tracking vertical | ✅ | `foundry/tracking.py` — sensor, observation event, separate `ObservationResult` (position + typed measurements), and track; gate qua domain SHACL |
 | Console | ✅ scoped provenance reads + token-gated writes | `foundry/console/` — FastAPI + SPA; query token được giới hạn source ID; Admin hỗ trợ review, merge/split và backfill; writes được audit trong production log |
-| Governance | ✅ | `tools/manage_ontology.py` — SemVer registry, blast-radius, stability, migration/alignment |
+| Governance | ✅ | `tools/manage_ontology.py` — SemVer registry, SAFE/COMPATIBLE/BREAKING diff, blast-radius and data/API/index impact preflight |
 | Competency queries | ✅ | 41 executable CQs with fixed datasets and expected rows, covering temporal relationships, provenance, contradictions, corrections, identity, and tracking |
 | Benchmarks | ✅ | micro (`tools/benchmark.py`) streams log generation/replay and reports RSS/storage; e2e per-stage gate (`tools/benchmark_e2e.py`) |
 | Ontology | ✅ | 7 modules / 28 classes / 68 properties — `docs/guides/ontology-status.md`; no new domain module |
+
+Core giữ vocabulary cross-domain ổn định; domain-specific terms đi qua các
+ontology module/versioned pack. Chưa thêm domain pack mới. Migration MAJOR phải
+được preflight với các nguồn data cũ và consumer API/indexing trước khi áp dụng.
 
 **Historical production snapshot (2026-09-02)**: 24.217 canonical entities
 Wikidata (song ngữ VI–EN) và 47.628 events trong production log. Production log

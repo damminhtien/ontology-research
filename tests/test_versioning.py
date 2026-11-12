@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 from pathlib import Path
 
 import manage_ontology as mgmt
@@ -32,6 +34,18 @@ class TestSemverHelpers:
         assert mgmt.next_version("0.1.0", mgmt.SEVERITY_PATCH) == "0.1.1"
         assert mgmt.next_version("0.1.0", mgmt.SEVERITY_MINOR) == "0.2.0"
         assert mgmt.next_version("0.1.0", mgmt.SEVERITY_MAJOR) == "1.0.0"
+
+    def test_compatibility_classes_are_separate_from_semver(self):
+        added = mgmt.Change("added", "https://example.org/#Widget", "class added", "MINOR")
+        label = mgmt.Change("changed", "https://example.org/#Widget", "label updated", "PATCH")
+        removed = mgmt.Change("removed", "https://example.org/#Widget", "class removed", "MAJOR")
+
+        assert mgmt.change_compatibility(added) == "SAFE"
+        assert mgmt.classify_compatibility([added]) == "SAFE"
+        assert mgmt.change_compatibility(label) == "COMPATIBLE"
+        assert mgmt.classify_compatibility([added, label]) == "COMPATIBLE"
+        assert mgmt.change_compatibility(removed) == "BREAKING"
+        assert mgmt.classify_compatibility([added, removed]) == "BREAKING"
 
 
 class TestModuleIdentity:
@@ -209,8 +223,13 @@ class TestReleaseFlow:
         return repo
 
     @staticmethod
-    def _release_args(migration=None, dry_run=False) -> argparse.Namespace:
-        return argparse.Namespace(module="demo", migration=migration, dry_run=dry_run)
+    def _release_args(migration=None, dry_run=False, migration_script=None) -> argparse.Namespace:
+        return argparse.Namespace(
+            module="demo",
+            migration=migration,
+            migration_script=migration_script,
+            dry_run=dry_run,
+        )
 
     def test_initial_baseline_release(self, fake_repo):
         assert mgmt.cmd_release(self._release_args()) == 0
@@ -268,6 +287,49 @@ class TestReleaseFlow:
         assert "#### Migration" in changelog
         assert "re-map downstream data" in changelog
 
+    def test_major_migration_script_requires_matching_preflight_report(self, fake_repo, capsys):
+        mgmt.cmd_release(self._release_args())
+        self._write_demo_module(
+            fake_repo,
+            "1.0.0",
+            self.V1.replace("rdfs:range demo:Gizmo", "rdfs:range demo:Thing"),
+        )
+        script = fake_repo / "migrations" / "core" / "0.1.0_to_1.0.0.rq"
+        script.parent.mkdir(parents=True)
+        script.write_text("# reviewed migration\n", encoding="utf-8")
+        args = self._release_args(
+            migration="re-map legacy values",
+            migration_script="migrations/core/0.1.0_to_1.0.0.rq",
+        )
+
+        assert mgmt.cmd_release(args) == 1
+        assert "migration impact report not found" in capsys.readouterr().out
+
+        script.with_suffix(".impact.json").write_text(
+            json.dumps(
+                {
+                    "module": "demo",
+                    "from_version": "0.1.0",
+                    "to_version": "1.0.0",
+                    "compatibility": mgmt.COMPATIBILITY_BREAKING,
+                    "migration_script": "migrations/core/0.1.0_to_1.0.0.rq",
+                    "migration_script_sha256": hashlib.sha256(script.read_bytes()).hexdigest(),
+                    "historical_data": {
+                        "status": "scanned",
+                        "sources": ["data/history.jsonl"],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        script.write_text("# changed after preflight\n", encoding="utf-8")
+        assert mgmt.cmd_release(args) == 1
+        assert "does not match this breaking release" in capsys.readouterr().out
+
+        script.write_text("# reviewed migration\n", encoding="utf-8")
+        assert mgmt.cmd_release(args) == 0
+
     def test_dry_run_records_nothing(self, fake_repo):
         self._write_demo_module(
             fake_repo,
@@ -290,14 +352,28 @@ class TestBlastRadius:
         foundry = tmp_path / "foundry"
         foundry.mkdir()
         (foundry / "app.py").write_text('ALLOWED = {"Widget"}\n', encoding="utf-8")
+        shapes = tmp_path / "shapes"
+        shapes.mkdir()
+        (shapes / "core.ttl").write_text("sh:targetClass ex:Widget\n", encoding="utf-8")
+        console = foundry / "console" / "api"
+        console.mkdir(parents=True)
+        (console / "routes.py").write_text('RESPONSE_TYPE = "Widget"\n', encoding="utf-8")
+        (foundry / "readmodel.py").write_text('INDEXED_TYPE = "Widget"\n', encoding="utf-8")
+        (foundry / "events.py").write_text('EVENT_TARGET = "Widget"\n', encoding="utf-8")
+        migrations = tmp_path / "migrations" / "core"
+        migrations.mkdir(parents=True)
+        (migrations / "change.rq").write_text("?s a ex:Widget", encoding="utf-8")
 
         radius = mgmt.blast_radius_for_terms(["Widget"], repo_root=tmp_path)
-        score = sum(len(files) for files in radius.values())
-
-        assert score == 3
+        assert sum(len(files) for files in radius.values()) == 8
         assert radius["modules"] == ["ontology/other.ttl"]
+        assert radius["shapes"] == ["shapes/core.ttl"]
         assert radius["queries"] == ["benchmarks/queries/q.rq"]
+        assert radius["api"] == ["foundry/console/api/routes.py"]
+        assert radius["indexing"] == ["foundry/readmodel.py"]
+        assert radius["event_contracts"] == ["foundry/events.py"]
         assert radius["applications"] == ["foundry/app.py"]
+        assert radius["migration_scripts"] == ["migrations/core/change.rq"]
 
 
 class TestStability:

@@ -110,3 +110,30 @@ make check   # lint + versions + alignment + SHACL(4 files) + DAG + tests + 2 SL
 Log luôn tự validate toàn bộ (sequence discontinuity = corruption); lake
 manifest-authoritative (`verify()`); read model snapshot là cache — corrupt
 thì tự full replay, không bao giờ là nguồn sự thật.
+
+## 6. Đổi ontology và chuẩn bị migration
+
+Core giữ các khái niệm cross-domain ổn định. Thuật ngữ domain thuộc module
+versioned hiện có; tạo domain pack mới cần một quyết định riêng.
+
+```bash
+# Diff hai schema: SemVer severity kèm SAFE / COMPATIBLE / BREAKING
+.venv/bin/python tools/manage_ontology.py diff old-core.ttl new-core.ttl
+
+# Với breaking change, scan toàn bộ nguồn cũ có thẩm quyền trước khi tạo script
+.venv/bin/python tools/manage_ontology.py migrate core \
+    --data data/production.jsonl \
+    --data data/lake
+```
+
+`migrate` tạo SPARQL Update và file `.impact.json`. Report nêu số data item nhắc tới
+term đổi cùng các consumer được tìm trong ontology, SHACL, event contract,
+Console/API, projector/read model, lake và benchmark queries. `--data` nhận RDF,
+JSON/JSONL, Parquet hoặc thư mục lake; thư mục có `manifest.json` chỉ scan các
+Parquet file đã đăng ký. Truyền mỗi nguồn authoritative bằng một cờ. Thiếu nguồn
+thì preflight dừng. Count unit là RDF triple, JSON item, JSONL record hoặc
+Parquet row. Khi ghi MAJOR release cùng script, lệnh yêu cầu report khớp
+module/phiên bản, có lịch sử data đã scan và SHA-256 khớp script hiện tại. Các
+kết quả consumer là lexical leads để review, còn data match không thay SHACL
+hay application validation. Chỉ áp dụng migration sau khi report và script đã
+được xem xét.

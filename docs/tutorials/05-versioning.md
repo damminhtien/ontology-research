@@ -13,7 +13,8 @@ core.ttl khai báo dcterms:version (SemVer)
         │
         ├─► make check → check-versions chặn bump sai/quên bump
         ├─► registry/ lưu release log + term snapshots (baseline)
-        ├─► release ghi nhận: migration note BẮT BUỘC cho MAJOR
+        ├─► diff phân loại SAFE / COMPATIBLE / BREAKING bên cạnh SemVer
+        ├─► migrate --data scan record cũ + API + indexing trước MAJOR
         └─► blast-radius + stability đo chi phí thay đổi
 ```
 
@@ -44,8 +45,8 @@ Bảng chân lý của công cụ:
 
 Nếu ontology chưa đổi, lệnh báo không có semantic change để release.
 
-Khi có thay đổi thật, dry-run cho thấy: danh sách changes theo severity,
-**suggested version**, blast radius từng term — trước khi quyết định ghi release.
+Khi có thay đổi thật, dry-run cho thấy danh sách changes, compatibility class,
+**suggested version** và blast radius từng term.
 
 Luồng release chuẩn khi có thay đổi hợp lệ:
 
@@ -55,10 +56,17 @@ Luồng release chuẩn khi có thay đổi hợp lệ:
 .venv/bin/python tools/manage_ontology.py check-versions
 # 3. preview
 .venv/bin/python tools/manage_ontology.py release core --dry-run
-# 4. ghi release (MAJOR bắt buộc --migration)
+# 4. preflight: lặp --data cho mọi nguồn dữ liệu authoritative
+.venv/bin/python tools/manage_ontology.py migrate core \
+    --data data/production.jsonl \
+    --data data/lake
+# Review both generated files before applying the migration.
+# 5. ghi release (MAJOR bắt buộc migration note; script phải có report khớp)
+MIGRATION_SCRIPT="migrations/core/2.0.0_to_3.0.0.rq" # example; thay bằng path migrate đã in
 .venv/bin/python tools/manage_ontology.py release core \
-    --migration "range of X widened; re-map downstream data"
-# 5. commit registry/ + docs/CHANGELOG.md + core.ttl; tag core/x.y.z
+    --migration "range of X widened; re-map downstream data" \
+    --migration-script "$MIGRATION_SCRIPT"
+# 6. commit registry/ + docs/CHANGELOG.md + core.ttl + migrations/; tag core/x.y.z
 ```
 
 ## Bước 3 — Blast radius: đổi term ảnh hưởng ai?
@@ -67,8 +75,9 @@ Luồng release chuẩn khi có thay đổi hợp lệ:
 .venv/bin/python tools/manage_ontology.py blast-radius Platform
 ```
 
-Kết quả liệt kê điểm BR cùng consumer theo module, query và application; danh
-sách consumer phụ thuộc vào ontology và code hiện hành.
+Kết quả tách consumer theo module, shape, event contract, API, indexing,
+benchmark query, application và migration script; danh sách dựa trên tham chiếu
+từ code hiện hành.
 
 Trước khi sửa/xóa một term, luôn xem BR. BR càng cao → chi phí thay đổi càng lớn →
 cân nhắc giữ term cũ + thêm term mới thay vì redefine.

@@ -2,7 +2,7 @@
 
 Subcommands:
     stats                     per-module class/property counts
-    diff OLD NEW              semantic diff with SemVer severity classification
+    diff OLD NEW              semantic diff with SemVer and compatibility classes
                               (exits 1 on MAJOR-level changes unless
                               --allow-breaking is passed)
     new-module NAME --layer   scaffold a middle/domain module importing core
@@ -11,11 +11,10 @@ Subcommands:
                               against the latest release in registry/
     release MODULE            record a release: snapshot + log + changelog
                               (MAJOR requires --migration)
-    blast-radius TERM         count modules/queries/application files that
-                              reference TERM
+    blast-radius TERM         locate schema, API, query and projection consumers
     stability                 Stability(m) = 1 - N_breaking/N_releases per module
-    migrate MODULE            generate a SPARQL Update migration script for the
-                              breaking (MAJOR) changes since the latest release
+    migrate MODULE --data ... generate a migration and preflight impact report
+                              (RDF, JSON/JSONL, Parquet and manifest-backed lake)
     align add/list/check      semantic alignment registry (registry/alignments.json);
                               check validates every source term is still defined
 
@@ -28,6 +27,7 @@ that rule machine-enforced on every `make check` run.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -53,6 +53,9 @@ SEVERITY_NONE = "NONE"
 SEVERITY_PATCH = "PATCH"
 SEVERITY_MINOR = "MINOR"
 SEVERITY_MAJOR = "MAJOR"
+COMPATIBILITY_SAFE = "SAFE"
+COMPATIBILITY_COMPATIBLE = "COMPATIBLE"
+COMPATIBILITY_BREAKING = "BREAKING"
 
 REGISTRY_DIRNAME = "registry"
 MIGRATIONS_DIRNAME = "migrations"
@@ -201,6 +204,24 @@ def diff_snapshots(old_terms: dict[str, dict], new_terms: dict[str, dict]) -> li
 def highest_severity(changes: list[Change]) -> str:
     """Return the strongest severity present, defaulting to PATCH."""
     return max((c.severity for c in changes), default=SEVERITY_PATCH, key=SEVERITY_ORDER.index)
+
+
+def classify_compatibility(changes: list[Change]) -> str:
+    """Classify schema changes by consumer compatibility, independent of SemVer."""
+    if any(change.severity == SEVERITY_MAJOR for change in changes):
+        return COMPATIBILITY_BREAKING
+    if any(change.kind == "changed" for change in changes):
+        return COMPATIBILITY_COMPATIBLE
+    return COMPATIBILITY_SAFE
+
+
+def change_compatibility(change: Change) -> str:
+    """Classify one change using the repository's conservative SemVer rules."""
+    if change.severity == SEVERITY_MAJOR:
+        return COMPATIBILITY_BREAKING
+    if change.kind == "changed":
+        return COMPATIBILITY_COMPATIBLE
+    return COMPATIBILITY_SAFE
 
 
 def format_term(iri: str) -> str:
@@ -536,10 +557,15 @@ def cmd_diff(args: argparse.Namespace) -> int:
 
     for change in changes:
         marker = {"added": "+", "removed": "-", "changed": "~"}[change.kind]
-        print(f"{marker} [{change.severity:<5}] {format_term(change.target)}: {change.detail}")
+        compatibility = change_compatibility(change)
+        print(
+            f"{marker} [{change.severity:<5}/{compatibility:<10}] "
+            f"{format_term(change.target)}: {change.detail}"
+        )
 
     top = highest_severity(changes)
-    print(f"\nSuggested version bump: {top}")
+    print(f"\nCompatibility: {classify_compatibility(changes)}")
+    print(f"Suggested version bump: {top}")
     if top == SEVERITY_MAJOR and not args.allow_breaking:
         print(
             "ERROR: breaking (MAJOR) changes detected; "
@@ -627,12 +653,10 @@ def changed_term_names(changes: list[Change]) -> list[str]:
 def blast_radius_for_terms(
     term_names: list[str], repo_root: Path | None = None
 ) -> dict[str, list[str]]:
-    """Find files referencing any of ``term_names`` across consumer layers.
+    """Find lexical consumers across data, schema, API and projection layers.
 
-    Categories: ``modules`` (ontology .ttl files), ``queries`` (benchmark
-    .rq files), ``applications`` (foundry package sources). Matching is
-    lexical on IRI fragments and local names - deliberately over-reporting
-    rather than missing a consumer.
+    Results are impact leads, not proof that a file's runtime contract changes.
+    Local-name matching deliberately over-reports to avoid missing consumers.
     """
     base = repo_root if repo_root is not None else REPO_ROOT
     iri_patterns = [re.compile(rf"[:#/]{re.escape(name)}\b") for name in term_names]
@@ -645,27 +669,250 @@ def blast_radius_for_terms(
     def references_word(text: str) -> bool:
         return any(pattern.search(text) for pattern in word_patterns)
 
-    result: dict[str, list[str]] = {"modules": [], "queries": [], "applications": []}
+    result: dict[str, list[str]] = {
+        "modules": [],
+        "shapes": [],
+        "event_contracts": [],
+        "queries": [],
+        "api": [],
+        "indexing": [],
+        "applications": [],
+        "migration_scripts": [],
+    }
+
+    def add_matches(category: str, paths: list[Path], *, iri_only: bool = False) -> None:
+        for path in sorted(set(paths)):
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8")
+            matches = (
+                references_iri(text)
+                if iri_only
+                else (references_iri(text) or references_word(text))
+            )
+            if matches:
+                result[category].append(path.relative_to(base).as_posix())
 
     ontology_dir = base / "ontology"
     if ontology_dir.exists():
-        for path in sorted(ontology_dir.rglob("*.ttl")):
-            if references_iri(path.read_text(encoding="utf-8")):
-                result["modules"].append(path.relative_to(base).as_posix())
+        add_matches("modules", list(ontology_dir.rglob("*.ttl")), iri_only=True)
+
+    shapes_dir = base / "shapes"
+    if shapes_dir.exists():
+        add_matches("shapes", list(shapes_dir.rglob("*.ttl")), iri_only=True)
 
     queries_dir = base / "benchmarks" / "queries"
     if queries_dir.exists():
-        for path in sorted(queries_dir.rglob("*.rq")):
-            if references_iri(path.read_text(encoding="utf-8")):
-                result["queries"].append(path.relative_to(base).as_posix())
+        add_matches("queries", list(queries_dir.rglob("*.rq")), iri_only=True)
 
     foundry_dir = base / "foundry"
     if foundry_dir.exists():
-        for path in sorted(foundry_dir.rglob("*.py")):
-            if references_word(path.read_text(encoding="utf-8")):
-                result["applications"].append(path.relative_to(base).as_posix())
+        all_python = list(foundry_dir.rglob("*.py"))
+        console_dir = foundry_dir / "console"
+        api_paths = []
+        if console_dir.exists():
+            api_suffixes = {
+                ".py",
+                ".js",
+                ".html",
+                ".json",
+                ".yaml",
+                ".yml",
+                ".graphql",
+                ".gql",
+            }
+            api_paths = [
+                path for path in console_dir.rglob("*") if path.suffix.lower() in api_suffixes
+            ]
+        index_names = {"projector.py", "readmodel.py", "lake.py"}
+        indexing_paths = [path for path in all_python if path.name in index_names]
+        event_paths = [foundry_dir / name for name in ("events.py", "namespaces.py")]
+        event_paths.extend(
+            path for path in (base / "VERSION", base / "CHANGELOG-DATA.md") if path.exists()
+        )
+        add_matches("api", api_paths)
+        add_matches("indexing", indexing_paths)
+        add_matches("event_contracts", event_paths)
+        specialized_paths = set(api_paths + indexing_paths)
+        specialized_paths.update(path for path in event_paths if path.is_relative_to(foundry_dir))
+        add_matches("applications", [path for path in all_python if path not in specialized_paths])
+
+    migrations_dir = base / MIGRATIONS_DIRNAME
+    if migrations_dir.exists():
+        add_matches("migration_scripts", list(migrations_dir.rglob("*.rq")), iri_only=True)
 
     return result
+
+
+def scan_data_impact(term_iris: list[str], data_paths: list[str | Path]) -> dict:
+    """Count data items mentioning changed terms from supplied sources.
+
+    Supports RDF graph files, JSON/JSONL records, and Foundry Parquet lake
+    files. A lake directory with ``manifest.json`` is manifest-authoritative.
+    Every authoritative data source must be supplied explicitly; the lexical
+    scan intentionally reports candidates and does not claim SHACL or
+    application-level validity.
+    """
+    if not data_paths:
+        raise ValueError("provide every authoritative historical data source with --data")
+
+    supported_rdf = {".ttl", ".nt", ".n3", ".nq", ".nquads", ".trig", ".jsonld"}
+    supported_json = {".json", ".jsonl", ".ndjson"}
+    supported = supported_rdf | supported_json | {".parquet"}
+    files: list[Path] = []
+    sources: list[str] = []
+    for raw_path in data_paths:
+        path = Path(raw_path).expanduser().resolve()
+        if not path.exists():
+            raise ValueError(f"historical data source does not exist: {path}")
+        sources.append(str(path))
+        if path.is_dir() and (path / "manifest.json").is_file():
+            try:
+                manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"invalid lake manifest: {path / 'manifest.json'}") from exc
+            if not isinstance(manifest, dict) or not isinstance(manifest.get("files"), list):
+                raise ValueError(f"invalid lake manifest files list: {path / 'manifest.json'}")
+            entries = manifest["files"]
+            candidates = []
+            for entry in entries:
+                if (
+                    not isinstance(entry, dict)
+                    or not isinstance(entry.get("path"), str)
+                    or not entry["path"]
+                ):
+                    raise ValueError(f"invalid lake manifest path entry: {entry!r}")
+                relative = Path(entry["path"])
+                candidate = (path / relative).resolve()
+                if not candidate.is_relative_to(path):
+                    raise ValueError(f"invalid lake manifest path: {relative}")
+                if candidate.suffix.lower() != ".parquet":
+                    raise ValueError(f"manifest entry is not a Parquet file: {relative}")
+                if not candidate.is_file():
+                    raise ValueError(f"manifest Parquet file is missing: {candidate}")
+                candidates.append(candidate)
+        elif path.is_dir():
+            candidates = sorted(item for item in path.rglob("*") if item.is_file())
+        else:
+            candidates = [path]
+        for candidate in candidates:
+            if candidate.suffix.lower() in supported and candidate not in files:
+                files.append(candidate)
+    if not files:
+        raise ValueError("no supported RDF, JSON, JSONL, or Parquet files found in --data sources")
+
+    local_names = {iri: local_name(iri) for iri in term_iris}
+    local_patterns = {
+        iri: re.compile(rf"(?<![\w]){re.escape(name)}(?![\w])") for iri, name in local_names.items()
+    }
+    matches_by_term = dict.fromkeys(term_iris, 0)
+    items_scanned = 0
+    matched_items = 0
+
+    def record_matches(text: str) -> None:
+        nonlocal matched_items
+        matched = False
+        for iri, pattern in local_patterns.items():
+            if iri in text or pattern.search(text):
+                matches_by_term[iri] += 1
+                matched = True
+        if matched:
+            matched_items += 1
+
+    for path in files:
+        suffix = path.suffix.lower()
+        if suffix in supported_json:
+            with path.open(encoding="utf-8") as source:
+                if suffix in {".jsonl", ".ndjson"}:
+                    for line_number, line in enumerate(source, start=1):
+                        if not line.strip():
+                            continue
+                        try:
+                            record = json.loads(line)
+                        except json.JSONDecodeError as exc:
+                            raise ValueError(
+                                f"invalid JSON in {path}:{line_number}: {exc}"
+                            ) from exc
+                        items_scanned += 1
+                        record_matches(json.dumps(record, ensure_ascii=False, sort_keys=True))
+                else:
+                    try:
+                        payload = json.load(source)
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(f"invalid JSON in {path}: {exc}") from exc
+                    records = payload if isinstance(payload, list) else [payload]
+                    for record in records:
+                        items_scanned += 1
+                        record_matches(json.dumps(record, ensure_ascii=False, sort_keys=True))
+        elif suffix == ".parquet":
+            try:
+                import pyarrow.parquet as pq
+            except ImportError as exc:
+                raise ValueError("pyarrow is required to scan historical Parquet data") from exc
+            try:
+                parquet = pq.ParquetFile(path)
+                for batch in parquet.iter_batches(batch_size=1024):
+                    for record in batch.to_pylist():
+                        items_scanned += 1
+                        record_matches(json.dumps(record, ensure_ascii=False, sort_keys=True))
+            except Exception as exc:
+                raise ValueError(f"cannot scan historical Parquet file {path}: {exc}") from exc
+        else:
+            graph = Graph()
+            try:
+                graph.parse(path.as_posix())
+            except Exception as exc:
+                raise ValueError(f"cannot parse historical RDF file {path}: {exc}") from exc
+            for triple in graph:
+                items_scanned += 1
+                record_matches(" ".join(str(term) for term in triple))
+
+    return {
+        "status": "scanned",
+        "sources": sources,
+        "files_scanned": len(files),
+        "items_scanned": items_scanned,
+        "matched_items": matched_items,
+        "matches_by_term": matches_by_term,
+        "counted_unit": "RDF triple, JSON item, non-empty JSONL record, or Parquet row",
+        "matching_method": "term IRI or delimiter-bounded local-name search",
+    }
+
+
+def build_impact_report(
+    *,
+    module: str,
+    old_version: str,
+    new_version: str,
+    changes: list[Change],
+    data_paths: list[str | Path],
+    repo_root: Path | None = None,
+) -> dict:
+    """Create the review report that must accompany a breaking migration."""
+    term_names = changed_term_names(changes)
+    return {
+        "module": module,
+        "from_version": old_version,
+        "to_version": new_version,
+        "compatibility": classify_compatibility(changes),
+        "changes": [
+            {
+                "target": change.target,
+                "kind": change.kind,
+                "semver_severity": change.severity,
+                "compatibility": change_compatibility(change),
+                "detail": change.detail,
+            }
+            for change in changes
+        ],
+        "consumers": blast_radius_for_terms(term_names, repo_root=repo_root),
+        "historical_data": scan_data_impact([change.target for change in changes], data_paths),
+        "limitations": [
+            "Consumer references are lexical leads and require review.",
+            "Data scan reports items mentioning changed terms; it is not a validity check.",
+            "Every authoritative dataset must be included in the supplied --data paths.",
+        ],
+    }
 
 
 def stability_report(releases: list[dict]) -> list[tuple[str, float, int, int]]:
@@ -783,6 +1030,40 @@ def cmd_release(args: argparse.Namespace) -> int:
                 if not script.exists():
                     failures.append(f"{local}: migration script not found: {script}")
                     continue
+                impact_path = script.with_suffix(".impact.json")
+                if not impact_path.is_file():
+                    failures.append(f"{local}: migration impact report not found: {impact_path}")
+                    continue
+                try:
+                    impact = json.loads(impact_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    failures.append(f"{local}: cannot read migration impact report: {exc}")
+                    continue
+                if not isinstance(impact, dict):
+                    failures.append(f"{local}: migration impact report must contain a JSON object")
+                    continue
+                historical_data = impact.get("historical_data")
+                try:
+                    script_sha256 = hashlib.sha256(script.read_bytes()).hexdigest()
+                except OSError as exc:
+                    failures.append(f"{local}: cannot hash migration script: {exc}")
+                    continue
+                if (
+                    impact.get("module") != local
+                    or impact.get("from_version") != latest["version"]
+                    or impact.get("to_version") != declared
+                    or impact.get("compatibility") != COMPATIBILITY_BREAKING
+                    or impact.get("migration_script") != _display_path(script.resolve())
+                    or impact.get("migration_script_sha256") != script_sha256
+                    or not isinstance(historical_data, dict)
+                    or historical_data.get("status") != "scanned"
+                    or not isinstance(historical_data.get("sources"), list)
+                    or not historical_data["sources"]
+                ):
+                    failures.append(
+                        f"{local}: migration impact report does not match this breaking release"
+                    )
+                    continue
 
         prepared.append((local, iri, rel, declared, severity, changes))
 
@@ -793,7 +1074,7 @@ def cmd_release(args: argparse.Namespace) -> int:
 
     if args.dry_run:
         for local, _iri, _rel, declared, severity, changes in prepared:
-            print(f"{local} -> {declared} [{severity}]")
+            print(f"{local} -> {declared} [{severity}/{classify_compatibility(changes)}]")
             radius = blast_radius_for_terms(changed_term_names(changes))
             for category, files in radius.items():
                 if files:
@@ -811,6 +1092,7 @@ def cmd_release(args: argparse.Namespace) -> int:
                 "version": declared,
                 "date": utc_now_iso(),
                 "severity": severity,
+                "compatibility": classify_compatibility(changes),
                 "changes": [
                     {
                         "kind": change.kind,
@@ -839,7 +1121,7 @@ def cmd_release(args: argparse.Namespace) -> int:
 
 
 def cmd_blast_radius(args: argparse.Namespace) -> int:
-    """Report consumers of a term across modules, queries and applications."""
+    """Report consumers of a term across schema, API and projection layers."""
     term = args.term
     name = local_name(term) if "://" in term else term
     radius = blast_radius_for_terms([name])
@@ -997,6 +1279,7 @@ def generate_migration_script(
     lines = [
         f"# Migration: {module} {old_version} -> {new_version}",
         "# Generated by `manage_ontology.py migrate` — REVIEW BEFORE APPLYING.",
+        f"# Review companion impact report: {old_version}_to_{new_version}.impact.json.",
         "# Apply against the canonical data store; take a backup or rely on event replay.",
         "",
     ]
@@ -1038,7 +1321,7 @@ def _display_path(path: Path) -> str:
 
 
 def cmd_migrate(args: argparse.Namespace) -> int:
-    """Generate a migration script for the breaking changes since latest release."""
+    """Generate a migration script and its compatibility/data impact report."""
     registry = registry_dir()
     releases = load_releases(registry)
     for path in find_module_files():
@@ -1057,12 +1340,46 @@ def cmd_migrate(args: argparse.Namespace) -> int:
         if not breaking:
             print(f"{module}: no MAJOR changes since {latest['version']}; nothing to migrate")
             return 1
+        data_paths = getattr(args, "data", None) or []
+        if not data_paths:
+            print(
+                "[error] migration preflight requires every authoritative historical data "
+                "source via --data"
+            )
+            return 1
+        try:
+            impact = build_impact_report(
+                module=module,
+                old_version=latest["version"],
+                new_version=declared,
+                changes=changes,
+                data_paths=data_paths,
+            )
+        except (OSError, ValueError) as exc:
+            print(f"[error] cannot complete migration impact scan: {exc}")
+            return 1
+
         script_path = generate_migration_script(module, latest["version"], declared, changes)
+        impact["migration_script"] = _display_path(script_path.resolve())
+        impact["migration_script_sha256"] = hashlib.sha256(script_path.read_bytes()).hexdigest()
+        impact_path = script_path.with_suffix(".impact.json")
+        impact_path.write_text(
+            json.dumps(impact, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
         print(f"Generated {script_path}")
+        print(f"Generated impact report {impact_path}")
+        print(f"  Compatibility: {impact['compatibility']}")
+        print(
+            "  Historical data: "
+            f"{impact['historical_data']['matched_items']} matching items / "
+            f"{impact['historical_data']['items_scanned']} scanned"
+        )
+        for category in ("api", "indexing", "event_contracts", "shapes", "queries"):
+            print(f"  {category}: {len(impact['consumers'][category])} consumer file(s)")
         for change in breaking:
             print(f"  [{change.severity}] {local_name(change.target)}: {change.detail}")
         print(
-            "Review the script, then: release "
+            "Review the report and script, then: release "
             f"{module} --migration '...' --migration-script {script_path}"
         )
         return 0
@@ -1108,7 +1425,7 @@ def main() -> int:
     release_parser.add_argument(
         "--migration-script",
         default=None,
-        help="path to a migration script (from 'migrate') recorded on MAJOR releases",
+        help="generated MAJOR script; its matching .impact.json report is required",
     )
     release_parser.add_argument(
         "--dry-run", action="store_true", help="preview changes and blast radius only"
@@ -1127,6 +1444,16 @@ def main() -> int:
         "migrate", help="generate a SPARQL Update migration for breaking changes"
     )
     migrate_parser.add_argument("module", help="module name (e.g. 'core') or repo path")
+    migrate_parser.add_argument(
+        "--data",
+        action="append",
+        required=True,
+        metavar="PATH",
+        help=(
+            "historical RDF/JSON/JSONL/Parquet file or directory; repeat for every "
+            "authoritative source (lake directories use manifest.json)"
+        ),
+    )
     migrate_parser.set_defaults(func=cmd_migrate)
 
     align_parser = sub.add_parser("align", help="semantic alignment registry")

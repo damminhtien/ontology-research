@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 import manage_ontology as mgmt
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from conftest import CORE_ONTOLOGY
 
@@ -75,6 +78,83 @@ class TestGenerateMigrationScript:
         assert "Re-run SHACL validation" in path.read_text(encoding="utf-8")
 
 
+class TestScanDataImpact:
+    def test_scans_jsonl_event_records_by_changed_term(self, tmp_path):
+        term = "https://example.org/ontology#locatedAt"
+        source = tmp_path / "history.jsonl"
+        source.write_text(
+            json.dumps({"payload": {"predicate_iri": term}})
+            + "\n"
+            + json.dumps({"payload": {"predicate_iri": "https://example.org/ontology#memberOf"}})
+            + "\n",
+            encoding="utf-8",
+        )
+
+        result = mgmt.scan_data_impact([term], [source])
+
+        assert result["status"] == "scanned"
+        assert result["items_scanned"] == 2
+        assert result["matched_items"] == 1
+        assert result["matches_by_term"] == {term: 1}
+
+    def test_requires_explicit_authoritative_sources(self):
+        with pytest.raises(ValueError, match="every authoritative historical data source"):
+            mgmt.scan_data_impact(["https://example.org/ontology#locatedAt"], [])
+
+    def test_scans_only_manifest_registered_parquet_files(self, tmp_path):
+        term = "https://example.org/ontology#locatedAt"
+        lake_root = tmp_path / "lake"
+        registered = lake_root / "event_date=2026-11-12" / "registered.parquet"
+        orphan = lake_root / "event_date=2026-11-12" / "orphan.parquet"
+        registered.parent.mkdir(parents=True)
+        pq.write_table(
+            pa.table(
+                {
+                    "event_type": ["AssertionMade"],
+                    "payload_json": [json.dumps({"predicate_iri": term})],
+                }
+            ),
+            registered,
+        )
+        pq.write_table(
+            pa.table(
+                {
+                    "event_type": ["AssertionMade"],
+                    "payload_json": [json.dumps({"predicate_iri": term})],
+                }
+            ),
+            orphan,
+        )
+        (lake_root / "manifest.json").write_text(
+            json.dumps({"files": [{"path": "event_date=2026-11-12/registered.parquet"}]}),
+            encoding="utf-8",
+        )
+
+        result = mgmt.scan_data_impact([term], [lake_root])
+
+        assert result["files_scanned"] == 1
+        assert result["items_scanned"] == 1
+        assert result["matched_items"] == 1
+
+    def test_rejects_missing_parquet_file_registered_by_lake_manifest(self, tmp_path):
+        lake_root = tmp_path / "lake"
+        lake_root.mkdir()
+        (lake_root / "manifest.json").write_text(
+            json.dumps({"files": [{"path": "missing.parquet"}]}), encoding="utf-8"
+        )
+
+        with pytest.raises(ValueError, match="manifest Parquet file is missing"):
+            mgmt.scan_data_impact(["https://example.org/ontology#locatedAt"], [lake_root])
+
+    def test_rejects_malformed_lake_manifest(self, tmp_path):
+        lake_root = tmp_path / "lake"
+        lake_root.mkdir()
+        (lake_root / "manifest.json").write_text("[]", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="invalid lake manifest files list"):
+            mgmt.scan_data_impact(["https://example.org/ontology#locatedAt"], [lake_root])
+
+
 class TestCmdMigrate:
     def _released_repo(self, tmp_path, monkeypatch):
         """Fake repo root with core released at 0.1.0 (baseline = real core terms)."""
@@ -132,14 +212,51 @@ class TestCmdMigrate:
         end = text.index(" .", start) + 2
         broken.write_text(text[:start] + text[end:], encoding="utf-8")
         monkeypatch.setattr(mgmt, "find_module_files", lambda: [broken])
+        history = tmp_path / "production.jsonl"
+        history.write_text(
+            json.dumps(
+                {
+                    "event_type": "AssertionMade",
+                    "payload": {
+                        "predicate_iri": (
+                            "https://damminhtien.github.io/ontology-research/ontology/core#operates"
+                        )
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
-        code = mgmt.cmd_migrate(argparse_namespace(module="core"))
+        code = mgmt.cmd_migrate(argparse_namespace(module="core", data=[history]))
         out = capsys.readouterr().out
         assert code == 0
         assert "Generated" in out
         script = Path(out.split("Generated ")[1].splitlines()[0].strip())
         assert "DELETE" in script.read_text(encoding="utf-8")
         assert (tmp_path / "migrations" / "core").is_dir()
+        report_path = script.with_suffix(".impact.json")
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        assert report["compatibility"] == "BREAKING"
+        assert report["historical_data"]["matched_items"] == 1
+        assert report["historical_data"]["sources"] == [str(history.resolve())]
+        assert report["migration_script"] == mgmt._display_path(script.resolve())
+        assert report["migration_script_sha256"] == hashlib.sha256(script.read_bytes()).hexdigest()
+
+    def test_refuses_breaking_migration_without_data_scan(self, tmp_path, monkeypatch, capsys):
+        self._released_repo(tmp_path, monkeypatch)
+        broken = tmp_path / "core_broken.ttl"
+        text = CORE_ONTOLOGY.read_text(encoding="utf-8")
+        start = text.index("core:operates a owl:ObjectProperty")
+        end = text.index(" .", start) + 2
+        broken.write_text(text[:start] + text[end:], encoding="utf-8")
+        monkeypatch.setattr(mgmt, "find_module_files", lambda: [broken])
+
+        code = mgmt.cmd_migrate(argparse_namespace(module="core"))
+
+        assert code == 1
+        assert "requires every authoritative historical data source" in capsys.readouterr().out
+        assert not (tmp_path / "migrations" / "core").exists()
 
 
 class TestAlignmentRegistry:
