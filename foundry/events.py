@@ -16,7 +16,7 @@ import fcntl
 import json
 import os
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -254,7 +254,8 @@ class EventLog:
     ``data/production.jsonl``):
 
     - the base file is the **active segment** — appends land here;
-    - when the active segment reaches ``max_segment_bytes`` it is renamed to
+    - when the active segment reaches ``max_segment_bytes``, or before the
+      next record would exceed it, the segment is renamed to
       ``<stem>-000001.jsonl``, ``<stem>-000002.jsonl``, … (ordered archives)
       and a fresh base file takes over; reads visit archives oldest-first,
       the base last;
@@ -266,8 +267,9 @@ class EventLog:
     - a writer holds an exclusive ``flock`` on ``<path>.lock`` for the whole
       append batch; a second concurrent writer fails fast with
       :class:`EventLogLocked` instead of interleaving lines;
-    - every batch is flushed and ``fsync``-ed before the call returns — a
-      reported success survives a crash;
+    - a batch may span segments; each completed segment and the final active
+      segment are flushed and ``fsync``-ed before the call returns — a reported
+      success survives a crash;
     - a trailing unterminated line (crash mid-write) is not a committed
       record: reads skip it and the next append truncates it.
 
@@ -283,8 +285,8 @@ class EventLog:
 
         Args:
             path: Base path of the log (the active segment).
-            max_segment_bytes: Roll the active segment to an archive once it
-                reaches this size.
+            max_segment_bytes: Maximum segment size, except when one record by
+                itself exceeds the limit.
         """
         if max_segment_bytes < 1:
             raise ValueError("max_segment_bytes must be >= 1")
@@ -340,10 +342,8 @@ class EventLog:
             fingerprint.append((segment.as_posix(), stat.st_size, stat.st_mtime_ns))
         return tuple(fingerprint)
 
-    def _roll_if_needed(self) -> None:
-        """Rename the active segment to the next archive when it is full."""
-        if not self._path.exists() or self._path.stat().st_size < self._max_segment_bytes:
-            return
+    def _roll_active_segment(self) -> None:
+        """Rename the active segment to the next archive."""
         archive = self._path.with_name(
             f"{self._path.stem}-{len(self._archives()) + 1:0{self.ARCHIVE_DIGITS}d}"
             f"{self._path.suffix}"
@@ -418,7 +418,7 @@ class EventLog:
         """
         self.extend([event])
 
-    def extend(self, events: Iterator[SemanticEvent] | list[SemanticEvent]) -> int:
+    def extend(self, events: Iterable[SemanticEvent]) -> int:
         """Append many events in one locked, fsync-ed batch.
 
         Returns the count written. A trailing partial line from a previous
@@ -436,22 +436,49 @@ class EventLog:
             # physical offset across all writers.
             self._next_seq = self._physical_count() + 1
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            with self._path.open("a", encoding="utf-8") as handle:
+            self._path.touch(exist_ok=True)
+            handle = None
+            active_size = self._path.stat().st_size
+            try:
                 for event in events:
                     stamped = replace(event, sequence=self._next_sequence())
-                    line = json.dumps(event_to_dict(stamped), ensure_ascii=False, sort_keys=True)
-                    handle.write(line + "\n")
+                    line = (
+                        json.dumps(event_to_dict(stamped), ensure_ascii=False, sort_keys=True)
+                        + "\n"
+                    ).encode("utf-8")
+                    if active_size and active_size + len(line) > self._max_segment_bytes:
+                        if handle is not None:
+                            handle.flush()
+                            os.fsync(handle.fileno())
+                            handle.close()
+                        self._roll_active_segment()
+                        handle = None
+                        active_size = 0
+                    if handle is None:
+                        handle = self._path.open("ab")
+                    handle.write(line)
+                    active_size += len(line)
                     count += 1
-                handle.flush()
-                os.fsync(handle.fileno())
-            self._roll_if_needed()
+                    if active_size >= self._max_segment_bytes:
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                        handle.close()
+                        self._roll_active_segment()
+                        handle = None
+                        active_size = 0
+                if handle is not None:
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            finally:
+                if handle is not None and not handle.closed:
+                    handle.close()
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
             lock.close()
         return count
 
-    def read_all(self) -> list[SemanticEvent]:
-        """Replay the full log in order (archives oldest-first, base last).
+    def iter_all(self) -> Iterator[SemanticEvent]:
+        """Yield validated events in log order without loading the log in RAM.
 
         Every stamped record must sit exactly at its global sequence position;
         legacy unstamped records (schema v1 logs) are accepted at any position.
@@ -462,29 +489,29 @@ class EventLog:
             ValueError: If any line is not a valid event record or a stamped
                 sequence is out of position (log corruption or truncation).
         """
-        events: list[SemanticEvent] = []
         position = 0
         segments = self._segments()
-        for index, segment in enumerate(segments):
-            is_active = index == len(segments) - 1
-            raw_lines = segment.read_bytes().split(b"\n")
-            if raw_lines and raw_lines[-1] == b"":
-                raw_lines.pop()  # artifact of splitting a complete file
-            elif is_active and raw_lines:
-                raw_lines.pop()  # uncommitted partial tail: no trailing newline
-            for raw in raw_lines:
-                position += 1
-                line = raw.decode("utf-8", errors="replace").strip()
-                if not line:
-                    continue
-                try:
-                    event = event_from_dict(json.loads(line))
-                    if event.sequence is not None and event.sequence != position:
-                        raise ValueError(
-                            f"sequence discontinuity: record claims {event.sequence}, "
-                            f"physical position is {position}"
-                        )
-                except ValueError as exc:
-                    raise ValueError(f"{segment}:{position}: {exc}") from exc
-                events.append(event)
-        return events
+        for segment in segments:
+            is_active = segment == self._path
+            with segment.open("rb") as handle:
+                for raw in handle:
+                    if not raw.endswith(b"\n") and is_active:
+                        break  # uncommitted partial tail
+                    position += 1
+                    line = raw.rstrip(b"\r\n").decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
+                    try:
+                        event = event_from_dict(json.loads(line))
+                        if event.sequence is not None and event.sequence != position:
+                            raise ValueError(
+                                f"sequence discontinuity: record claims {event.sequence}, "
+                                f"physical position is {position}"
+                            )
+                    except ValueError as exc:
+                        raise ValueError(f"{segment}:{position}: {exc}") from exc
+                    yield event
+
+    def read_all(self) -> list[SemanticEvent]:
+        """Replay the full log into a list for callers that need materialization."""
+        return list(self.iter_all())

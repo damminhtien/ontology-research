@@ -20,6 +20,7 @@ correct when new event types land ahead of projector upgrades.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -127,9 +128,9 @@ class Projector:
         return True
 
     def replay(
-        self, events: list[SemanticEvent], *, after_sequence: int | None = None
+        self, events: Iterable[SemanticEvent], *, after_sequence: int | None = None
     ) -> ProjectStats:
-        """Fold an event list in log order.
+        """Fold an event iterable in log order.
 
         Events are ordered by their ``sequence`` stamp (the append order);
         legacy unstamped records keep their input order and precede stamped
@@ -144,11 +145,21 @@ class Projector:
                 pair[0] if pair[1].sequence is None else pair[1].sequence,
             ),
         )
+        return self.replay_in_order((event for _, event in ordered), after_sequence=after_sequence)
+
+    def replay_in_order(
+        self, events: Iterable[SemanticEvent], *, after_sequence: int | None = None
+    ) -> ProjectStats:
+        """Fold events already supplied in log order without sorting/materializing.
+
+        Use :meth:`EventLog.iter_all` for a streamed, sequence-validated input.
+        Callers passing another iterable are responsible for preserving order.
+        """
         applied = 0
         skipped = 0
         duplicates = 0
         by_type: dict[str, int] = {}
-        for _, event in ordered:
+        for event in events:
             by_type[event.event_type] = by_type.get(event.event_type, 0) + 1
             if (
                 after_sequence is not None
@@ -199,7 +210,7 @@ class Projector:
 
 
 def replay_log(log: EventLog) -> tuple[ReadModel, ProjectStats]:
-    """Build a fresh read model by replaying the entire event log."""
+    """Build a fresh read model by streaming the entire event log."""
     model = ReadModel()
-    stats = Projector(model).replay(log.read_all())
+    stats = Projector(model).replay_in_order(log.iter_all())
     return model, stats

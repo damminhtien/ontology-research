@@ -22,7 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if (REPO_ROOT / "tools").as_posix() not in sys.path:
     sys.path.insert(0, (REPO_ROOT / "tools").as_posix())
 
-from benchmark import SLO_REFERENCE, run_benchmark  # noqa: E402
+from benchmark import QUERY_REPETITIONS, SLO_REFERENCE, run_benchmark  # noqa: E402
 
 BASELINE_PATH = REPO_ROOT / "benchmarks" / "baseline.json"
 
@@ -62,6 +62,7 @@ def generate_baseline() -> None:
             "entities": SCALE,
             "observations_per_entity": OBSERVATIONS,
             "runs": RUNS,
+            "repetitions_per_sample": QUERY_REPETITIONS,
             "iterations": ITERATIONS,
             "seed": 42,
         },

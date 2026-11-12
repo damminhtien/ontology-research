@@ -3,22 +3,23 @@
     "entities": 500,
     "observations_per_entity": 3,
     "runs": 200,
+    "repetitions_per_sample": 100,
     "iterations": 5,
     "seed": 42
   },
   "query_latency": {
     "q1_entity_lookup_ms": {
-      "p95_ms": 0.0008,
+      "p95_ms": 0.0005,
       "slo_ms": 50
     },
     "q_current_location_ms": {
-      "p95_ms": 0.0824,
+      "p95_ms": 0.0672,
       "slo_ms": 100
     },
     "q4_temporal_ms": {
-      "p95_ms": 0.082,
+      "p95_ms": 0.0675,
       "slo_ms": 500
     }
   },
-  "generated_at": "2026-11-11T15:18:07.813247+00:00"
+  "generated_at": "2026-11-12T06:17:36.092932+00:00"
 }

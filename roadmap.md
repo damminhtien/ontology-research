@@ -15,17 +15,17 @@ thay vì một central KG): xem `docs/architecture.md` §2.
 
 ---
 
-## 1. Snapshot hiện tại (đồng bộ mã nguồn — 2026-11-11)
+## 1. Snapshot hiện tại (đồng bộ mã nguồn — 2026-11-12)
 
 Quality gates: `make check` (lint, versions, alignment, SHACL, DAG, pytest và
-2 SLO gates). Xác minh ngày 2026-11-11: `make check` passed, 445 tests.
+2 SLO gates). Xác minh ngày 2026-11-12: `make check` passed, 446 tests.
 
 | Thành phần | Trạng thái | Bằng chứng trong repo |
 |---|---|---|
 | Event log (write model) | ✅ | `foundry/events.py` — JSONL segmented, flock + fsync, tail-recovery, sequence toàn cục, upcaster chain, **12 event types** |
 | Identity registry | ✅ | `foundry/identity.py` — pure `lookup()`, alias multimap, type-aware, external id multi-valued, `IdentityStore` boundary; registry = log projection |
 | Ingestion pipeline | ✅ | `foundry/ingestion.py` — SHACL gate (4 shapes files), **4 data lanes**: reference (Wikidata), tracking (AIS), documents (extraction), corrections (merge/split/backfill/import) |
-| Read model (CQRS) | ✅ | `foundry/projector.py` + `readmodel.py` — sequence-ordered, checkpointed, per-event idempotent, snapshot persist; track store |
+| Read model (CQRS) | ✅ | `foundry/projector.py` + `readmodel.py` — sequence-ordered streaming replay, checkpointed, per-event idempotent, snapshot persist; in-memory track store |
 | Lake | ✅ | `foundry/lake.py` — Parquet+zstd, manifest-authoritative query, event-id dedup, compaction |
 | Assertions | ✅ | `foundry/assertions.py` — Document/Assertion ledger, supersedes, SHACL assertion shapes |
 | Extraction | ✅ | `foundry/extraction.py` — `PatternExtractor` deterministic + `LlmExtractor` (completion injectable), confidence cap 0.7, không auto-mint |
@@ -33,7 +33,7 @@ Quality gates: `make check` (lint, versions, alignment, SHACL, DAG, pytest và
 | Tracking vertical | ✅ | `foundry/tracking.py` — `SensorRegistered`/`ObservationRecorded`/`TrackObserved`, gate qua domain SHACL |
 | Console | ✅ scoped provenance reads + token-gated writes | `foundry/console/` — FastAPI + SPA; query token được giới hạn source ID; Admin hỗ trợ review, merge/split và backfill; writes được audit trong production log |
 | Governance | ✅ | `tools/manage_ontology.py` — SemVer registry, blast-radius, stability, migration/alignment |
-| Benchmarks | ✅ | micro (`tools/benchmark.py`) + e2e per-stage gate (`tools/benchmark_e2e.py`) |
+| Benchmarks | ✅ | micro (`tools/benchmark.py`) streams log generation/replay and reports RSS/storage; e2e per-stage gate (`tools/benchmark_e2e.py`) |
 | Ontology | ✅ | 7 modules / 27 classes / 43 properties — `docs/guides/ontology-status.md` |
 
 **Historical production snapshot (2026-09-02)**: 24.217 canonical entities
@@ -102,7 +102,7 @@ scale ladder là mục tiếp theo.
 
 | # | Việc | Ghi chú |
 |---|------|---------|
-| 1 | **Scale ladder** 10M entities / 100M edges → 100M / 1B | đo: ingest throughput, query p95, memory, index build, recovery |
+| 1 | **Scale ladder** 10M entities / 100M edges → 100M / 1B | Streaming probe reached 100K entities / 1M location observations on 2026-11-12; metrics and limits: `requirements/scale_targets.md`. Target rung remains open; next is a persistent identity/read-model backend. |
 | 2 | **Federation** theo domain KG + federated query layer | nhiều domain KG conform core + middle + semantic contracts |
 | 3 | **Multi-writer log** | segment foundation (B1) sẵn sàng; chỉ làm khi scale đo được nhu cầu |
 | 4 | **Vector-based candidate generation** | thay/thêm token-overlap, vẫn qua cùng review gate |

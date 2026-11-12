@@ -9,14 +9,14 @@ from benchmark import generate_events, run_benchmark
 
 class TestEventGenerator:
     def test_deterministic_for_fixed_seed(self):
-        first = generate_events(5, 2, seed=42)
-        second = generate_events(5, 2, seed=42)
+        first = list(generate_events(5, 2, seed=42))
+        second = list(generate_events(5, 2, seed=42))
         # event ids differ per call (uuid4) but payload content must match
         assert [e.payload for e in first] == [e.payload for e in second]
         assert [e.event_type for e in first] == [e.event_type for e in second]
 
     def test_scale_counts(self):
-        events = generate_events(10, 3)
+        events = list(generate_events(10, 3))
         assert len(events) == 10 + 30
         assert sum(1 for e in events if e.event_type == "EntityCreated") == 10
 
@@ -26,13 +26,21 @@ class TestBenchmarkReport:
         report = run_benchmark(n_entities=30, observations_per=2, runs=20, out_dir=tmp_path)
 
         assert report["scale"]["total_events"] == 90
-        assert report["ingestion"]["raw_append_events_per_s"] > 0
+        assert report["ingestion"]["synthetic_ingest_events_per_s"] > 0
+        assert report["ingestion"]["identity_exact_alias_hits"] == 60
+        assert report["ingestion"]["identity_lookup_count"] == 60
         assert report["projection"]["applied"] == 90
         assert report["projection"]["skipped"] == 0
+        assert report["projection"]["index_build_secs"] > 0
+        assert report["recovery"]["full_replay_secs"] > 0
+        assert report["resources"]["peak_rss_bytes"] > 0
+        assert report["resources"]["event_log_bytes"] > 0
+        assert report["resources"]["event_log_segments"] >= 1
 
         for name in ("q1_entity_lookup_ms", "q_current_location_ms", "q4_temporal_ms"):
             metric = report["query_latency"][name]
             assert metric["runs"] == 20
+            assert metric["repetitions_per_sample"] == 100
             assert 0 <= metric["p50_ms"] <= metric["p95_ms"] <= metric["p99_ms"]
             comparison = report["slo_comparison"][name]
             assert set(comparison) == {"p95_ms", "slo_ms", "within_slo"}

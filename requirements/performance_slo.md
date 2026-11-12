@@ -51,14 +51,25 @@ Baseline được lưu tại `benchmarks/baseline.json` và tạo bởi `tools/c
 - fail nếu bất kỳ query nào có p95 > 1.2× baseline;
 - fail nếu bất kỳ query nào có p95 > target p95 trong bảng trên.
 
-Harness: `tools/benchmark.py` — deterministic synthetic log (fixed seed),
-đo raw append, identity hot path, full projection replay, và warm query latency
-(p50/p95/p99, ≥ 100 runs). Kết quả xuất ra `build/benchmark-report.json`.
+Harness: `tools/benchmark.py` — sinh payload tổng hợp với seed cố định rồi đo
+synthetic ingest (tạo event + append bền vững vào JSONL, chưa chạy SHACL), exact
+alias identity lookup, streaming full replay và warm query latency (p50/p95/p99).
+Mỗi query sample là trung bình của 100 lần gọi đã warm; p95 lấy trên ≥ 100 probe
+entity để giảm nhiễu timer ở query dưới microsecond. Report
+`build/benchmark-report.json` còn ghi peak RSS, dung lượng
+log, số segment, thời gian build read-model index và thời gian full-replay.
+Recovery ở đây là replay vào read model mới; chưa gồm restore snapshot.
 
 ## Quy tắc đo
 
 - Đo trên dataset có kích thước khai báo rõ (hiện tại: seed dataset nhỏ cho correctness;
-  scale benchmark dùng synthetic 1K–100K entities tùy mục đích).
+  scale benchmark tới 100K entities tùy mục đích).
 - Latency đo từ API boundary / read-model method, không tính network client-side.
-- p95 tính trên ≥ 100 lần chạy warm cache, ghi nhận cả cold-start riêng.
+- p95 tính trên 200 probe warm; mỗi probe trung bình 100 lần gọi. Harness này
+  chưa đo cold-start.
+- So sánh peak RSS chỉ từ lần chạy benchmark độc lập; trong process test dùng chung,
+  high-water mark có thể gồm các phép đo chạy trước đó.
 - Baseline được ghi trên máy cố định; CI sẽ so sánh với baseline đã commit.
+
+Số đo thử scale 100K hiện có cùng giới hạn và ngày đo được ghi tại
+[`scale_targets.md`](scale_targets.md); nó chưa hoàn thành rung 10M/100M.

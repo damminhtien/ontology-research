@@ -1,7 +1,7 @@
 # Kiến trúc Semantic Foundry
 
 - Status: accepted
-- Last synchronized with source: 2026-11-11
+- Last synchronized with source: 2026-11-12
 - Historical audit baseline: ADR-0001…ADR-0010 and an operational snapshot of 47.628 events / 24.217 entities (2026-09-02)
 - Tài liệu này mô tả kiến trúc hiện tại và giữ lại lịch sử các vấn đề đã phát hiện cùng cách xử lý. Backlog còn mở nằm trong `roadmap.md`; các quyết định ban đầu nằm trong ADR.
 
@@ -30,7 +30,7 @@ Mọi thiết kế dưới đây phục tùng bốn nguyên tắc này — chún
                                     ▼
                     ┌──────────────────────────────┐   ┌───────────────────────────────┐
    READ PATH        │ Lake (Parquet+zstd, manifest)│   │ Projector → ReadModel (CQRS)  │
-                    │ OLAP: DuckDB lake_query      │   │ foundry/projector.py (batch)  │
+                    │ OLAP: DuckDB lake_query      │   │ foundry/projector.py (stream) │
                     └──────────────────────────────┘   └───────────────────────────────┘
                                     │                          │
                                     ▼                          ▼
@@ -89,7 +89,8 @@ log riêng và **không bao giờ** là default của tool production. Writer an
 EventLog (event schema v3; upcaster đọc log v1/v2)
 ├── writer lock file (flock) — writer thứ hai fail nhanh, không xen kẽ
 ├── fsync mỗi batch (mỗi lần extend) — crash không mất batch đã báo thành công
-├── segment files: production-000001.jsonl, … (roll theo size) — repair một
+├── segment files: production-000001.jsonl, … (roll khi đạt ngưỡng hoặc trước
+│   record làm vượt ngưỡng; record đơn lớn hơn ngưỡng được giữ nguyên) — repair một
 │   segment hỏng không đụng phần còn lại
 ├── tail-recovery: dòng JSON cắt cụt ở cuối segment = bỏ + ghi nhận, không làm
 │   chết toàn bộ log
@@ -149,9 +150,13 @@ Quy tắc:
   cùng kết quả".
 - **Checkpoint**: lưu `last_sequence` cạnh read model; khởi động lại chỉ replay
   phần tăng thêm.
+- **Streaming log replay**: `EventLog.iter_all()` kiểm tra từng dòng mà không
+  nạp cả file vào RAM; `replay_log()` dùng `Projector.replay_in_order()`. API
+  `read_all()` và `Projector.replay()` vẫn giữ cho caller cần list/sort.
 - **Streaming-safe**: `rebuild_location_index()` biến thành cập nhật tăng dần
   bên trong từng apply — bỏ invariant "chỉ đúng sau batch replay".
-- Read model vẫn in-memory theo ADR-0004; interface không đổi với Console.
+- Identity registry và read model vẫn in-memory theo ADR-0004; streaming tránh
+  giữ thêm toàn bộ event list nhưng không thay giới hạn RAM của hai index.
 
 ### 4.4 Lake: manifest-authoritative + compaction + dedup (sửa D5, D10)
 
@@ -198,12 +203,14 @@ reference/
   mint vẫn qua gate, được ghi vào log, và tự nối vào entity khi identity resolve
   sau (xử lý ở projector, không cần sửa log).
 
-### 4.8 Benchmark end-to-end (đo cái thật)
+### 4.8 Benchmark end-to-end
 
-Microbenchmark hiện tại chỉ đo read model trong bộ nhớ. Bổ sung e2e suite:
-reference → ingest (identity + SHACL + log) → persist lake → replay projector →
-đo throughput/latency từng stage trên phân bố dữ liệu thật (song ngữ, tên trùng,
-alias nhiều). SLO gate mở rộng theo stage thay vì một con số tổng.
+`tools/benchmark.py` đo synthetic event production + segmented log append, exact
+alias lookup, streaming replay, in-memory query latency, peak RSS và log storage.
+`tools/benchmark_e2e.py` đo reference → ingest (identity + SHACL + log) → persist
+lake → replay projector → lake query; `make check` chạy stage gate ở scale CI.
+Số đo chi tiết và scope nằm trong `requirements/scale_targets.md`. Cả hai harness
+đều chưa chứng minh target 10M/100M; identity và read-model index hiện vẫn in-memory.
 
 ## 5. Thứ tự chuyển đổi đã thực hiện
 

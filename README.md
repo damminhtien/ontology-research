@@ -224,8 +224,8 @@ tra graph thay vì đọc raw source.
       lane + streaming/checkpointed projector + migration/alignment registry +
       **Console admin write ops (token auth + audit trên event log)** — hoàn thành
 - [x] Phase 6 item 1: query API provenance access (`FOUNDRY_PROVENANCE_TOKENS`)
-- [ ] Phase 6: scale ladder 10M–100M; federation; multi-writer log; vector
-      candidate generation
+- [ ] Phase 6: scale ladder 10M–100M (initial 100K/1M probe only); federation;
+      multi-writer log; vector candidate generation
 - [ ] Phase 7: Vietnam profile + AI semantic query interface
 
 Chi tiết + snapshot đồng bộ mã nguồn: [roadmap.md](roadmap.md) §1–§3.

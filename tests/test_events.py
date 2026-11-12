@@ -78,6 +78,7 @@ class TestAppendOnlyLog:
 
         replayed = log.read_all()
         assert [e.event_id for e in replayed] == [e.event_id for e in events]
+        assert list(log.iter_all()) == replayed
 
     def test_read_all_empty_when_no_file(self, tmp_path):
         assert EventLog(tmp_path / "missing.jsonl").read_all() == []
@@ -136,15 +137,25 @@ class TestSequenceStamping:
 class TestSegmentedTransport:
     def test_roll_preserves_order_and_global_sequence(self, tmp_path):
         path = tmp_path / "log.jsonl"
-        log = EventLog(path, max_segment_bytes=1)  # roll after every batch
+        log = EventLog(path, max_segment_bytes=1)  # roll every record
         log.extend([make_event("EntityCreated", {"n": i}) for i in range(5)])
         log.append(make_event("EntityCreated", {"n": 5}))
 
         archives = sorted(tmp_path.glob("log-*.jsonl"))
-        assert len(archives) == 2  # one roll per finished batch that crossed the limit
+        assert len(archives) == 6  # each full segment is archived immediately
         replayed = EventLog(path).read_all()
         assert [e.payload["n"] for e in replayed] == list(range(6))
         assert [e.sequence for e in replayed] == [1, 2, 3, 4, 5, 6]
+
+    def test_large_extend_keeps_segments_within_configured_limit(self, tmp_path):
+        path = tmp_path / "log.jsonl"
+        log = EventLog(path, max_segment_bytes=500)
+        log.extend(make_event("EntityCreated", {"n": i, "name": f"entity-{i}"}) for i in range(8))
+
+        sizes = [size for _name, size, _mtime in log.fingerprint()]
+        assert len(sizes) > 1
+        assert all(size <= 500 for size in sizes)
+        assert len(list(log.iter_all())) == 8
 
     def test_sequence_continues_across_instances_and_rolls(self, tmp_path):
         path = tmp_path / "log.jsonl"

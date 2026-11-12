@@ -31,14 +31,18 @@ Ba hot query của read model:
 make benchmark
 ```
 
-The command reports append, identity lookup, projection throughput and query
-latency, then writes `build/benchmark-report.json`. Measurements depend on the
-machine and run; the committed SLO baseline is in `benchmarks/baseline.json`.
+The command reports synthetic ingest, exact alias lookup, streaming projection,
+query latency, peak process RSS and event-log bytes, then writes
+`build/benchmark-report.json`. Measurements depend on the machine and run; the
+committed query SLO baseline is in `benchmarks/baseline.json`.
 
 !!! note "Đọc số liệu đúng cách"
-    Đây là số đo trên in-memory scaffold — là **floor** để so sánh regression,
-    không phải con số production. Raw append là tốc độ ghi log thuần (không qua
-    SHACL gate); production path có thêm validation chi phí cao hơn.
+    Event log và projector đọc theo luồng, nhưng identity/read-model indexes vẫn
+    in-memory. Synthetic ingest tính cả tạo event và ghi log (không qua SHACL);
+    đây không phải tốc độ production. Recovery trong report là full replay vào
+    model mới, không phải thời gian restore snapshot. Chỉ so RSS giữa các lần
+    chạy riêng process. Query p95 là percentile của các probe trung bình 100 lần
+    gọi warm; baseline SLO dùng cùng phép đo.
 
 Tăng scale để stress test (không commit kết quả — `build/` đã gitignore):
 
