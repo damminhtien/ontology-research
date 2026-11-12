@@ -1,0 +1,12 @@
+# CQ-035..036: Retrieve measured position from an ObservationResult.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#>
+
+SELECT ?atTime ?positionName WHERE {
+  ?result a tracking:ObservationResult ;
+      tracking:resultOf ?observation ;
+      tracking:position ?position .
+  ?observation core:atTime ?atTime .
+  ?position core:name ?positionName .
+  FILTER (?observation = ?wantedObservation)
+}

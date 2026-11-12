@@ -2,6 +2,7 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
+@prefix assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#> .
 @prefix ex: <https://data.example/entity/> .
 @prefix src: <https://data.example/source/> .
 
@@ -14,6 +15,8 @@ ex:loc-cam-ranh a core:Location ; core:name "Cam Ranh Bay" ;
 ex:loc-da-nang a core:Location ; core:name "Da Nang" ;
     core:partOf ex:loc-vietnam .
 ex:loc-hanoi a core:Location ; core:name "Hanoi" ;
+    core:partOf ex:loc-vietnam .
+ex:loc-vungtau a core:Location ; core:name "Vung Tau" ;
     core:partOf ex:loc-vietnam .
 
 # ---- Organizations / people ----------------------------------------------
@@ -57,25 +60,26 @@ src:open-report a core:Source ; core:name "Open source report" .
 ex:obs-001 a core:Observation ;
     core:observes ex:patrol-01 ;
     core:atTime "2026-08-20T03:00:00Z"^^xsd:dateTime ;
-    core:hasSource src:sat-pass-0820 , src:ais-feed ;
-    core:hasConfidence "0.92"^^xsd:decimal .
+    core:hasSource src:sat-pass-0820 , src:ais-feed .
 
 ex:obs-002 a core:Observation ;
     core:observes ex:patrol-02 ;
     core:atTime "2026-08-21T09:30:00Z"^^xsd:dateTime ;
-    core:hasSource src:ais-feed ;
-    core:hasConfidence "0.85"^^xsd:decimal .
+    core:hasSource src:ais-feed .
 
 # ---- Location assertions (canonical temporal facts) ------------------------
 # Older fact first: patrol-01 seen at Da Nang, then later at Cam Ranh.
-ex:la-001 a core:LocationAssertion ;
+ex:la-001 a assertion:Assertion ;
     core:describes ex:patrol-01 ;
-    core:locatedAt ex:loc-da-nang ;
+    assertion:predicate core:locatedAt ;
+    assertion:hasObject ex:loc-da-nang ;
     core:validFrom "2026-07-15T00:00:00Z"^^xsd:dateTime ;
+    core:validUntil "2026-08-20T03:00:00Z"^^xsd:dateTime ;
     core:hasSource src:open-report .
 
-ex:la-002 a core:LocationAssertion ;
+ex:la-002 a assertion:Assertion ;
     core:describes ex:patrol-01 ;
-    core:locatedAt ex:loc-cam-ranh ;
+    assertion:predicate core:locatedAt ;
+    assertion:hasObject ex:loc-cam-ranh ;
     core:validFrom "2026-08-20T03:00:00Z"^^xsd:dateTime ;
     core:hasSource src:sat-pass-0820 , src:ais-feed .

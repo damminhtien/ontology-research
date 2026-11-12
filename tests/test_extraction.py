@@ -10,6 +10,7 @@ from conftest import CORE_ONTOLOGY, SHAPES_FILE
 from foundry.events import EventLog
 from foundry.extraction import (
     CAP_EXTRACTED_CONFIDENCE,
+    CandidateFact,
     LlmExtractor,
     PatternExtractor,
 )
@@ -37,6 +38,12 @@ def pipeline(tmp_path) -> IngestionPipeline:
         entity_type="Organization",
         aliases=["Vietnam Coast Guard"],
         source_id="s1",
+    )
+    pipeline.ingest_entity(
+        name="Bộ Quốc phòng Việt Nam",
+        entity_type="Organization",
+        aliases=["Ministry of National Defence"],
+        source_id="s2",
     )
     return pipeline
 
@@ -101,7 +108,7 @@ class TestLlmExtractor:
 
 
 class TestIngestDocument:
-    def test_known_subject_asserted_with_document_provenance(self, pipeline):
+    def test_unknown_location_name_is_queued_without_a_fake_location(self, pipeline):
         result = pipeline.ingest_document(
             uri="https://example.org/report-1",
             title="Báo cáo tuần",
@@ -109,15 +116,11 @@ class TestIngestDocument:
             text="Cảnh sát biển Việt Nam đặt tại Đà Nẵng từ 2026-05-01.",
         )
         assert result.candidates == 1
-        assert result.asserted == 1 and result.queued == 0
-        assertion = result.assertion_results[0]
-        assert assertion.accepted
-        # provenance is the citing document, confidence capped below structured data
-        payload = assertion.event.payload
-        assert payload["source_ids"] == [result.document_id]
-        assert payload["confidence"] == CAP_EXTRACTED_CONFIDENCE
-        # the object became a pending location placeholder (§4.7)
-        assert payload["object"]["value"].startswith("urn:world:pending:")
+        assert result.asserted == 0 and result.queued == 1
+        assert not result.assertion_results
+        assert [event.event_type for event in pipeline._log.read_all()][
+            -1
+        ] == "ResolutionReviewQueued"
 
     def test_entity_object_resolved_via_alias(self, pipeline):
         result = pipeline.ingest_document(
@@ -126,11 +129,16 @@ class TestIngestDocument:
             source_system="crawler",
             text="Vietnam Coast Guard is part of Bộ Quốc phòng Việt Nam từ 2026-06-01.",
         )
-        # object "Bộ Quốc phòng Việt Nam" is unknown → pending placeholder
+        # The exact alias resolves to a canonical entity before assertion.
         assert result.asserted == 1
         payload = result.assertion_results[0].event.payload
         assert payload["object"]["kind"] == "entity"
-        assert payload["object"]["value"].startswith("urn:world:pending:")
+        assert (
+            payload["object"]["value"]
+            == pipeline._identity.lookup(
+                name="Bộ Quốc phòng Việt Nam", entity_type="Organization"
+            ).canonical_id
+        )
 
     def test_unknown_subject_queued_and_never_minted(self, pipeline):
         before = len(pipeline._identity)
@@ -158,11 +166,25 @@ class TestIngestDocument:
     def test_ledger_records_assertions_with_document_source(self, pipeline):
         from foundry.assertions import load_assertions
 
+        class FixedExtractor:
+            def extract(self, _text):
+                return [
+                    CandidateFact(
+                        subject_name="Cảnh sát biển Việt Nam",
+                        predicate_iri=CORE_LOCATED_AT,
+                        object_kind="location",
+                        object_value="urn:world:location:da-nang",
+                        valid_from="2026-05-01T00:00:00Z",
+                        confidence=CAP_EXTRACTED_CONFIDENCE,
+                    )
+                ]
+
         result = pipeline.ingest_document(
             uri="https://example.org/report-1",
             title="Báo cáo tuần",
             source_system="crawler",
-            text="Cảnh sát biển Việt Nam đặt tại Đà Nẵng từ 2026-05-01.",
+            text="source with a canonical location identifier",
+            extractor=FixedExtractor(),
         )
         ledger = load_assertions(pipeline._log)
         entries = list(ledger.values())

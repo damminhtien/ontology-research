@@ -3,14 +3,27 @@
 @prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
 @prefix identity: <https://damminhtien.github.io/ontology-research/ontology/middle/identity#> .
 
-# A placeholder for a referenced-but-not-yet-minted entity must carry exactly
-# one name: that surface form is what the projector uses to link observations
-# to the entity once identity resolves (architecture §4.7).
+# A noncanonical reference carries exactly one source surface form.
 identity:UnresolvedReferenceShape a sh:NodeShape ;
     sh:targetClass identity:UnresolvedReference ;
     sh:property [
-        sh:path core:name ;
+        sh:path identity:referenceText ;
         sh:minCount 1 ; sh:maxCount 1 ;
         sh:datatype xsd:string ;
-        sh:message "Unresolved reference must carry exactly one core:name (the cited surface form)."@en ;
+        sh:message "Unresolved reference must carry exactly one referenceText."@en ;
+    ] .
+
+identity:IdentifierShape a sh:NodeShape ;
+    sh:targetClass identity:Identifier ;
+    sh:property [
+        sh:path identity:identifies ;
+        sh:minCount 1 ; sh:maxCount 1 ; sh:class core:Entity ;
+    ] ;
+    sh:property [
+        sh:path identity:identifierScheme ;
+        sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path identity:identifierValue ;
+        sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
     ] .

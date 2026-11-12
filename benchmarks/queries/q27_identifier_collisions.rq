@@ -1,0 +1,13 @@
+# CQ-034: Equal lexical values from different schemes remain different identifiers.
+PREFIX identity: <https://damminhtien.github.io/ontology-research/ontology/middle/identity#>
+
+SELECT ?schemeA ?schemeB WHERE {
+  ?idA a identity:Identifier ;
+      identity:identifierScheme ?schemeA ;
+      identity:identifierValue ?value .
+  ?idB a identity:Identifier ;
+      identity:identifierScheme ?schemeB ;
+      identity:identifierValue ?value .
+  FILTER (?value = ?wantedValue && STR(?schemeA) < STR(?schemeB))
+  FILTER (?idA != ?idB)
+}

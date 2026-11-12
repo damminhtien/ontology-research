@@ -43,20 +43,18 @@ chiều vùng, thời gian và triển khai OLAP cần bằng chứng riêng.
 
 ## Đọc kết quả và bổ sung bằng chứng
 
-Lần chạy ban đầu: 27 lớp, **43/43** thuộc tính đủ khai báo, **0** vi phạm
-SHACL và **5/8** shape theo lớp có focus node. Corpus benchmark chưa có
-focus node cho `AssertionShape`, `DocumentShape` và
-`UnresolvedReferenceShape`. Đây là khoảng trống của corpus chung, kể cả khi
-các unit test chuyên biệt có dữ liệu cho các shape đó.
+Snapshot checked 2026-11-12: 28 classes, **68/68** properties have domain and
+range, all **9/9** class-target shapes have focus nodes, and the combined
+corpus conforms. The fixture includes assertion, document/source, unresolved
+reference, Identifier, ObservationResult, Sensor and Track records.
 
-**10/10** CQ bắt buộc khớp đáp án, tương ứng **10/16** câu trong hợp đồng.
-Còn CQ-002, CQ-004, CQ-005, CQ-007, CQ-009 và CQ-011. Khi thêm bằng chứng,
-viết query và đáp án kiểm chứng độc lập trên dữ liệu đã biết, rồi đổi câu
-từ `Backlog` sang `Required` trong
-[hợp đồng CQ](../generated/competency_questions.md). Với shape có 0 focus
-node, bổ sung trường hợp hợp lệ đại diện; kiểm tra trường hợp thiếu hoặc
-sai giá trị bằng test âm. Rà soát cả các đáp án CQ nếu bổ sung dữ liệu vào
-corpus chung.
+**41/41** competency questions match their expected rows across the baseline
+datasets and the dedicated semantic workload. The added cases exercise
+half-open time boundaries, correction and retraction, conflicting location
+claims, normalized sources and inline evidence, unresolved identity,
+scheme-scoped identifiers, observation-result/measurement separation and track
+provenance. See the [CQ contract](../generated/competency_questions.md) and
+`benchmarks/expected_results/` for exact cases.
 
 Kết quả đo được mức phù hợp với khai báo, shape và ví dụ trong repo. Chúng
 không chứng minh ontology nhất quán theo OWL DL, dữ liệu thực đầy đủ, hoặc

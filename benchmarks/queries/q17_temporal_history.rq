@@ -1,0 +1,19 @@
+# CQ-017: Show active assertion history in a valid-time interval.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX ex: <https://data.example/entity/>
+
+SELECT ?placeName ?from ?until WHERE {
+  ?claim a assertion:Assertion ;
+      core:describes ex:patrol-03 ;
+      assertion:predicate core:locatedAt ;
+      assertion:hasObject ?place ;
+      core:validFrom ?from .
+  OPTIONAL { ?claim core:validUntil ?until . }
+  ?place core:name ?placeName .
+  FILTER (?from < "2026-08-21T00:00:00Z"^^xsd:dateTime)
+  FILTER NOT EXISTS { ?correction assertion:supersedes ?claim . }
+  FILTER NOT EXISTS { ?retraction assertion:retracts ?claim . }
+}
+ORDER BY ?from

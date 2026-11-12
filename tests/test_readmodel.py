@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from hashlib import sha256
 
 import pytest
 
 from foundry.events import EventLog, make_event
+from foundry.namespaces import CORE_LOCATED_AT
 from foundry.projector import Projector, replay_log
 from foundry.readmodel import ReadModel, parse_instant
 
@@ -30,15 +32,29 @@ def _entity_event(entity_id: str, name: str, occurred: str):
     )
 
 
-def _location_event(entity_id: str, location: str, valid_from: str):
+def _location_event(
+    entity_id: str,
+    location: str,
+    valid_from: str,
+    *,
+    valid_until: str | None = None,
+    supersedes: str | None = None,
+):
     return make_event(
-        "LocationObserved",
+        "AssertionMade",
         {
-            "entity_id": entity_id,
-            "location_uri": location,
+            "assertion_id": "urn:assert:test:"
+            + sha256(f"{entity_id}|{location}|{valid_from}".encode()).hexdigest(),
+            "subject_id": entity_id,
+            "subject_ref": None,
+            "predicate_iri": CORE_LOCATED_AT,
+            "object": {"kind": "location", "value": location},
             "valid_from": valid_from,
+            "valid_until": valid_until,
             "source_ids": [SRC],
+            "evidence": [{"source_id": SRC, "locator": None, "span": None}],
             "confidence": 0.9,
+            "supersedes": supersedes,
         },
     )
 
@@ -51,7 +67,7 @@ def projected_model(tmp_path) -> ReadModel:
         [
             _entity_event(E1, "Patrol Vessel 01", "2026-08-01T00:00:00Z"),
             _entity_event(E2, "Patrol Vessel 02", "2026-08-01T01:00:00Z"),
-            _location_event(E1, LOC_A, "2026-07-15T00:00:00Z"),
+            _location_event(E1, LOC_A, "2026-07-15T00:00:00Z", valid_until="2026-08-20T03:00:00Z"),
             _location_event(E1, LOC_B, "2026-08-20T03:00:00Z"),
         ]
     )
@@ -97,6 +113,74 @@ class TestReadModelQueries:
         before_any = projected_model.location_as_of(E1, parse_instant("2026-01-01T00:00:00Z"))
         assert before_any is None
 
+    def test_correction_rebuilds_active_location_projection(self):
+        model = ReadModel()
+        projector = Projector(model)
+        projector.apply(_entity_event(E1, "V01", "2026-08-01T00:00:00Z"))
+        original = _location_event(E1, LOC_A, "2026-07-15T00:00:00Z")
+        projector.apply(original)
+        corrected = _location_event(
+            E1,
+            LOC_B,
+            "2026-07-15T00:00:00Z",
+            supersedes=original.payload["assertion_id"],
+        )
+        projector.apply(corrected)
+
+        assert model.current_location(E1).location_uri == LOC_B
+        assert model.location_as_of(E1, parse_instant("2026-07-15T00:00:00Z")).location_uri == LOC_B
+        assert model.get_assertion(original.payload["assertion_id"])["status"] == "superseded"
+        assert model.entities_at(LOC_A) == set()
+        assert model.entities_at(LOC_B) == {E1}
+
+    def test_retraction_removes_location_projection_but_keeps_ledger(self):
+        model = ReadModel()
+        projector = Projector(model)
+        projector.apply(_entity_event(E1, "V01", "2026-08-01T00:00:00Z"))
+        claim = _location_event(E1, LOC_A, "2026-07-15T00:00:00Z")
+        projector.apply(claim)
+        projector.apply(
+            make_event("AssertionSuperseded", {"assertion_id": claim.payload["assertion_id"]})
+        )
+
+        assert model.get_assertion(claim.payload["assertion_id"])["status"] == "superseded"
+        assert model.current_location(E1) is None
+        assert model.entities_at(LOC_A) == set()
+
+    def test_conflicting_active_locations_are_reported_without_last_write_wins(self):
+        model = ReadModel()
+        projector = Projector(model)
+        projector.apply(_entity_event(E1, "V01", "2026-08-01T00:00:00Z"))
+        projector.apply(_location_event(E1, LOC_A, "2026-08-20T03:00:00Z"))
+        projector.apply(_location_event(E1, LOC_B, "2026-08-20T03:00:00Z"))
+
+        result = model.location_resolution(E1, parse_instant("2026-08-21T00:00:00Z"))
+        assert result.status == "conflict"
+        assert {fact.location_uri for fact in result.conflicts} == {LOC_A, LOC_B}
+        assert model.current_location(E1) is None
+        assert model.entities_at(LOC_A) == set()
+        assert model.entities_at(LOC_B) == set()
+
+    def test_valid_until_is_exclusive(self, tmp_path):
+        log = EventLog(tmp_path / "events.jsonl")
+        log.extend(
+            [
+                _entity_event(E1, "V01", "2026-08-01T00:00:00Z"),
+                _location_event(
+                    E1,
+                    LOC_A,
+                    "2026-07-15T00:00:00Z",
+                    valid_until="2026-08-20T03:00:00Z",
+                ),
+                _location_event(E1, LOC_B, "2026-08-20T03:00:00Z"),
+            ]
+        )
+        model, _ = replay_log(log)
+        before_end = model.location_as_of(E1, parse_instant("2026-08-20T02:59:59Z"))
+        at_end = model.location_as_of(E1, parse_instant("2026-08-20T03:00:00Z"))
+        assert before_end.location_uri == LOC_A
+        assert at_end.location_uri == LOC_B
+
     def test_entities_at_reverse_index(self, projected_model):
         assert projected_model.entities_at(LOC_B) == {E1}
         assert projected_model.entities_at(LOC_A) == set()
@@ -106,17 +190,29 @@ class TestReadModelQueries:
         # in the future yields a positive, measurable lag.
         stats = projected_model.stats(now=parse_instant("2099-01-01T00:00:00Z"))
         assert stats["entities"] == 2
+        # The latest location assertion has no valid_until and stays active.
         assert stats["with_location"] == 1
-        assert stats["locations"] == 2
+        assert stats["locations"] == 1
         assert stats["lag_seconds"] > 0
         assert stats["last_event_time"] is not None
+
+    def test_stats_exclude_conflicting_active_location_projection(self):
+        model = ReadModel()
+        projector = Projector(model)
+        projector.apply(_entity_event(E1, "V01", "2026-08-01T00:00:00Z"))
+        projector.apply(_location_event(E1, LOC_A, "2026-08-20T03:00:00Z"))
+        projector.apply(_location_event(E1, LOC_B, "2026-08-20T03:00:00Z"))
+
+        stats = model.stats(now=parse_instant("2026-08-21T00:00:00Z"))
+        assert stats["with_location"] == 0
+        assert stats["locations"] == 0
 
 
 class TestProjectorContract:
     def test_replay_is_idempotent(self, tmp_path):
         events = [
             _entity_event(E1, "V01", "2026-08-01T00:00:00Z"),
-            _location_event(E1, LOC_A, "2026-07-15T00:00:00Z"),
+            _location_event(E1, LOC_A, "2026-07-15T00:00:00Z", valid_until="2026-08-20T03:00:00Z"),
             _location_event(E1, LOC_B, "2026-08-20T03:00:00Z"),
         ]
 
@@ -138,7 +234,9 @@ class TestProjectorContract:
             [
                 _entity_event(E1, "V01", "2026-08-01T00:00:00Z"),
                 _location_event(E1, LOC_B, "2026-08-20T03:00:00Z"),
-                _location_event(E1, LOC_A, "2026-07-15T00:00:00Z"),
+                _location_event(
+                    E1, LOC_A, "2026-07-15T00:00:00Z", valid_until="2026-08-20T03:00:00Z"
+                ),
             ]
         )
         model, _ = replay_log(log)
@@ -175,13 +273,15 @@ class TestProjectorContract:
         log.extend(
             [
                 _entity_event(E1, "V01", "2026-08-01T00:00:00Z"),
-                _location_event(E1, LOC_A, "2026-07-15T00:00:00Z"),
+                _location_event(
+                    E1, LOC_A, "2026-07-15T00:00:00Z", valid_until="2026-08-20T03:00:00Z"
+                ),
             ]
         )
         model, stats = replay_log(log)
         assert stats.applied == 2
         assert model.get_entity(E1) is not None
-        assert model.current_location(E1).location_uri == LOC_A
+        assert model.location_as_of(E1, parse_instant("2026-08-01T00:00:00Z")).location_uri == LOC_A
 
 
 class TestSequenceOrderedReplay:
@@ -206,7 +306,9 @@ class TestSequenceOrderedReplay:
         log.extend(
             [
                 _entity_event(E1, "V01", "2026-08-01T00:00:00Z"),
-                _location_event(E1, LOC_A, "2026-07-15T00:00:00Z"),
+                _location_event(
+                    E1, LOC_A, "2026-07-15T00:00:00Z", valid_until="2026-08-20T03:00:00Z"
+                ),
                 _location_event(E1, LOC_B, "2026-08-20T03:00:00Z"),
             ]
         )
@@ -220,7 +322,7 @@ class TestSequenceOrderedReplay:
         assert second.applied == 0
         assert second.duplicates == 3
         # location history did not double: current location still the latest
-        assert model.current_location(E1).location_uri == LOC_B
+        assert model.location_as_of(E1, parse_instant("2026-08-21T00:00:00Z")).location_uri == LOC_B
         assert model.entities_at(LOC_A) == set()  # E1 moved to LOC_B
 
     def test_checkpoint_resume_continues_incremental_replay(self, tmp_path):
@@ -235,7 +337,12 @@ class TestSequenceOrderedReplay:
             [
                 _entity_event(E1, "V01", "2026-08-01T00:00:00Z"),
                 _entity_event(E2, "V02", "2026-08-01T01:00:00Z"),
-                _location_event(E1, LOC_A, "2026-07-15T00:00:00Z"),
+                _location_event(
+                    E1,
+                    LOC_A,
+                    "2026-07-15T00:00:00Z",
+                    valid_until="2026-08-20T03:00:00Z",
+                ),
                 _location_event(E1, LOC_B, "2026-08-20T03:00:00Z"),
                 _location_event(E2, LOC_A, "2026-08-21T03:00:00Z"),
             ]
@@ -274,9 +381,11 @@ class TestSequenceOrderedReplay:
         model = ReadModel()
         projector = Projector(model)
         projector.apply(_entity_event(E1, "V01", "2026-08-01T00:00:00Z"))
-        observed_a = _location_event(E1, LOC_A, "2026-07-15T00:00:00Z")
+        observed_a = _location_event(
+            E1, LOC_A, "2026-07-15T00:00:00Z", valid_until="2026-08-20T03:00:00Z"
+        )
         projector.apply(observed_a)
-        assert model.entities_at(LOC_A) == {E1}
+        assert model.entities_at(LOC_A, parse_instant("2026-08-01T00:00:00Z")) == {E1}
 
         observed_b = _location_event(E1, LOC_B, "2026-08-20T03:00:00Z")
         projector.apply(observed_b)
@@ -293,7 +402,9 @@ class TestReadModelSnapshot:
             [
                 _entity_event(E1, "V01", "2026-08-01T00:00:00Z"),
                 _entity_event(E2, "V02", "2026-08-01T01:00:00Z"),
-                _location_event(E1, LOC_A, "2026-07-15T00:00:00Z"),
+                _location_event(
+                    E1, LOC_A, "2026-07-15T00:00:00Z", valid_until="2026-08-20T03:00:00Z"
+                ),
                 _location_event(E1, LOC_B, "2026-08-20T03:00:00Z"),
                 make_event(
                     "EntityMerged",

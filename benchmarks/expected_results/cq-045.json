@@ -1,0 +1,25 @@
+{
+  "id": "CQ-045",
+  "group": "Q6",
+  "slo_p95_ms": null,
+  "query_file": "q35_measurement_counts.rq",
+  "variables": [
+    "measurementName",
+    "sampleCount"
+  ],
+  "rows": [
+    [
+      "heading",
+      1
+    ],
+    [
+      "speed",
+      2
+    ]
+  ],
+  "bindings": {
+    "wantedEntity": {
+      "iri": "https://data.example/entity/patrol-03"
+    }
+  }
+}

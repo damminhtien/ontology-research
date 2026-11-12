@@ -1,0 +1,204 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
+@prefix assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#> .
+@prefix identity: <https://damminhtien.github.io/ontology-research/ontology/middle/identity#> .
+@prefix sensor: <https://damminhtien.github.io/ontology-research/ontology/domain/sensor#> .
+@prefix tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#> .
+@prefix ex: <https://data.example/entity/> .
+@prefix src: <https://data.example/source/> .
+
+# A small maritime operations workload for temporal, provenance, identity,
+# correction and tracking queries. It reuses the shipped domain vocabulary.
+
+ex:patrol-03 a core:Platform ; core:name "Patrol Vessel 03" ; core:alias "PV-03" .
+ex:person-17 a core:Person ; core:name "Maritime Officer 17" .
+ex:org-region7 a core:Organization ; core:name "Coast Guard Region 7" ;
+    core:operates ex:patrol-03 .
+ex:org-region8 a core:Organization ; core:name "Coast Guard Region 8" .
+ex:loc-vung-tau a core:Location ; core:name "Vung Tau" .
+ex:loc-phu-quoc a core:Location ; core:name "Phu Quoc" .
+ex:loc-da-nang a core:Location ; core:name "Da Nang" .
+
+src:registry-import a core:Source ; core:name "Maritime registry import" .
+src:ais-2026-08-01 a core:Source ; core:name "AIS feed 2026-08-01" .
+src:report-2026-08-09 a core:Source, assertion:Document ;
+    core:name "Operations report 2026-08-09" .
+src:radar-2026-08-20 a core:Source ; core:name "Surface radar 2026-08-20" .
+src:tracking-run-2026-08-22 a core:Source ; core:name "Tracking run 2026-08-22" .
+
+# A generic relationship changes over time without overwriting its history.
+ex:membership-17-period-1 a assertion:Assertion ;
+    core:describes ex:person-17 ;
+    assertion:predicate core:memberOf ;
+    assertion:hasObject ex:org-region7 ;
+    core:validFrom "2026-08-01T00:00:00Z"^^xsd:dateTime ;
+    core:validUntil "2026-08-15T00:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:registry-import .
+
+ex:membership-17-period-2 a assertion:Assertion ;
+    core:describes ex:person-17 ;
+    assertion:predicate core:memberOf ;
+    assertion:hasObject ex:org-region8 ;
+    core:validFrom "2026-08-15T00:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:report-2026-08-09 .
+
+# First-class identifiers retain their issuing scheme and value separately.
+ex:id-patrol-mmsi a identity:Identifier ;
+    identity:identifies ex:patrol-03 ;
+    identity:identifierScheme "ais-mmsi" ;
+    identity:identifierValue "990000017" .
+ex:id-region7-registry a identity:Identifier ;
+    identity:identifies ex:org-region7 ;
+    identity:identifierScheme "maritime-registry" ;
+    identity:identifierValue "42" .
+ex:id-region8-local a identity:Identifier ;
+    identity:identifies ex:org-region8 ;
+    identity:identifierScheme "regional-directory" ;
+    identity:identifierValue "42" .
+
+# A noncanonical name is a reference resource; no core:Entity is fabricated.
+ex:ref-ghost-vessel a identity:UnresolvedReference ;
+    identity:referenceText "Ghost Vessel" .
+
+# Correction chain: the first claim is retained in history and explicitly
+# replaced; the corrected interval ends exactly when the next observation
+# becomes valid.
+ex:assert-17-old a assertion:Assertion ;
+    core:describes ex:patrol-03 ;
+    assertion:predicate core:locatedAt ;
+    assertion:hasObject ex:loc-vung-tau ;
+    core:validFrom "2026-08-01T00:00:00Z"^^xsd:dateTime ;
+    core:validUntil "2026-08-10T00:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:ais-2026-08-01 .
+
+ex:assert-17-corrected a assertion:Assertion ;
+    core:describes ex:patrol-03 ;
+    assertion:predicate core:locatedAt ;
+    assertion:hasObject ex:loc-phu-quoc ;
+    assertion:supersedes ex:assert-17-old ;
+    core:validFrom "2026-08-01T00:00:00Z"^^xsd:dateTime ;
+    core:validUntil "2026-08-10T00:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:report-2026-08-09 ;
+    assertion:evidence [
+        assertion:evidenceSource src:report-2026-08-09 ;
+        assertion:locator "page=3,paragraph=2" ;
+        assertion:spanStart 148 ;
+        assertion:spanEnd 191 ;
+        assertion:spanUnit "character"
+    ] .
+
+ex:assert-17-period-2 a assertion:Assertion ;
+    core:describes ex:patrol-03 ;
+    assertion:predicate core:locatedAt ;
+    assertion:hasObject ex:loc-vung-tau ;
+    core:validFrom "2026-08-10T00:00:00Z"^^xsd:dateTime ;
+    core:validUntil "2026-08-20T00:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:ais-2026-08-01 .
+
+# These two active statements intentionally contradict each other beginning
+# August 22. Queries must return the conflict instead of selecting latest wins.
+ex:assert-17-current a assertion:Assertion ;
+    core:describes ex:patrol-03 ;
+    assertion:predicate core:locatedAt ;
+    assertion:hasObject ex:loc-da-nang ;
+    core:validFrom "2026-08-20T00:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:report-2026-08-09 , src:radar-2026-08-20 ;
+    assertion:evidence [
+        assertion:evidenceSource src:radar-2026-08-20 ;
+        assertion:locator "scan=88" ;
+        assertion:spanStart 0 ;
+        assertion:spanEnd 1 ;
+        assertion:spanUnit "record"
+    ] .
+
+ex:assert-17-conflict a assertion:Assertion ;
+    core:describes ex:patrol-03 ;
+    assertion:predicate core:locatedAt ;
+    assertion:hasObject ex:loc-phu-quoc ;
+    core:validFrom "2026-08-22T00:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:radar-2026-08-20 .
+
+# Retraction is an event about an assertion. It remains in the ledger while
+# operational queries exclude it from active world-state answers.
+ex:assert-17-retracted a assertion:Assertion ;
+    core:describes ex:patrol-03 ;
+    assertion:predicate core:locatedAt ;
+    assertion:hasObject ex:loc-vung-tau ;
+    core:validFrom "2026-09-01T00:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:ais-2026-08-01 .
+ex:event-17-retraction a core:Event ;
+    core:atTime "2026-09-02T00:00:00Z"^^xsd:dateTime ;
+    assertion:retracts ex:assert-17-retracted ;
+    assertion:retractionReason "The feed row was confirmed to be a duplicate." .
+
+# A claim with an unresolved subject keeps that reference separate from the
+# entity branch until identity is uniquely established.
+ex:assert-ghost-location a assertion:Assertion ;
+    assertion:subjectReference ex:ref-ghost-vessel ;
+    assertion:predicate core:locatedAt ;
+    assertion:hasObject ex:loc-vung-tau ;
+    core:validFrom "2026-08-21T00:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:report-2026-08-09 .
+
+# Sensor acts and their result objects stay distinct. Position and measurements
+# belong to ObservationResult; no core:locatedAt triple is inferred from them.
+ex:radar-17 a sensor:Sensor ; core:name "Surface Radar 17" ;
+    sensor:mountedOn ex:patrol-03 .
+ex:ais-sensor-17 a sensor:Sensor ; core:name "AIS Receiver 17" ;
+    sensor:mountedOn ex:patrol-03 .
+ex:id-radar-17 a identity:Identifier ;
+    identity:identifies ex:radar-17 ;
+    identity:identifierScheme "sensor-registry" ;
+    identity:identifierValue "RADAR-17" .
+
+ex:obs-17a a core:Observation ;
+    core:observes ex:patrol-03 ;
+    core:atTime "2026-08-20T02:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:ais-2026-08-01 ;
+    sensor:detectedBy ex:ais-sensor-17 .
+ex:result-17a a tracking:ObservationResult ;
+    tracking:resultOf ex:obs-17a ;
+    tracking:position ex:loc-vung-tau ;
+    tracking:measurement [
+        tracking:measurementName "speed" ;
+        tracking:measurementValue "12.4"^^xsd:decimal ;
+        tracking:measurementUnit "kn"
+    ] ;
+    core:hasConfidence "0.92"^^xsd:decimal .
+
+ex:obs-17b a core:Observation ;
+    core:observes ex:patrol-03 ;
+    core:atTime "2026-08-20T04:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:radar-2026-08-20 ;
+    sensor:detectedBy ex:radar-17 .
+ex:result-17b a tracking:ObservationResult ;
+    tracking:resultOf ex:obs-17b ;
+    tracking:position ex:loc-da-nang ;
+    tracking:measurement [
+        tracking:measurementName "heading" ;
+        tracking:measurementValue "184.5"^^xsd:decimal ;
+        tracking:measurementUnit "degree"
+    ] ;
+    core:hasConfidence "0.88"^^xsd:decimal .
+
+ex:obs-17c a core:Observation ;
+    core:observes ex:patrol-03 ;
+    core:atTime "2026-08-22T08:00:00Z"^^xsd:dateTime ;
+    core:hasSource src:radar-2026-08-20 ;
+    sensor:detectedBy ex:radar-17 .
+ex:result-17c a tracking:ObservationResult ;
+    tracking:resultOf ex:obs-17c ;
+    tracking:position ex:loc-phu-quoc ;
+    tracking:measurement [
+        tracking:measurementName "speed" ;
+        tracking:measurementValue "11.8"^^xsd:decimal ;
+        tracking:measurementUnit "kn"
+    ] ;
+    core:hasConfidence "0.90"^^xsd:decimal .
+
+ex:track-17 a tracking:Track ;
+    tracking:hasTrackId "TRK-017" ;
+    tracking:trackOf ex:patrol-03 ;
+    tracking:derivedFrom ex:obs-17a , ex:obs-17b , ex:obs-17c ;
+    core:hasSource src:tracking-run-2026-08-22 .

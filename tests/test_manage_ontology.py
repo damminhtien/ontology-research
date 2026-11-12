@@ -114,7 +114,7 @@ def core_model() -> dict:
 
 class TestVisualizationModel:
     def test_model_extracts_kernel(self, core_model):
-        assert len(core_model["classes"]) == 20
+        assert len(core_model["classes"]) == 19
         assert len(core_model["properties"]) == 33
 
     def test_hierarchy_roots_at_entity(self, core_model):

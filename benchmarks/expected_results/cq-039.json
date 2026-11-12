@@ -1,0 +1,29 @@
+{
+  "id": "CQ-039",
+  "group": "Q3",
+  "slo_p95_ms": 300,
+  "query_file": "q30_track_path.rq",
+  "variables": [
+    "atTime",
+    "positionName"
+  ],
+  "rows": [
+    [
+      "2026-08-20T02:00:00Z",
+      "Vung Tau"
+    ],
+    [
+      "2026-08-20T04:00:00Z",
+      "Da Nang"
+    ],
+    [
+      "2026-08-22T08:00:00Z",
+      "Phu Quoc"
+    ]
+  ],
+  "bindings": {
+    "wantedTrackId": {
+      "literal": "TRK-017"
+    }
+  }
+}

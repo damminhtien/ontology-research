@@ -59,7 +59,7 @@ SLO regression gate PASSED
 ## Bước 3 — Định hướng repo
 
 ```text
-ontology/core/core.ttl     # 20 classes / 33 predicates — semantic kernel
+ontology/core/core.ttl     # 19 classes / 33 predicates — semantic kernel
 shapes/core_shapes.ttl     # SHACL: Observation cần atTime=1, source>=1...
 foundry/                   # platform code: events, identity, ingestion, projector
 foundry/console/           # FastAPI + SPA (read views và token-gated Admin)

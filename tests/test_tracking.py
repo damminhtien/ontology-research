@@ -5,14 +5,18 @@ from __future__ import annotations
 import json
 
 import pytest
-from conftest import CORE_ONTOLOGY, SHAPES_FILE
+from conftest import CORE_ONTOLOGY, REPO_ROOT, SHAPES_FILE
+from ontology_utils import materialize_type_closure
+from pyshacl import validate
+from rdflib import RDF, Graph, Literal, URIRef
+from rdflib.namespace import XSD
 
 from foundry.events import EventLog
 from foundry.identity import IdentityService
 from foundry.ingestion import IngestionPipeline
 from foundry.merge import rebuild_identity
 from foundry.projector import replay_log
-from foundry.tracking import FeedRecord, parse_feed
+from foundry.tracking import FeedRecord, observation_to_rdf, parse_feed, sensor_to_rdf
 
 
 def _pipeline(tmp_path) -> IngestionPipeline:
@@ -31,8 +35,9 @@ FEED_LINES = [
             "name": "Tàu tuần tra HQ-272",
             "sensor_id": "RADAR-KQ-01",
             "track_id": "TRK-001",
-            "location_uri": "urn:world:location:bench-vungtau",
+            "position_uri": "urn:world:location:bench-vungtau",
             "at_time": "2026-09-01T03:00:00Z",
+            "measurements": [{"name": "speed", "value": 12.4, "unit": "kn"}],
         }
     ),
     json.dumps(
@@ -75,7 +80,15 @@ class TestParseFeed:
         # each record carries exactly the fields the mapping needs
         for record in records:
             assert record.mmsi and record.name and record.sensor_id
-            assert record.track_id and record.location_uri and record.at_time
+            assert record.track_id and record.position_uri and record.at_time
+        assert records[0].measurements == (
+            {
+                "name": "speed",
+                "value": 12.4,
+                "datatype_iri": "http://www.w3.org/2001/XMLSchema#decimal",
+                "unit": "kn",
+            },
+        )
 
 
 class TestTrackingVertical:
@@ -139,12 +152,55 @@ class TestTrackingVertical:
             subject_name="Tàu tuần tra HQ-272",
             subject_entity_id=platform.canonical_id,
             at_time="2026-09-01T03:00:00Z",
-            location_uri="urn:world:location:bench-vungtau",
+            position_uri="urn:world:location:bench-vungtau",
+            measurements=[{"name": "speed", "value": 12.4, "unit": "kn"}],
             source_ids=["ais-feed"],
+            evidence=[{"source_id": "ais-feed", "locator": "frame=3"}],
             confidence=0.9,
         )
         assert result.accepted
         assert result.event.event_type == "ObservationRecorded"
+        payload = result.event.payload
+        assert payload["position_uri"] == "urn:world:location:bench-vungtau"
+        assert payload["measurements"][0]["value"] == 12.4
+        assert payload["evidence"][0]["locator"] == "frame=3"
+
+        graph = Graph()
+        for path in (
+            REPO_ROOT / "ontology/core/core.ttl",
+            REPO_ROOT / "ontology/middle/identity.ttl",
+            REPO_ROOT / "ontology/domain/sensor.ttl",
+            REPO_ROOT / "ontology/domain/tracking.ttl",
+        ):
+            graph.parse(path.as_posix(), format="turtle")
+        sensor_event = pipeline._sensor_events[sensor.canonical_id]
+        sensor_to_rdf(graph, sensor_event)
+        observation_to_rdf(graph, result.event)
+        core_ns = "https://damminhtien.github.io/ontology-research/ontology/core#"
+        tracking_ns = "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#"
+        identity_ns = "https://damminhtien.github.io/ontology-research/ontology/middle/identity#"
+        assert not list(graph.triples((None, URIRef(core_ns + "locatedAt"), None)))
+        result_node = URIRef(payload["observation_result_id"])
+        assert (
+            result_node,
+            URIRef(tracking_ns + "position"),
+            URIRef(payload["position_uri"]),
+        ) in graph
+        assert (result_node, RDF.type, URIRef(tracking_ns + "ObservationResult")) in graph
+        measurement_value = URIRef(tracking_ns + "measurementValue")
+        assert (None, measurement_value, Literal("12.4", datatype=XSD.decimal)) in graph
+        identifier_type = URIRef(identity_ns + "Identifier")
+        assert any(graph.subjects(RDF.type, identifier_type))
+        materialize_type_closure(graph)
+        shapes = Graph()
+        for path in (
+            REPO_ROOT / "shapes/core_shapes.ttl",
+            REPO_ROOT / "shapes/domain_shapes.ttl",
+            REPO_ROOT / "shapes/identity_shapes.ttl",
+        ):
+            shapes.parse(path.as_posix(), format="turtle")
+        conforms, _, report = validate(graph, shapes, inference="none", advanced=True)
+        assert conforms, report
 
     def test_observation_rejects_bad_timestamp(self, pipeline):
         platform = self._register_platform(pipeline)

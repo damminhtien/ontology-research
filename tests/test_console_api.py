@@ -25,7 +25,7 @@ class TestShellAndOverview:
         data = client.get("/api/overview").json()
         assert data["modules"], "expected at least the core module"
         core = next(m for m in data["modules"] if m["name"] == "core")
-        assert core["version"] == "1.0.0"
+        assert core["version"] == "2.0.0"
         assert {"classes", "properties"} <= set(core.keys())
         for key in ("version_check", "stability", "events", "cq"):
             assert key in data
@@ -34,8 +34,8 @@ class TestShellAndOverview:
 class TestOntologyEndpoints:
     def test_model_counts_match_kernel(self, client):
         model = client.get("/api/ontology/model").json()
-        assert len(model["classes"]) == 27  # core kernel + identity:UnresolvedReference
-        assert len(model["properties"]) == 43  # + assertion:predicate / assertion:literalValue
+        assert len(model["classes"]) == 28
+        assert len(model["properties"]) == 68
 
     def test_tree_roots_at_entity(self, client):
         tree = client.get("/api/ontology/tree").json()["tree"]
@@ -68,7 +68,7 @@ class TestRegistryEndpoints:
         core_entries = data["modules"][
             "https://damminhtien.github.io/ontology-research/ontology/core"
         ]
-        assert core_entries[0]["version"] == "1.0.0"
+        assert core_entries[0]["version"] == "2.0.0"
 
     def test_pending_with_no_changes_is_clean(self, client):
         data = client.get("/api/releases/core/pending").json()
@@ -88,8 +88,8 @@ class TestRegistryEndpoints:
         data = client.get("/api/versions/check").json()
         assert data["passed"] is True
         core = next(m for m in data["modules"] if m["module"] == "core")
-        assert core["declared_version"] == "1.0.0"
-        assert core["latest_version"] == "1.0.0"
+        assert core["declared_version"] == "2.0.0"
+        assert core["latest_version"] == "2.0.0"
 
     def test_stability_reports_core_breaking_release(self, client):
         """The assertion/event split is a recorded MAJOR release, not a silent edit."""
@@ -175,7 +175,7 @@ class TestMonitorEndpoints:
 
     def test_cq_all_pass(self, client):
         data = client.get("/api/monitor/cq").json()
-        assert data["total"] == 10  # 6 kernel CQs + 4 tracking-vertical CQs
+        assert data["total"] == 41  # executable workload contract
         assert data["failed"] == 0
 
 
@@ -202,13 +202,25 @@ class TestProjectionEndpoints:
                     },
                 ),
                 make_event(
-                    "LocationObserved",
+                    "AssertionMade",
                     {
-                        "entity_id": "urn:x:patrol-01",
-                        "location_uri": "https://data.example/entity/loc-cam-ranh",
+                        "assertion_id": "urn:assert:test:console-location",
+                        "subject_id": "urn:x:patrol-01",
+                        "subject_ref": None,
+                        "predicate_iri": "https://damminhtien.github.io/ontology-research/ontology/core#locatedAt",
+                        "object": {
+                            "kind": "location",
+                            "value": "https://data.example/entity/loc-cam-ranh",
+                        },
                         "valid_from": "2026-08-20T03:00:00Z",
+                        "valid_until": None,
                         "source_ids": ["s1", "s2"],
+                        "evidence": [
+                            {"source_id": "s1", "locator": None, "span": None},
+                            {"source_id": "s2", "locator": None, "span": None},
+                        ],
                         "confidence": 0.9,
+                        "supersedes": None,
                     },
                 ),
             ]
@@ -233,20 +245,20 @@ class TestProjectionEndpoints:
     def test_provenance_token_scopes_current_location(self, seeded_client, monkeypatch):
         monkeypatch.setenv(
             "FOUNDRY_PROVENANCE_TOKENS",
-            json.dumps({"reader-token": ["s1"], "other-token": ["s2"]}),
+            json.dumps({"reader-token": ["urn:source:s1"], "other-token": ["urn:source:s2"]}),
         )
         response = seeded_client.get(
             "/api/projection/entities/urn:x:patrol-01",
             headers={"Authorization": "Bearer reader-token"},
         )
         assert response.status_code == 200
-        assert response.json()["current_location"]["source_ids"] == ["s1"]
+        assert response.json()["current_location"]["source_ids"] == ["urn:source:s1"]
 
         other = seeded_client.get(
             "/api/projection/entities/urn:x:patrol-01",
             headers={"Authorization": "Bearer other-token"},
         )
-        assert other.json()["current_location"]["source_ids"] == ["s2"]
+        assert other.json()["current_location"]["source_ids"] == ["urn:source:s2"]
 
     def test_wildcard_provenance_token_sees_all_sources(self, seeded_client, monkeypatch):
         monkeypatch.setenv("FOUNDRY_PROVENANCE_TOKENS", json.dumps({"reader-token": ["*"]}))
@@ -254,20 +266,27 @@ class TestProjectionEndpoints:
             "/api/projection/entities/urn:x:patrol-01",
             headers={"Authorization": "Bearer reader-token"},
         )
-        assert response.json()["current_location"]["source_ids"] == ["s1", "s2"]
+        assert response.json()["current_location"]["source_ids"] == [
+            "urn:source:s1",
+            "urn:source:s2",
+        ]
 
     def test_provenance_token_scopes_temporal_location(self, seeded_client, monkeypatch):
-        monkeypatch.setenv("FOUNDRY_PROVENANCE_TOKENS", json.dumps({"reader-token": ["s1"]}))
+        monkeypatch.setenv(
+            "FOUNDRY_PROVENANCE_TOKENS", json.dumps({"reader-token": ["urn:source:s1"]})
+        )
         response = seeded_client.get(
             "/api/projection/entities/urn:x:patrol-01/location/as-of",
             params={"at": "2026-08-21T00:00:00Z"},
             headers={"Authorization": "Bearer reader-token"},
         )
         assert response.status_code == 200
-        assert response.json()["location"]["source_ids"] == ["s1"]
+        assert response.json()["location"]["source_ids"] == ["urn:source:s1"]
 
     def test_invalid_provenance_token_is_rejected(self, seeded_client, monkeypatch):
-        monkeypatch.setenv("FOUNDRY_PROVENANCE_TOKENS", json.dumps({"reader-token": ["s1"]}))
+        monkeypatch.setenv(
+            "FOUNDRY_PROVENANCE_TOKENS", json.dumps({"reader-token": ["urn:source:s1"]})
+        )
         response = seeded_client.get(
             "/api/projection/entities/urn:x:patrol-01",
             headers={"Authorization": "Bearer invalid-token"},
@@ -335,11 +354,13 @@ class TestProjectionEndpoints:
         assert before["location"] is None
 
     def test_recent_events_redact_ungranted_provenance(self, seeded_client, monkeypatch):
-        monkeypatch.setenv("FOUNDRY_PROVENANCE_TOKENS", json.dumps({"reader-token": ["s1"]}))
+        monkeypatch.setenv(
+            "FOUNDRY_PROVENANCE_TOKENS", json.dumps({"reader-token": ["urn:source:s1"]})
+        )
         anonymous = seeded_client.get("/api/monitor/events/recent", params={"limit": 20})
         anonymous_events = anonymous.json()["events"]
         location_event = next(
-            event for event in anonymous_events if event["event_type"] == "LocationObserved"
+            event for event in anonymous_events if event["event_type"] == "AssertionMade"
         )
         entity_event = next(
             event for event in anonymous_events if event["event_type"] == "EntityCreated"
@@ -353,11 +374,9 @@ class TestProjectionEndpoints:
             headers={"Authorization": "Bearer reader-token"},
         )
         visible_location = next(
-            event
-            for event in authorized.json()["events"]
-            if event["event_type"] == "LocationObserved"
+            event for event in authorized.json()["events"] if event["event_type"] == "AssertionMade"
         )
-        assert visible_location["payload"]["source_ids"] == ["s1"]
+        assert visible_location["payload"]["source_ids"] == ["urn:source:s1"]
 
     def test_recent_events_hide_ungranted_document_metadata(self, seeded_client, monkeypatch):
         from foundry.console.api.monitor import event_log_path
@@ -378,7 +397,7 @@ class TestProjectionEndpoints:
         )
         monkeypatch.setenv(
             "FOUNDRY_PROVENANCE_TOKENS",
-            json.dumps({"reader-token": ["urn:doc:private"], "other-token": ["s1"]}),
+            json.dumps({"reader-token": ["urn:doc:private"], "other-token": ["urn:source:s1"]}),
         )
 
         anonymous = seeded_client.get("/api/monitor/events/recent", params={"limit": 20}).json()

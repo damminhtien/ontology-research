@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from foundry.namespaces import DEFAULT_LITERAL_DATATYPE, resolve_legacy_predicate
+from foundry.provenance import normalize_evidence, normalize_source_id, normalize_source_ids
 from foundry.versioning import EVENT_SCHEMA_VERSION
 
 EVENT_TYPE_ENTITY_CREATED = "EntityCreated"
@@ -41,7 +42,6 @@ EVENT_TYPE_TRACK_OBSERVED = "TrackObserved"
 EVENT_TYPES = frozenset(
     {
         EVENT_TYPE_ENTITY_CREATED,
-        EVENT_TYPE_LOCATION_OBSERVED,
         EVENT_TYPE_ENTITY_MERGED,
         EVENT_TYPE_EXTERNAL_ID_BOUND,
         EVENT_TYPE_REVIEW_QUEUED,
@@ -111,12 +111,25 @@ def make_event(
         raise ValueError(
             f"unknown event type {event_type!r}; expected one of {sorted(EVENT_TYPES)}"
         )
+    normalized_payload = dict(payload)
+    if normalized_payload.get("source_id"):
+        normalized_payload["source_id"] = normalize_source_id(normalized_payload["source_id"])
+    if "source_ids" in normalized_payload:
+        normalized_payload["source_ids"] = list(
+            normalize_source_ids(normalized_payload["source_ids"])
+        )
+    if normalized_payload.get("evidence") is not None:
+        sources, evidence = normalize_evidence(
+            normalized_payload.get("source_ids") or (), normalized_payload["evidence"]
+        )
+        normalized_payload["source_ids"] = list(sources)
+        normalized_payload["evidence"] = list(evidence)
     return SemanticEvent(
         event_id=uuid.uuid4().hex,
         event_type=event_type,
         schema_version=EVENT_SCHEMA_VERSION,
         occurred_at=utc_now_iso(),
-        payload=payload,
+        payload=normalized_payload,
         valid_at=valid_at,
     )
 
@@ -179,12 +192,88 @@ def _upcast_v2_to_v3(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def _upcast_v3_to_v4(data: dict[str, Any]) -> dict[str, Any]:
+    """v3 → v4: use generic assertions and normalize temporal/provenance data.
+
+    Historical ``LocationObserved`` records become ``AssertionMade`` records
+    with the original event ID and sequence. Their assertion IDs are derived
+    from the immutable event ID, so repeated replay produces the same claim.
+    Unresolved subjects stay typed references in the payload and never become
+    canonical entities. Observation events retain their position and typed
+    measurement slots for the ``ObservationResult`` projection.
+    """
+    data = dict(data)
+    data["schema_version"] = 4
+    event_type = data.get("event_type")
+    payload = dict(data.get("payload") or {})
+
+    if event_type == EVENT_TYPE_LOCATION_OBSERVED:
+        event_id = str(data.get("event_id", ""))
+        entity_id = payload.get("entity_id") or ""
+        subject_ref = None
+        if not entity_id:
+            from foundry.namespaces import pending_reference_iri
+
+            surface_form = str(payload.get("entity_ref") or "").strip()
+            subject_ref = {
+                "reference_id": pending_reference_iri(surface_form),
+                "surface_form": surface_form,
+                "entity_type": payload.get("entity_type"),
+            }
+        source_ids, evidence = normalize_evidence(payload.get("source_ids") or ())
+        payload = {
+            "assertion_id": f"urn:assert:legacy:{event_id}",
+            "subject_id": entity_id,
+            "subject_ref": subject_ref,
+            "predicate_iri": "https://damminhtien.github.io/ontology-research/ontology/core#locatedAt",
+            "object": {"kind": "location", "value": payload["location_uri"]},
+            "valid_from": payload.get("valid_from") or data.get("occurred_at"),
+            "valid_until": None,
+            "source_ids": list(source_ids),
+            "evidence": list(evidence),
+            "confidence": payload.get("confidence"),
+            "supersedes": None,
+        }
+        data["event_type"] = EVENT_TYPE_ASSERTION_MADE
+    elif event_type == EVENT_TYPE_ASSERTION_MADE:
+        if "valid_until" not in payload:
+            payload["valid_until"] = payload.pop("valid_to", None)
+        source_ids, evidence = normalize_evidence(
+            payload.get("source_ids") or (), payload.get("evidence")
+        )
+        payload["source_ids"] = list(source_ids)
+        payload["evidence"] = list(evidence)
+        payload.setdefault("subject_ref", None)
+    elif event_type == EVENT_TYPE_OBSERVATION_RECORDED:
+        payload.setdefault("position_uri", payload.pop("location_uri", None))
+        payload.setdefault("measurements", [])
+        source_ids, evidence = normalize_evidence(
+            payload.get("source_ids") or (), payload.get("evidence")
+        )
+        payload["source_ids"] = list(source_ids)
+        payload["evidence"] = list(evidence)
+        payload.setdefault(
+            "observation_result_id", f"urn:observation-result:{data.get('event_id', '')}"
+        )
+    else:
+        if "source_ids" in payload:
+            payload["source_ids"] = list(normalize_source_ids(payload["source_ids"]))
+        if payload.get("source_id"):
+            from foundry.provenance import normalize_source_id
+
+            payload["source_id"] = normalize_source_id(payload["source_id"])
+
+    data["payload"] = payload
+    return data
+
+
 #: Upcast chain: maps a record's schema version to the function rewriting it
 #: one version forward. Every historical version must stay registered here —
 #: removing one breaks replay of logs written under it.
 UPCASTERS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: _upcast_v1_to_v2,
     2: _upcast_v2_to_v3,
+    3: _upcast_v3_to_v4,
 }
 
 

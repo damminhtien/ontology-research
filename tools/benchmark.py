@@ -34,6 +34,7 @@ for _path in (REPO_ROOT / "tools", REPO_ROOT):
 
 from foundry.events import EventLog, SemanticEvent, make_event  # noqa: E402
 from foundry.identity import IdentityService  # noqa: E402
+from foundry.namespaces import CORE_LOCATED_AT  # noqa: E402
 from foundry.projector import replay_log  # noqa: E402
 from foundry.readmodel import parse_instant  # noqa: E402
 
@@ -64,13 +65,30 @@ def generate_events(
         )
         for j in range(observations_per):
             yield make_event(
-                "LocationObserved",
+                "AssertionMade",
                 {
-                    "entity_id": entity_id,
-                    "location_uri": f"https://data.example/entity/loc-{rng.randint(0, 99):03d}",
-                    "valid_from": f"2026-08-{10 + j:02d}T08:{rng.randint(0, 59):02d}:00Z",
+                    "assertion_id": f"urn:assert:bench:{i}:{j}",
+                    "subject_id": entity_id,
+                    "subject_ref": None,
+                    "predicate_iri": CORE_LOCATED_AT,
+                    "object": {
+                        "kind": "location",
+                        "value": f"https://data.example/entity/loc-{rng.randint(0, 99):03d}",
+                    },
+                    "valid_from": f"2026-08-{10 + j:02d}T08:00:00Z",
+                    "valid_until": (
+                        f"2026-08-{11 + j:02d}T08:00:00Z" if j + 1 < observations_per else None
+                    ),
                     "source_ids": ["https://data.example/source/benchmark"],
+                    "evidence": [
+                        {
+                            "source_id": "https://data.example/source/benchmark",
+                            "locator": None,
+                            "span": None,
+                        }
+                    ],
                     "confidence": 0.8,
+                    "supersedes": None,
                 },
             )
 

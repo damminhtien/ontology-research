@@ -36,9 +36,9 @@ Schema v2 (`foundry/events.py`):
 - (-) Mọi consumer đọc log phải đi qua `event_from_dict` (không đọc JSON thô).
 - (-) Xóa một upcaster trong chuỗi = phá replay log đã ghi — được test canh.
 
-## Amendment (2026-09-02)
+## Historical amendment (2026-09-02)
 
-- Event types hiện tại: `EntityCreated`, `LocationObserved`,
+- Event types at that historical snapshot: `EntityCreated`, `LocationObserved`,
   `AffiliationAssessed`, `EntityMerged`
   ([ADR-0007](ADR-0007-under-merge-repair-via-append-only-merge-events.md)),
   `ExternalIdBound`
@@ -47,3 +47,14 @@ Schema v2 (`foundry/events.py`):
   file `VERSION` (single source of truth) + `CHANGELOG-DATA.md` (lịch sử + quy
   tắc bump) ở gốc repo; code đọc qua `foundry/versioning.py`. Bump = sửa VERSION
   + changelog entry + upcaster (nếu là event_schema) trong cùng commit.
+
+## Current migration (2026-11-12)
+
+The data contract is now v4 (see `CHANGELOG-DATA.md`). The v3→v4 upcaster
+converts historical `LocationObserved` events into generic location assertions,
+keeps their event IDs and sequence numbers, and leaves unresolved subjects as
+noncanonical references. New location claims use `AssertionMade` and the
+assertion ledger. `ObservationRecorded` now projects a distinct
+`tracking:ObservationResult` that preserves measured position and typed
+measurements. All log records remain append-only; upcasting happens in memory
+when read.

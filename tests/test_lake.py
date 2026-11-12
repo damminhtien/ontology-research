@@ -20,14 +20,32 @@ from foundry.versioning import EVENT_SCHEMA_VERSION as SCHEMA_VERSION
 def _events(n: int, day: str = "2026-01-15", prefix: str = "test") -> list[SemanticEvent]:
     events = []
     for i in range(n):
-        etype = "EntityCreated" if i % 2 == 0 else "LocationObserved"
+        etype = "EntityCreated" if i % 2 == 0 else "AssertionMade"
+        payload = (
+            {"entity_id": f"e{i}", "name": f"entity-{i}", "seq": i}
+            if etype == "EntityCreated"
+            else {
+                "assertion_id": f"urn:assert:{i}",
+                "subject_id": f"urn:entity:{i}",
+                "subject_ref": None,
+                "predicate_iri": "https://damminhtien.github.io/ontology-research/ontology/core#locatedAt",
+                "object": {"kind": "location", "value": f"urn:location:{i}"},
+                "valid_from": f"{day}T00:00:00Z",
+                "valid_until": None,
+                "source_ids": ["urn:source:test"],
+                "evidence": [{"source_id": "urn:source:test", "locator": None, "span": None}],
+                "confidence": 0.9,
+                "supersedes": None,
+                "seq": i,
+            }
+        )
         events.append(
             SemanticEvent(
                 event_id=f"{prefix}-{day}-{i:04d}",
                 event_type=etype,
                 schema_version=SCHEMA_VERSION,
                 occurred_at=f"{day}T0{i % 10}:00:00Z",
-                payload={"entity_id": f"e{i}", "seq": i},
+                payload=payload,
             )
         )
     return events

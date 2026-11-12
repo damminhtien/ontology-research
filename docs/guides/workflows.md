@@ -45,17 +45,20 @@ re-ingest là external-id hit (dedupe, không tạo entity mới).
 
 ## 2. Nạp feed tracking (sensor → observation → track)
 
-Feed AIS JSONL (`mmsi`, `name`, `sensor_id`, `track_id`, `location_uri`,
-`at_time`):
+Feed AIS JSONL (`mmsi`, `name`, `sensor_id`, `track_id`, `position_uri`,
+`measurements`, `at_time`; old `location_uri` is accepted as an input alias):
 
 ```bash
 .venv/bin/python tools/ingest_tracking_feed.py --feed data/tracking-feed.jsonl
 ```
 
 Mapping: platform resolve/mint theo **MMSI** (trusted external id), sensor
-theo serial; ba event types `SensorRegistered` / `ObservationRecorded` /
-`TrackObserved` đều qua domain SHACL contracts trước khi vào log. Read model
-giữ track store (`get_track` / `tracks_of`).
+theo serial. `ObservationRecorded` represents the observation event; a separate
+`tracking:ObservationResult` preserves measured position, typed values, units
+and evidence. Neither event nor result creates a `core:locatedAt` world claim.
+`SensorRegistered`, `ObservationRecorded` and `TrackObserved` pass their SHACL
+contracts before entering the log. Read model giữ track store (`get_track` /
+`tracks_of`).
 
 ## 3. Trích xuất fact từ văn bản (LLM chỉ đề xuất)
 
@@ -79,8 +82,10 @@ result = pipeline.ingest_document(..., extractor=LlmExtractor(complete=my_llm_fn
 ```
 
 Cam kết an toàn: candidate **không bao giờ tự mint entity** — subject phải
-resolve exact alias/external id, nếu không thì vào durable review queue;
-confidence bị cap 0.7; provenance là document id; mọi assertion qua SHACL.
+resolve exact alias/external id, nếu không thì giữ bằng unresolved reference
+hoặc vào durable review queue khi ambiguous; confidence bị cap 0.7; provenance
+gắn về source/document; predicate phải được khai báo và tương thích với kiểu
+subject/object; mọi assertion qua SHACL.
 
 ## 4. Sửa dữ liệu: merge / split / backfill
 

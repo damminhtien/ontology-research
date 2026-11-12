@@ -1,0 +1,8 @@
+# CQ-027..028: Find all normalized Sources supporting an assertion.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+
+SELECT ?sourceName WHERE {
+  ?assertion core:hasSource ?source .
+  ?source a core:Source ; core:name ?sourceName .
+}
+ORDER BY ?sourceName

@@ -21,13 +21,14 @@ from rdflib import RDF, RDFS, Graph, Literal, URIRef
 from rdflib.namespace import OWL, XSD
 
 from foundry.assertions import (
+    assertion_superseded_to_rdf,
     assertion_to_rdf,
     document_to_rdf,
     make_assertion,
     register_document,
     supersede_assertion,
 )
-from foundry.events import EventLog
+from foundry.events import EventLog, make_event
 from foundry.namespaces import ASSERTION_MIDDLE_NS, CORE_ONTOLOGY_NS
 
 ASSERTION = ASSERTION_MIDDLE_NS
@@ -170,11 +171,11 @@ class TestShaclConformance:
         def statement(node: URIRef) -> set:
             return set(g.predicate_objects(node))
 
-        assert statement(located_node) - statement(member_node) == {
-            (URIRef(ASSERTION + "predicate"), URIRef(CORE + "locatedAt"))
+        assert set(g.objects(located_node, URIRef(ASSERTION + "predicate"))) == {
+            URIRef(CORE + "locatedAt")
         }
-        assert statement(member_node) - statement(located_node) == {
-            (URIRef(ASSERTION + "predicate"), URIRef(CORE + "memberOf"))
+        assert set(g.objects(member_node, URIRef(ASSERTION + "predicate"))) == {
+            URIRef(CORE + "memberOf")
         }
         # the two statements stay distinguishable by predicate alone
         assert set(g.objects(located_node, URIRef(ASSERTION + "predicate"))) != set(
@@ -275,12 +276,35 @@ class TestShaclConformance:
         conforms, report = _run_shacl(g)
         assert conforms, f"supersede chain must conform:\n{report}"
 
-    def test_assertion_citing_unmapped_document_rejected(self, tmp_path):
+    def test_retraction_event_maps_to_retracts_without_rewriting_assertion(self):
+        assertion_id = "urn:assert:retracted"
+        event = make_event(
+            "AssertionSuperseded",
+            {
+                "assertion_id": assertion_id,
+                "reason": "duplicate source row",
+                "superseded_at": INSTANT,
+            },
+        )
+        graph = Graph()
+        node = assertion_superseded_to_rdf(graph, event)
+        assert (node, RDF.type, URIRef(CORE + "Event")) in graph
+        assert (node, URIRef(ASSERTION + "retracts"), URIRef(assertion_id)) in graph
+        assert (
+            node,
+            URIRef(ASSERTION + "retractionReason"),
+            Literal("duplicate source row", datatype=XSD.string),
+        ) in graph
+
+    def test_assertion_maps_generic_source_without_document_class(self, tmp_path):
         _log, _doc, made = _mapped_log(tmp_path)
         g = _seed_graph()
         assertion_to_rdf(g, made)  # hasSource cites a Document never mapped
         conforms, _report = _run_shacl(g)
-        assert not conforms, "assertion citing an unmapped Document must be rejected"
+        source = URIRef(made.payload["source_ids"][0])
+        assert conforms
+        assert (source, RDF.type, URIRef(CORE + "Source")) in g
+        assert (source, RDF.type, URIRef(ASSERTION + "Document")) not in g
 
     def test_confidence_outside_range_rejected(self):
         g = _seed_graph()

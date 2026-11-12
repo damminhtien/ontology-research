@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import pickle
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
-from foundry.namespaces import require_absolute_iri
+from foundry.namespaces import CORE_LOCATED_AT, normalize_surface, require_absolute_iri
 
 
 def parse_instant(text: str) -> datetime:
@@ -57,11 +57,21 @@ class EntityView:
 
 @dataclass(frozen=True)
 class LocationFact:
-    """The latest known location of an entity plus when it became known."""
+    """One unique location value active at a valid-time instant."""
 
     location_uri: str
     as_of: str
     source_ids: tuple[str, ...] = ()
+    assertion_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class LocationResolution:
+    """Location lookup outcome; conflicting active values stay explicit."""
+
+    status: str  # none | unique | conflict
+    fact: LocationFact | None = None
+    conflicts: tuple[LocationFact, ...] = ()
 
 
 @dataclass
@@ -76,8 +86,9 @@ class _EntityRecord:
 class _LocationEntry:
     location_uri: str
     valid_from: datetime
+    valid_until: datetime | None
     source_ids: tuple[str, ...]
-    event_id: str
+    assertion_id: str
 
 
 @dataclass
@@ -98,10 +109,14 @@ class _AssertionRecord:
     predicate_iri: str
     object: dict
     valid_from: str
-    valid_to: str | None
+    valid_until: str | None
     source_ids: tuple[str, ...]
+    evidence: tuple[dict, ...]
     confidence: float | None
     status: str  # asserted | superseded
+    original_subject_id: str
+    subject_ref: dict | None = None
+    subject_status: str = "resolved"
 
 
 class ReadModel:
@@ -116,7 +131,9 @@ class ReadModel:
         self._entities: dict[str, _EntityRecord] = {}
         self._merged_records: dict[str, _EntityRecord] = {}
         self._location_history: dict[str, list[_LocationEntry]] = {}
-        self._pending: dict[str, list[_LocationEntry]] = {}
+        self._pending_assertions: dict[str, set[str]] = {}
+        self._name_owners: dict[str, set[str]] = {}
+        self._names_by_entity: dict[str, set[str]] = {}
         self._by_location: dict[str, set[str]] = {}
         self._current_location: dict[str, str] = {}
         self._merged_into: dict[str, str] = {}
@@ -129,9 +146,14 @@ class ReadModel:
     # -- write surface (called by the projector only) -----------------------
 
     def upsert_entity(
-        self, entity_id: str, entity_type: str, name: str, event_time: datetime
+        self,
+        entity_id: str,
+        entity_type: str,
+        name: str,
+        event_time: datetime,
+        aliases: tuple[str, ...] | list[str] = (),
     ) -> None:
-        """Record that an entity exists; keeps first_seen, advances last_event."""
+        """Record an entity and link references whose names now resolve uniquely."""
         existing = self._entities.get(entity_id)
         if existing is None:
             self._entities[entity_id] = _EntityRecord(
@@ -142,80 +164,107 @@ class ReadModel:
             )
         elif event_time.isoformat() > existing.last_event_time:
             existing.last_event_time = event_time.isoformat()
+        for surface in (name, *aliases):
+            normalized = normalize_surface(surface)
+            if not normalized:
+                continue
+            self._name_owners.setdefault(normalized, set()).add(entity_id)
+            self._names_by_entity.setdefault(entity_id, set()).add(normalized)
+            self._resolve_pending_references(normalized)
 
-    def add_location_observation(
-        self,
-        entity_id: str,
-        location_uri: str,
-        valid_from: datetime,
-        source_ids: tuple[str, ...],
-        event_id: str,
-    ) -> None:
-        """Append a location observation to an entity's temporal history."""
-        entry = _LocationEntry(
-            location_uri=location_uri,
-            valid_from=valid_from,
-            source_ids=source_ids,
-            event_id=event_id,
+    def _canonical_id(self, entity_id: str) -> str:
+        """Follow recorded entity merges to the current canonical ID."""
+        visited: set[str] = set()
+        while entity_id in self._merged_into and entity_id not in visited:
+            visited.add(entity_id)
+            entity_id = self._merged_into[entity_id]
+        return entity_id
+
+    def _location_entry(self, assertion_id: str, record: _AssertionRecord) -> _LocationEntry | None:
+        if (
+            record.predicate_iri != CORE_LOCATED_AT
+            or record.object.get("kind") != "location"
+            or record.status != "asserted"
+        ):
+            return None
+        return _LocationEntry(
+            location_uri=record.object["value"],
+            valid_from=parse_instant(record.valid_from),
+            valid_until=parse_instant(record.valid_until) if record.valid_until else None,
+            source_ids=record.source_ids,
+            assertion_id=assertion_id,
         )
-        history = self._location_history.setdefault(entity_id, [])
+
+    def _attach_location_claim(self, assertion_id: str, record: _AssertionRecord) -> None:
+        if not record.subject_id:
+            return
+        entry = self._location_entry(assertion_id, record)
+        if entry is None:
+            return
+        history = self._location_history.setdefault(record.subject_id, [])
+        history[:] = [item for item in history if item.assertion_id != assertion_id]
         history.append(entry)
-        history.sort(key=lambda e: (e.valid_from, e.event_id))
+        history.sort(key=lambda item: (item.valid_from, item.assertion_id))
+        self._refresh_location_index(record.subject_id)
+
+    def _remove_location_claim(self, assertion_id: str, entity_id: str) -> None:
+        history = self._location_history.get(entity_id)
+        if history is None:
+            return
+        history[:] = [item for item in history if item.assertion_id != assertion_id]
+        if not history:
+            self._location_history.pop(entity_id, None)
         self._refresh_location_index(entity_id)
 
-    def add_pending_observation(
-        self,
-        entity_ref: str,
-        location_uri: str,
-        valid_from: datetime,
-        source_ids: tuple[str, ...],
-        event_id: str,
-    ) -> None:
-        """Hold an observation whose subject has no canonical identity yet (§4.7)."""
-        from foundry.namespaces import normalize_surface
-
-        norm = normalize_surface(entity_ref)
-        if not norm:
-            return
-        self._pending.setdefault(norm, []).append(
-            _LocationEntry(
-                location_uri=location_uri,
-                valid_from=valid_from,
-                source_ids=source_ids,
-                event_id=event_id,
-            )
-        )
-
-    def flush_pending(self, entity_id: str, surface_names: list[str] | tuple[str, ...]) -> int:
-        """Link pending observations to a newly minted entity (§4.7).
-
-        A pending observation links when its cited surface form matches the
-        entity's name or any of its registered aliases. Returns the number of
-        observations linked.
-        """
-        from foundry.namespaces import normalize_surface
-
-        flushed = 0
-        for name in surface_names:
-            norm = normalize_surface(name)
-            entries = self._pending.pop(norm, None)
-            if not entries:
+    def _resolve_pending_references(self, normalized_surface: str) -> int:
+        assertion_ids = {
+            assertion_id
+            for assertion_id, record in self._assertions.items()
+            if record.subject_ref
+            and normalize_surface(record.subject_ref["surface_form"]) == normalized_surface
+        }
+        linked = 0
+        for assertion_id in assertion_ids:
+            record = self._assertions.get(assertion_id)
+            if record is None:
                 continue
-            for entry in entries:
-                self.add_location_observation(
-                    entity_id=entity_id,
-                    location_uri=entry.location_uri,
-                    valid_from=entry.valid_from,
-                    source_ids=entry.source_ids,
-                    event_id=entry.event_id,
+            expected_type = record.subject_ref.get("entity_type") if record.subject_ref else None
+            owners = {
+                self._canonical_id(entity_id)
+                for entity_id in self._name_owners.get(normalized_surface, set())
+                if expected_type is None
+                or (
+                    self._entities.get(self._canonical_id(entity_id), None) is not None
+                    and self._entities[self._canonical_id(entity_id)].entity_type == expected_type
                 )
-                flushed += 1
-        return flushed
+            }
+            previous_subject = record.subject_id
+            if len(owners) == 1:
+                record.subject_id = next(iter(owners))
+                record.subject_status = "resolved"
+                self._pending_assertions.get(normalized_surface, set()).discard(assertion_id)
+            else:
+                record.subject_id = ""
+                record.subject_status = "ambiguous" if owners else "unresolved"
+                self._pending_assertions.setdefault(normalized_surface, set()).add(assertion_id)
+            if previous_subject and previous_subject != record.subject_id:
+                self._remove_location_claim(assertion_id, previous_subject)
+            if record.subject_id:
+                self._attach_location_claim(assertion_id, record)
+                if previous_subject != record.subject_id:
+                    linked += 1
+        if not self._pending_assertions.get(normalized_surface):
+            self._pending_assertions.pop(normalized_surface, None)
+        return linked
 
     @property
     def pending_count(self) -> int:
-        """Observations waiting for their subject entity to be minted."""
-        return sum(len(entries) for entries in self._pending.values())
+        """Assertions whose noncanonical subject is unresolved or ambiguous."""
+        return sum(
+            1
+            for record in self._assertions.values()
+            if record.subject_ref is not None and not record.subject_id
+        )
 
     def _refresh_location_index(self, entity_id: str) -> None:
         """Keep the reverse index correct after one entity's history changes.
@@ -223,10 +272,10 @@ class ReadModel:
         Streaming-safe: safe to call after every single apply instead of only
         at the end of a full replay.
         """
-        history = self._location_history.get(entity_id)
-        current = history[-1].location_uri if history else None
+        resolution = self.location_resolution(entity_id, datetime.now(UTC))
+        current = resolution.fact.location_uri if resolution.status == "unique" else None
         previous = self._current_location.get(entity_id)
-        if previous == current:
+        if previous == current and (current is not None or entity_id not in self._current_location):
             return
         if previous is not None:
             bucket = self._by_location.get(previous)
@@ -236,7 +285,9 @@ class ReadModel:
                     del self._by_location[previous]
         if current is not None:
             self._by_location.setdefault(current, set()).add(entity_id)
-        self._current_location[entity_id] = current
+            self._current_location[entity_id] = current
+        else:
+            self._current_location.pop(entity_id, None)
 
     def merge_entities(self, survivor_id: str, duplicate_id: str, event_time: datetime) -> None:
         """Fold a merged duplicate into its survivor (``EntityMerged`` projection).
@@ -250,18 +301,20 @@ class ReadModel:
         if history:
             target = self._location_history.setdefault(survivor_id, [])
             target.extend(history)
-            target.sort(key=lambda e: (e.valid_from, e.event_id))
+            target.sort(key=lambda e: (e.valid_from, e.assertion_id))
         record = self._entities.pop(duplicate_id, None)
         if record is not None:
             # tombstone: an EntitySplit can restore the entity view from here
             self._merged_records[duplicate_id] = record
         self._merged_into[duplicate_id] = survivor_id
         # assertions follow their subject through the merge
-        for record in self._assertions.values():
+        for assertion_id, record in self._assertions.items():
             if record.subject_id == duplicate_id:
                 record.subject_id = survivor_id
+                self._attach_location_claim(assertion_id, record)
+        for normalized in self._names_by_entity.get(duplicate_id, set()):
+            self._resolve_pending_references(normalized)
         self._refresh_location_index(survivor_id)
-        self._refresh_location_index(duplicate_id)
         self._current_location.pop(duplicate_id, None)
         self.touch(event_time)
 
@@ -269,9 +322,9 @@ class ReadModel:
         """Undo an ``EntityMerged`` projection (``EntitySplit`` event).
 
         Restores the duplicate's entity view from the merge tombstone and
-        clears the redirect. Location history stays with the survivor — the
-        duplicate starts with an empty history; history re-partition belongs
-        to the assertion model where every assertion names its subject.
+        clears the redirect. Assertions whose original subject was the
+        duplicate move back with it, so the location indexes match the
+        restored identity split.
         Idempotent: splitting an unmerged pair is a no-op.
         """
         record = self._merged_records.pop(duplicate_id, None)
@@ -279,6 +332,14 @@ class ReadModel:
             return  # never merged (or already split): nothing to restore
         self._entities[duplicate_id] = record
         self._merged_into.pop(duplicate_id, None)
+        for assertion_id, assertion in self._assertions.items():
+            if assertion.original_subject_id == duplicate_id:
+                if assertion.subject_id and assertion.subject_id != duplicate_id:
+                    self._remove_location_claim(assertion_id, assertion.subject_id)
+                assertion.subject_id = duplicate_id
+                self._attach_location_claim(assertion_id, assertion)
+        for normalized in self._names_by_entity.get(duplicate_id, set()):
+            self._resolve_pending_references(normalized)
         self._refresh_location_index(survivor_id)
         self._refresh_location_index(duplicate_id)
         self.touch(event_time)
@@ -341,37 +402,67 @@ class ReadModel:
         ]
 
     def current_location(self, entity_id: str) -> LocationFact | None:
-        """Latest location known for an entity (projection, not history)."""
-        history = self._location_history.get(entity_id)
-        if not history:
-            return None
-        latest = history[-1]
-        return LocationFact(
-            location_uri=latest.location_uri,
-            as_of=latest.valid_from.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            source_ids=latest.source_ids,
-        )
+        """Return the unique location active now, or ``None`` for none/conflict."""
+        return self.location_resolution(entity_id, datetime.now(UTC)).fact
 
     def location_as_of(self, entity_id: str, instant: datetime) -> LocationFact | None:
-        """Q4 temporal: newest observation with valid_from <= instant."""
-        history = self._location_history.get(entity_id)
-        if not history:
-            return None
-        best: _LocationEntry | None = None
-        for entry in history:
-            if entry.valid_from <= instant:
-                best = entry
-        if best is None:
-            return None
-        return LocationFact(
-            location_uri=best.location_uri,
-            as_of=best.valid_from.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            source_ids=best.source_ids,
-        )
+        """Return the unique location active at ``instant`` under [from, until)."""
+        return self.location_resolution(entity_id, instant).fact
 
-    def entities_at(self, location_uri: str) -> set[str]:
-        """Entities whose CURRENT location is ``location_uri`` (reverse index)."""
-        return set(self._by_location.get(location_uri, set()))
+    def location_resolution(self, entity_id: str, instant: datetime) -> LocationResolution:
+        """Resolve location claims without silently choosing between conflicts."""
+        if instant.tzinfo is None:
+            raise ValueError("location lookup instant must be timezone-aware")
+        canonical_id = self._canonical_id(entity_id)
+        history = self._location_history.get(canonical_id, ())
+        grouped: dict[str, list[_LocationEntry]] = {}
+        for entry in history:
+            assertion = self._assertions.get(entry.assertion_id)
+            if assertion is None or assertion.status != "asserted":
+                continue
+            if entry.valid_from <= instant and (
+                entry.valid_until is None or instant < entry.valid_until
+            ):
+                grouped.setdefault(entry.location_uri, []).append(entry)
+        facts = tuple(
+            LocationFact(
+                location_uri=location_uri,
+                as_of=format_instant(max(entry.valid_from for entry in entries)),
+                source_ids=tuple(
+                    sorted({source for entry in entries for source in entry.source_ids})
+                ),
+                assertion_ids=tuple(sorted(entry.assertion_id for entry in entries)),
+            )
+            for location_uri, entries in sorted(grouped.items())
+        )
+        if not facts:
+            return LocationResolution("none")
+        if len(facts) == 1:
+            return LocationResolution("unique", fact=facts[0])
+        return LocationResolution("conflict", conflicts=facts)
+
+    def location_conflicts(
+        self, entity_id: str, instant: datetime | None = None
+    ) -> tuple[LocationFact, ...]:
+        """Return all active distinct location values when the lookup conflicts."""
+        at = instant or datetime.now(UTC)
+        result = self.location_resolution(entity_id, at)
+        return result.conflicts if result.status == "conflict" else ()
+
+    def entities_at(self, location_uri: str, instant: datetime | None = None) -> set[str]:
+        """Entities uniquely at ``location_uri`` at an instant.
+
+        The query checks current assertion validity so an interval ending does
+        not leave an expired value in the reverse projection.
+        """
+        at = instant or datetime.now(UTC)
+        return {
+            entity_id
+            for entity_id in self._location_history
+            if (fact := self.location_resolution(entity_id, at)).status == "unique"
+            and fact.fact is not None
+            and fact.fact.location_uri == location_uri
+        }
 
     def stats(self, now: datetime | None = None) -> dict:
         """Health numbers for monitoring: counts and projection lag in seconds."""
@@ -383,14 +474,21 @@ class ReadModel:
             if self._last_event_time is not None
             else None
         )
-        locations = {e.location_uri for hist in self._location_history.values() for e in hist}
+        current_facts = [
+            resolution.fact
+            for entity_id in self._location_history
+            if (resolution := self.location_resolution(entity_id, current)).status == "unique"
+            and resolution.fact is not None
+        ]
+        locations = {fact.location_uri for fact in current_facts}
         return {
             "entities": len(self._entities),
-            "with_location": len(self._location_history),
+            "with_location": len(current_facts),
             "locations": len(locations),
             "assertions": len(self._assertions),
             "tracks": len(self._tracks),
             "pending_observations": self.pending_count,
+            "pending_assertions": self.pending_count,
             "last_event_time": (
                 self._last_event_time.strftime("%Y-%m-%dT%H:%M:%SZ")
                 if self._last_event_time
@@ -435,19 +533,38 @@ class ReadModel:
 
     def add_assertion(self, payload: dict) -> None:
         """Fold one ``AssertionMade`` into the ledger."""
-        self._assertions[payload["assertion_id"]] = _AssertionRecord(
-            subject_id=payload["subject_id"],
+        assertion_id = payload["assertion_id"]
+        subject_ref = payload.get("subject_ref")
+        subject_id = payload.get("subject_id") or ""
+        if subject_id:
+            subject_id = self._canonical_id(subject_id)
+        record = _AssertionRecord(
+            subject_id=subject_id,
             predicate_iri=payload["predicate_iri"],
             object=dict(payload["object"]),
             valid_from=payload["valid_from"],
-            valid_to=payload.get("valid_to"),
+            valid_until=payload.get("valid_until", payload.get("valid_to")),
             source_ids=tuple(payload.get("source_ids") or ()),
+            evidence=tuple(dict(item) for item in (payload.get("evidence") or ())),
             confidence=payload.get("confidence"),
             status="asserted",
+            original_subject_id=payload.get("subject_id") or "",
+            subject_ref=dict(subject_ref) if subject_ref else None,
+            subject_status="unresolved" if subject_ref else "resolved",
         )
+        self._assertions[assertion_id] = record
         superseded = payload.get("supersedes")
         if superseded is not None and superseded in self._assertions:
-            self._assertions[superseded].status = "superseded"
+            previous = self._assertions[superseded]
+            previous.status = "superseded"
+            if previous.subject_id:
+                self._refresh_location_index(previous.subject_id)
+        if record.subject_ref:
+            normalized = normalize_surface(record.subject_ref["surface_form"])
+            self._pending_assertions.setdefault(normalized, set()).add(assertion_id)
+            self._resolve_pending_references(normalized)
+        else:
+            self._attach_location_claim(assertion_id, record)
 
     def supersede_assertion(self, assertion_id: str) -> None:
         """Mark one assertion superseded.
@@ -459,6 +576,8 @@ class ReadModel:
         if record is None:
             raise ValueError(f"assertion {assertion_id!r} not in ledger; log is corrupt")
         record.status = "superseded"
+        if record.subject_id:
+            self._refresh_location_index(record.subject_id)
 
     def get_assertion(self, assertion_id: str) -> dict | None:
         """Full ledger entry for one assertion (None when unknown)."""
@@ -468,11 +587,14 @@ class ReadModel:
         return {
             "assertion_id": assertion_id,
             "subject_id": record.subject_id,
+            "subject_ref": dict(record.subject_ref) if record.subject_ref else None,
+            "subject_status": record.subject_status,
             "predicate_iri": record.predicate_iri,
             "object": dict(record.object),
             "valid_from": record.valid_from,
-            "valid_to": record.valid_to,
+            "valid_until": record.valid_until,
             "source_ids": list(record.source_ids),
+            "evidence": [dict(item) for item in record.evidence],
             "confidence": record.confidence,
             "status": record.status,
         }
@@ -503,6 +625,44 @@ class ReadModel:
             )
             if entry is not None
         ]
+
+    def assertions_as_of(
+        self,
+        subject_id: str,
+        instant: datetime,
+        predicate_iri: str | None = None,
+    ) -> list[dict]:
+        """Return resolved, non-superseded assertions valid at one instant.
+
+        Validity is half-open: ``valid_from <= instant < valid_until``. An
+        omitted end has no upper bound. This temporal read applies to every
+        predicate, including relationships such as ``core:memberOf``; location
+        lookups use the specialized conflict-aware ``location_resolution``.
+        """
+        if instant.tzinfo is None:
+            raise ValueError("instant must be timezone-aware")
+        wanted = (
+            require_absolute_iri(predicate_iri, "predicate_iri")
+            if predicate_iri is not None
+            else None
+        )
+        canonical_subject = self._canonical_id(subject_id)
+        matches = []
+        for assertion_id, record in self._assertions.items():
+            if (
+                record.subject_id != canonical_subject
+                or record.status != "asserted"
+                or record.subject_status != "resolved"
+                or (wanted is not None and record.predicate_iri != wanted)
+            ):
+                continue
+            start = parse_instant(record.valid_from)
+            end = parse_instant(record.valid_until) if record.valid_until else None
+            if start <= instant and (end is None or instant < end):
+                entry = self.get_assertion(assertion_id)
+                if entry is not None:
+                    matches.append(entry)
+        return matches
 
     # -- internal maintenance (projector-only, keeps indexes consistent) -------
 
@@ -535,8 +695,8 @@ class ReadModel:
         return model if isinstance(model, ReadModel) else None
 
     def rebuild_location_index(self) -> None:
-        """Recompute the reverse index from history (used after full replay)."""
+        """Recompute unique-current-location indexes from active assertions."""
         self._by_location = {}
-        for entity_id, history in self._location_history.items():
-            if history:
-                self._by_location.setdefault(history[-1].location_uri, set()).add(entity_id)
+        self._current_location = {}
+        for entity_id in self._location_history:
+            self._refresh_location_index(entity_id)

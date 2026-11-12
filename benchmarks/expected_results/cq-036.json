@@ -1,0 +1,21 @@
+{
+  "id": "CQ-036",
+  "group": "Q2",
+  "slo_p95_ms": 100,
+  "query_file": "q28_observation_result_position.rq",
+  "variables": [
+    "atTime",
+    "positionName"
+  ],
+  "rows": [
+    [
+      "2026-08-22T08:00:00Z",
+      "Phu Quoc"
+    ]
+  ],
+  "bindings": {
+    "wantedObservation": {
+      "iri": "https://data.example/entity/obs-17c"
+    }
+  }
+}

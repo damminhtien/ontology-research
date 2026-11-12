@@ -1,0 +1,12 @@
+# CQ-032..033: Resolve an entity through an exact scheme/value pair.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX identity: <https://damminhtien.github.io/ontology-research/ontology/middle/identity#>
+
+SELECT ?entityName WHERE {
+  ?identifier a identity:Identifier ;
+      identity:identifies ?entity ;
+      identity:identifierScheme ?scheme ;
+      identity:identifierValue ?value .
+  ?entity core:name ?entityName .
+  FILTER (?scheme = ?wantedScheme && ?value = ?wantedValue)
+}

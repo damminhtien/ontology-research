@@ -144,6 +144,240 @@
       "module_iri": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion",
       "severity": "MAJOR",
       "version": "1.0.0"
+    },
+    {
+      "changes": [
+        {
+          "detail": "class added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/identity#Identifier"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/identity#identifierScheme"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/identity#identifierValue"
+        },
+        {
+          "detail": "object-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/identity#identifies"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/identity#referenceText"
+        },
+        {
+          "detail": "comment: updated; parents removed: ['https://damminhtien.github.io/ontology-research/ontology/core#Entity']",
+          "kind": "changed",
+          "severity": "MAJOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/identity#UnresolvedReference"
+        }
+      ],
+      "commit": "bff8a29",
+      "date": "2026-11-12T07:35:04Z",
+      "file": "ontology/middle/identity.ttl",
+      "migration": "Make identity:UnresolvedReference disjoint with and separate from core:Entity; introduce identity:Identifier as a first-class information object. Historical unresolved placeholders must not be typed as world entities.",
+      "migration_script": null,
+      "module_iri": "https://damminhtien.github.io/ontology-research/ontology/middle/identity",
+      "severity": "MAJOR",
+      "version": "1.0.0"
+    },
+    {
+      "changes": [
+        {
+          "detail": "object-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#evidence"
+        },
+        {
+          "detail": "object-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#evidenceSource"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#locator"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#retractionReason"
+        },
+        {
+          "detail": "object-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#retracts"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#spanEnd"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#spanStart"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#spanUnit"
+        },
+        {
+          "detail": "object-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#subjectReference"
+        },
+        {
+          "detail": "comment: updated",
+          "kind": "changed",
+          "severity": "PATCH",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion"
+        }
+      ],
+      "commit": "bff8a29",
+      "date": "2026-11-12T07:35:04Z",
+      "file": "ontology/middle/assertion.ttl",
+      "migration": null,
+      "migration_script": null,
+      "module_iri": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion",
+      "severity": "MINOR",
+      "version": "1.1.0"
+    },
+    {
+      "changes": [
+        {
+          "detail": "class added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#ObservationResult"
+        },
+        {
+          "detail": "object-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#evidence"
+        },
+        {
+          "detail": "object-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#evidenceSource"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#locator"
+        },
+        {
+          "detail": "object-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#measurement"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#measurementName"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#measurementUnit"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#measurementValue"
+        },
+        {
+          "detail": "object-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#position"
+        },
+        {
+          "detail": "object-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#resultOf"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#spanEnd"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#spanStart"
+        },
+        {
+          "detail": "data-property added",
+          "kind": "added",
+          "severity": "MINOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#spanUnit"
+        }
+      ],
+      "commit": "bff8a29",
+      "date": "2026-11-12T07:35:04Z",
+      "file": "ontology/domain/tracking.ttl",
+      "migration": null,
+      "migration_script": null,
+      "module_iri": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking",
+      "severity": "MINOR",
+      "version": "0.2.0"
+    },
+    {
+      "changes": [
+        {
+          "detail": "class removed",
+          "kind": "removed",
+          "severity": "MAJOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/core#LocationAssertion"
+        },
+        {
+          "detail": "range: 'http://www.w3.org/2001/XMLSchema#string' -> 'union(http://www.w3.org/1999/02/22-rdf-syntax-ns#langString, http://www.w3.org/2001/XMLSchema#string)'",
+          "kind": "changed",
+          "severity": "MAJOR",
+          "target": "https://damminhtien.github.io/ontology-research/ontology/core#alias"
+        }
+      ],
+      "commit": "bff8a29",
+      "date": "2026-11-12T08:00:34Z",
+      "file": "ontology/core/core.ttl",
+      "migration": "Remove core:LocationAssertion after migrating location records to assertion:Assertion; allow core:alias as xsd:string or rdf:langString.",
+      "migration_script": "migrations/core/1.0.0_to_2.0.0.rq",
+      "module_iri": "https://damminhtien.github.io/ontology-research/ontology/core",
+      "severity": "MAJOR",
+      "version": "2.0.0"
     }
   ]
 }

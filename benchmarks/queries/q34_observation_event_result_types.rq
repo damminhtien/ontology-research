@@ -1,0 +1,14 @@
+# CQ-044: The observation act is an Event; its result is an InformationObject.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?observationType ?resultType WHERE {
+  ?observation a ?observationType .
+  ?result a ?resultType ; tracking:resultOf ?observation .
+  ?observationType rdfs:subClassOf* core:Event .
+  ?resultType rdfs:subClassOf* core:InformationObject .
+  FILTER (?observationType = core:Observation)
+  FILTER (?resultType = tracking:ObservationResult)
+  FILTER (?observation = ?wantedObservation)
+}

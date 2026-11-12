@@ -1,0 +1,8 @@
+# CQ-042: Find canonical source provenance for a sensor observation.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+
+SELECT ?sourceName WHERE {
+  ?observation core:hasSource ?source .
+  ?source a core:Source ; core:name ?sourceName .
+}
+ORDER BY ?sourceName

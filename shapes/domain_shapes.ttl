@@ -28,6 +28,60 @@ tracking:TrackShape a sh:NodeShape ;
         sh:message "Track must carry exactly one xsd:string track id."@en ;
     ] .
 
+tracking:ObservationResultShape a sh:NodeShape ;
+    sh:targetClass tracking:ObservationResult ;
+    sh:property [
+        sh:path tracking:resultOf ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:class core:Observation ;
+        sh:message "ObservationResult must belong to exactly one observation event."@en ;
+    ] ;
+    sh:property [
+        sh:path tracking:position ;
+        sh:maxCount 1 ;
+        sh:class core:Location ;
+        sh:message "ObservationResult may report at most one measured position."@en ;
+    ] ;
+    sh:property [
+        sh:path tracking:measurement ;
+        sh:node [
+            sh:property [
+                sh:path tracking:measurementName ;
+                sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
+            ] ;
+            sh:property [
+                sh:path tracking:measurementValue ;
+                sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:Literal ;
+            ] ;
+            sh:property [
+                sh:path tracking:measurementUnit ;
+                sh:maxCount 1 ; sh:datatype xsd:string ;
+            ] ;
+        ] ;
+    ] ;
+    sh:property [
+        sh:path core:hasConfidence ;
+        sh:maxCount 1 ; sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ; sh:maxInclusive 1 ;
+    ] ;
+    sh:property [
+        sh:path tracking:evidence ;
+        sh:node [
+            sh:property [
+                sh:path tracking:evidenceSource ; sh:minCount 1 ; sh:maxCount 1 ;
+                sh:class core:Source ;
+            ] ;
+            sh:property [ sh:path tracking:locator ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
+            sh:property [ sh:path tracking:spanStart ; sh:maxCount 1 ; sh:datatype xsd:integer ] ;
+            sh:property [ sh:path tracking:spanEnd ; sh:maxCount 1 ; sh:datatype xsd:integer ] ;
+            sh:property [ sh:path tracking:spanUnit ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
+        ] ;
+    ] ;
+    sh:or (
+        [ sh:property [ sh:path tracking:position ; sh:minCount 1 ] ]
+        [ sh:property [ sh:path tracking:measurement ; sh:minCount 1 ] ]
+    ) .
+
 # A Sensor MUST be mounted on exactly one platform — an unmounted sensor
 # reading is not a meaningful operational fact.
 sensor:SensorShape a sh:NodeShape ;

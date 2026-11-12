@@ -1,0 +1,21 @@
+{
+  "id": "CQ-024",
+  "group": "Q4",
+  "slo_p95_ms": 500,
+  "query_file": "q21_assertion_status.rq",
+  "variables": [
+    "status",
+    "replacement"
+  ],
+  "rows": [
+    [
+      "corrected",
+      "https://data.example/entity/assert-17-corrected"
+    ]
+  ],
+  "bindings": {
+    "assertion": {
+      "iri": "https://data.example/entity/assert-17-old"
+    }
+  }
+}

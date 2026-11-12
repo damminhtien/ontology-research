@@ -1,0 +1,19 @@
+{
+  "id": "CQ-042",
+  "group": "Q5",
+  "slo_p95_ms": 500,
+  "query_file": "q32_observation_provenance.rq",
+  "variables": [
+    "sourceName"
+  ],
+  "rows": [
+    [
+      "Surface radar 2026-08-20"
+    ]
+  ],
+  "bindings": {
+    "observation": {
+      "iri": "https://data.example/entity/obs-17b"
+    }
+  }
+}

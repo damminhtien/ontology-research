@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 from conftest import CORE_ONTOLOGY, SHAPES_FILE
@@ -116,7 +117,7 @@ class TestMakeAssertion:
         assert event.payload["assertion_id"].startswith("urn:assert:")
         assert event.payload["predicate_iri"] == CORE_LOCATED_AT
         assert event.payload["object"] == {"kind": "location", "value": LOC}
-        assert event.payload["valid_to"] is None
+        assert event.payload["valid_until"] is None
 
     def test_absolute_predicate_iri_is_recorded_verbatim(self, log, identity):
         event = make_assertion(
@@ -305,7 +306,7 @@ class TestPipelineAssertions:
             "AssertionMade",
         ]
 
-    def test_assertion_citing_unregistered_document_rejected(self, tmp_path):
+    def test_assertion_citing_unregistered_source_is_normalized(self, tmp_path):
         log_path = tmp_path / "events.jsonl"
         pipeline = self._pipeline(log_path)
         created = pipeline.ingest_entity(name="Org A", entity_type="Organization", source_id="s")
@@ -317,9 +318,13 @@ class TestPipelineAssertions:
             valid_from="2026-08-01T00:00:00Z",
             source_ids=["urn:doc:missing"],
         )
-        assert not result.accepted
-        assert "SHACL violation" in result.reason
-        assert [e.event_type for e in EventLog(log_path).read_all()] == ["EntityCreated"]
+        assert result.accepted
+        assert result.event.payload["source_ids"] == ["urn:doc:missing"]
+        assert result.event.payload["evidence"][0]["source_id"] == "urn:doc:missing"
+        assert [e.event_type for e in EventLog(log_path).read_all()] == [
+            "EntityCreated",
+            "AssertionMade",
+        ]
 
     def test_supersedes_chain_passes_the_gate(self, tmp_path):
         log_path = tmp_path / "events.jsonl"
@@ -370,7 +375,7 @@ class TestPipelineAssertions:
             source_ids=[doc.payload["document_id"]],
         )
         assert not result.accepted
-        assert "not declared by the registered ontology" in result.reason
+        assert "undeclared, non-assertable, or lacks domain/range" in result.reason
         assert [e.event_type for e in EventLog(log_path).read_all()] == [
             "EntityCreated",
             "DocumentRegistered",
@@ -430,6 +435,21 @@ class TestPipelineAssertions:
         )
         assert not result.accepted
         assert result.event is not None
+        assert result.event.event_type == "ResolutionReviewQueued"
+
+    def test_unknown_entity_object_is_queued_not_typed_as_entity(self, tmp_path):
+        pipeline = self._pipeline(tmp_path / "events.jsonl")
+        created = pipeline.ingest_entity(name="Org A", entity_type="Organization", source_id="s")
+        result = pipeline.ingest_assertion(
+            subject_id=created.canonical_id,
+            predicate_iri=CORE_MEMBER_OF,
+            object_kind="entity",
+            object_value="urn:world:pending:unknown",
+            valid_from="2026-08-01T00:00:00Z",
+            source_ids=["urn:doc:1"],
+        )
+        assert not result.accepted
+        assert result.reason == "unknown assertion object"
         assert result.event.event_type == "ResolutionReviewQueued"
 
     def test_malformed_input_raises_without_writing(self, tmp_path):
@@ -499,6 +519,65 @@ class TestAssertionProjection:
         model2, _stats2 = replay_log(log)
         assert model2.get_assertion(aid)["status"] == "superseded"
         assert model2.active_assertions(e_org, CORE_MEMBER_OF) == []
+
+    def test_generic_relationship_as_of_honors_half_open_validity(self, tmp_path):
+        log = EventLog(tmp_path / "events.jsonl")
+        person = "urn:world:entity:" + "e" * 32
+        first_org = "urn:world:entity:" + "f" * 32
+        second_org = "urn:world:entity:" + "1" * 32
+        log.append(
+            make_event(
+                "EntityCreated",
+                {
+                    "entity_id": person,
+                    "entity_type": "Person",
+                    "name": "Officer A",
+                    "source_id": "registry",
+                    "confidence": 1.0,
+                },
+            )
+        )
+        log.append(_entity_event(first_org, "Coast Guard Region 7"))
+        log.append(_entity_event(second_org, "Coast Guard Region 8"))
+        first = make_assertion(
+            log=log,
+            subject_id=person,
+            predicate_iri=CORE_MEMBER_OF,
+            object_kind="entity",
+            object_value=first_org,
+            valid_from="2026-08-01T00:00:00Z",
+            valid_until="2026-08-15T00:00:00Z",
+            source_ids=["transfer-order-1"],
+        )
+        second = make_assertion(
+            log=log,
+            subject_id=person,
+            predicate_iri=CORE_MEMBER_OF,
+            object_kind="entity",
+            object_value=second_org,
+            valid_from="2026-08-15T00:00:00Z",
+            source_ids=["transfer-order-2"],
+        )
+
+        model, _stats = replay_log(log)
+        before_transfer = model.assertions_as_of(
+            person,
+            datetime(2026, 8, 14, tzinfo=UTC),
+            CORE_MEMBER_OF,
+        )
+        at_transfer = model.assertions_as_of(
+            person,
+            datetime(2026, 8, 15, tzinfo=UTC),
+            CORE_MEMBER_OF,
+        )
+        assert [item["assertion_id"] for item in before_transfer] == [first.payload["assertion_id"]]
+        assert [item["assertion_id"] for item in at_transfer] == [second.payload["assertion_id"]]
+
+    def test_generic_relationship_as_of_requires_timezone_aware_instant(self, tmp_path):
+        log = EventLog(tmp_path / "events.jsonl")
+        model, _stats = replay_log(log)
+        with pytest.raises(ValueError, match="timezone-aware"):
+            model.assertions_as_of("urn:world:entity:unknown", datetime(2026, 8, 1))
 
 
 def test_json_serializable_payload(log):

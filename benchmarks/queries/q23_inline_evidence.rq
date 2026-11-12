@@ -1,0 +1,10 @@
+# CQ-029: Read a source-local evidence locator and span.
+PREFIX assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#>
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+
+SELECT ?sourceName ?locator ?start ?end WHERE {
+  ?assertion assertion:evidence ?item .
+  ?item assertion:evidenceSource ?source ; assertion:locator ?locator ;
+      assertion:spanStart ?start ; assertion:spanEnd ?end .
+  ?source core:name ?sourceName .
+}

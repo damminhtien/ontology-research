@@ -9,8 +9,8 @@ with its own stable id, generic provenance and bi-temporal timestamps:
     subject_id                        canonical entity the assertion is about
     predicate_iri                     absolute relation IRI (core:locatedAt)
     object                            {kind: entity|location|literal, value, ...}
-    valid_from / valid_to             valid time (when it holds in the world)
-    source_ids[]                      provenance (documents / source records)
+    valid_from / valid_until          half-open valid-time interval
+    source_ids[]                      normalized provenance Source references
     confidence                        optional 0..1
 
 ``predicate_iri`` is what the RDF mapping needs: the relation is a node in the
@@ -31,11 +31,10 @@ Validation is split in two layers: :func:`build_assertion` checks *syntax*
 pipeline checks the *semantic* contract (``is_known_predicate`` against the
 registered ontology); SHACL then enforces the structural RDF constraints.
 
-Corrections never rewrite anything (ADR-0002): superseding an assertion emits
-an ``AssertionSuperseded`` event that references the original id, and the read
-model keeps the full assertion ledger with statuses. ``LocationObserved``-style
-events keep working; the assertion layer is the target model new fact types
-should build on.
+Corrections never rewrite anything (ADR-0002): a replacement AssertionMade
+carries ``supersedes`` to link the prior claim. ``AssertionSuperseded`` records
+a retraction with no replacement. The read model keeps the complete assertion
+ledger and refreshes location projections for both operations.
 
 Ontology presence: ``ontology/middle/assertion.ttl`` declares the classes and
 properties, ``shapes/assertion_shapes.ttl`` mirrors the write-path validation,
@@ -48,8 +47,9 @@ import json
 from collections.abc import Collection
 from typing import Any
 
-from rdflib import Graph, Literal, URIRef
-from rdflib.namespace import OWL, RDF, XSD
+from rdflib import BNode, Graph, Literal, URIRef
+from rdflib.collection import Collection as RDFCollection
+from rdflib.namespace import OWL, RDF, RDFS, XSD
 
 from foundry.events import (
     EVENT_TYPE_ASSERTION_MADE,
@@ -65,10 +65,12 @@ from foundry.namespaces import (
     ASSERTION_MIDDLE_NS,
     CORE_ONTOLOGY_NS,
     DEFAULT_LITERAL_DATATYPE,
+    IDENTITY_MIDDLE_NS,
     new_assertion_id,
     new_document_id,
     require_absolute_iri,
 )
+from foundry.provenance import normalize_evidence
 from foundry.readmodel import parse_instant
 
 OBJECT_KINDS = ("entity", "location", "literal")
@@ -135,6 +137,9 @@ def build_assertion(
     object_value: str,
     valid_from: str,
     source_ids: list[str],
+    subject_ref: dict[str, Any] | None = None,
+    valid_until: str | None = None,
+    evidence: list[dict[str, object]] | None = None,
     confidence: float | None = None,
     supersedes: str | None = None,
     literal_datatype_iri: str | None = None,
@@ -153,14 +158,20 @@ def build_assertion(
     semantic check the pipeline layer owns (``is_known_predicate``).
 
     Args:
-        subject_id: Canonical entity the statement is about.
+        subject_id: Canonical entity the statement is about. Use an empty
+            string with ``subject_ref`` for a pending, noncanonical subject.
+        subject_ref: Noncanonical reference with ``reference_id`` and
+            ``surface_form``. It remains pending until identity is unambiguous.
         predicate_iri: Absolute relation IRI (``core:locatedAt``); a bare
             local name is rejected — see
             :func:`foundry.namespaces.require_absolute_iri`.
         object_kind: One of ``entity``, ``location``, ``literal``.
         object_value: The object's id IRI, or the literal's lexical form.
         valid_from: Valid time (when the statement holds in the world).
-        source_ids: Provenance references (non-empty).
+        source_ids: Provenance references (non-empty unless evidence supplies
+            the source references).
+        valid_until: Exclusive end of the half-open interval.
+        evidence: Inline source-local locator/span references.
         confidence: Optional 0..1.
         supersedes: Assertion id this statement replaces.
         literal_datatype_iri: Datatype of a literal object. Mutually exclusive
@@ -179,7 +190,7 @@ def build_assertion(
             outside ``[0, 1]``), an unknown subject, or a ``supersedes`` target
             that is not in ``known_assertions``.
     """
-    if not source_ids:
+    if not source_ids and not evidence:
         raise ValueError("at least one source_id is required")
     relation_iri = require_absolute_iri(predicate_iri, "predicate_iri")
     if object_kind not in OBJECT_KINDS:
@@ -193,23 +204,46 @@ def build_assertion(
         language=literal_language,
     )
     parse_instant(valid_from)  # validates the xsd:dateTime form
+    if valid_until is not None and parse_instant(valid_until) <= parse_instant(valid_from):
+        raise ValueError("valid_until must be later than valid_from (half-open interval)")
     if confidence is not None and not 0.0 <= confidence <= 1.0:
         raise ValueError(f"confidence {confidence} outside [0, 1]")
-    if identity is not None and not identity.knows(subject_id):
+    if subject_id and subject_ref is not None:
+        raise ValueError("supply exactly one canonical subject_id or subject_ref")
+    if not subject_id and subject_ref is None:
+        raise ValueError("supply exactly one canonical subject_id or subject_ref")
+    if subject_id:
+        require_absolute_iri(subject_id, "subject_id")
+    else:
+        reference_id = require_absolute_iri(
+            str(subject_ref.get("reference_id", "")), "subject_ref.reference_id"
+        )
+        surface_form = str(subject_ref.get("surface_form", "")).strip()
+        if not surface_form:
+            raise ValueError("subject_ref.surface_form must be non-empty")
+        subject_ref = {
+            "reference_id": reference_id,
+            "surface_form": surface_form,
+            "entity_type": subject_ref.get("entity_type"),
+        }
+    if identity is not None and subject_id and not identity.knows(subject_id):
         raise ValueError(f"unknown subject {subject_id}; resolve identity first")
     if supersedes is not None and supersedes not in known_assertions:
         raise ValueError(f"supersedes target {supersedes!r} is not a recorded assertion")
 
+    normalized_source_ids, evidence_refs = normalize_evidence(source_ids, evidence)
     return make_event(
         EVENT_TYPE_ASSERTION_MADE,
         {
             "assertion_id": new_assertion_id(),
             "subject_id": subject_id,
+            "subject_ref": subject_ref,
             "predicate_iri": relation_iri,
             "object": object_field,
             "valid_from": valid_from,
-            "valid_to": None,
-            "source_ids": list(source_ids),
+            "valid_until": valid_until,
+            "source_ids": list(normalized_source_ids),
+            "evidence": list(evidence_refs),
             "confidence": confidence,
             "supersedes": supersedes,
         },
@@ -271,6 +305,9 @@ def make_assertion(
     object_value: str,
     valid_from: str,
     source_ids: list[str],
+    subject_ref: dict[str, Any] | None = None,
+    valid_until: str | None = None,
+    evidence: list[dict[str, object]] | None = None,
     confidence: float | None = None,
     supersedes: str | None = None,
     literal_datatype_iri: str | None = None,
@@ -281,13 +318,17 @@ def make_assertion(
 
     Args:
         log: Event log to append the assertion to.
-        subject_id: Canonical entity the statement is about.
+        subject_id: Canonical entity the statement is about, or empty when
+            ``subject_ref`` is supplied.
+        subject_ref: Noncanonical subject reference held pending resolution.
         predicate_iri: Absolute relation IRI (``core:locatedAt``). A bare local
             name is rejected: see :func:`build_assertion`.
         object_kind: One of ``entity``, ``location``, ``literal``.
         object_value: The object's id IRI or the literal's lexical form.
         valid_from: Valid time (when the statement holds in the world).
+        valid_until: Exclusive end of the half-open validity interval.
         source_ids: Provenance references.
+        evidence: Inline source-local locator/span references.
         confidence: Optional 0..1.
         supersedes: Assertion id this statement replaces.
         literal_datatype_iri: Datatype of a literal object (default
@@ -313,6 +354,9 @@ def make_assertion(
         object_value=object_value,
         valid_from=valid_from,
         source_ids=source_ids,
+        subject_ref=subject_ref,
+        valid_until=valid_until,
+        evidence=evidence,
         confidence=confidence,
         supersedes=supersedes,
         literal_datatype_iri=literal_datatype_iri,
@@ -325,7 +369,7 @@ def make_assertion(
 
 
 def supersede_assertion(*, log: EventLog, assertion_id: str, reason: str = "") -> SemanticEvent:
-    """Retract/correct an assertion via an ``AssertionSuperseded`` event.
+    """Retract an assertion with no replacement via an event.
 
     Raises:
         ValueError: If the assertion was never made, or is already superseded.
@@ -397,11 +441,108 @@ def is_known_predicate(graph: Graph, predicate_iri: str) -> bool:
         ValueError: On a blank or relative IRI.
     """
     node = URIRef(require_absolute_iri(predicate_iri, "predicate_iri"))
-    return (node, RDF.type, OWL.ObjectProperty) in graph or (
-        node,
-        RDF.type,
-        OWL.DatatypeProperty,
-    ) in graph
+    object_property = (node, RDF.type, OWL.ObjectProperty) in graph
+    datatype_property = (node, RDF.type, OWL.DatatypeProperty) in graph
+    if object_property == datatype_property:
+        return False
+    if not list(graph.objects(node, RDFS.domain)) or not list(graph.objects(node, RDFS.range)):
+        return False
+    assertable = URIRef(CORE_NS + "assertable")
+    return Literal(False) not in set(graph.objects(node, assertable))
+
+
+def predicate_compatibility(
+    graph: Graph,
+    predicate_iri: str,
+    *,
+    subject_class_iri: str,
+    object_kind: str,
+    object_class_iri: str | None = None,
+    literal_datatype_iri: str | None = None,
+    literal_language: str | None = None,
+) -> str | None:
+    """Return a semantic incompatibility reason, or ``None`` when compatible.
+
+    Compatibility comes from the registered ontology: the relation must be a
+    declared, assertable object or datatype property with explicit domains and
+    ranges. All declared domains and ranges must accept the supplied types
+    (RDFS gives multiple domain/range statements intersection semantics).
+    """
+    node = URIRef(require_absolute_iri(predicate_iri, "predicate_iri"))
+    if not is_known_predicate(graph, predicate_iri):
+        return f"predicate {predicate_iri!r} is undeclared, non-assertable, or lacks domain/range"
+
+    is_object_property = (node, RDF.type, OWL.ObjectProperty) in graph
+    if is_object_property and object_kind == "literal":
+        return "object property requires an entity or location object"
+    if not is_object_property and object_kind != "literal":
+        return "datatype property requires a literal object"
+
+    if object_kind not in {"entity", "location", "literal"}:
+        return f"unsupported object kind {object_kind!r}"
+
+    subject = URIRef(require_absolute_iri(subject_class_iri, "subject_class_iri"))
+    domains = list(graph.objects(node, RDFS.domain))
+    for domain in domains:
+        if not _is_class_compatible(graph, subject, domain):
+            return f"subject type {subject} is incompatible with domain {domain}"
+
+    ranges = list(graph.objects(node, RDFS.range))
+    if object_kind == "literal":
+        if literal_language is not None and literal_datatype_iri is not None:
+            return "a literal cannot have both a language tag and an explicit datatype"
+        datatype = URIRef(
+            RDF.langString
+            if literal_language is not None
+            else require_absolute_iri(
+                literal_datatype_iri or DEFAULT_LITERAL_DATATYPE, "datatype_iri"
+            )
+        )
+        for value_range in ranges:
+            if not _datatype_compatible(graph, datatype, value_range):
+                return f"literal datatype {datatype} is incompatible with range {value_range}"
+    else:
+        if object_class_iri is None:
+            object_class_iri = (
+                CORE_ONTOLOGY_NS + "Location"
+                if object_kind == "location"
+                else CORE_ONTOLOGY_NS + "Entity"
+            )
+        object_class = URIRef(require_absolute_iri(object_class_iri, "object_class_iri"))
+        for value_range in ranges:
+            if not _is_class_compatible(graph, object_class, value_range):
+                return f"object type {object_class} is incompatible with range {value_range}"
+    return None
+
+
+def _datatype_compatible(graph: Graph, actual: URIRef, expected: object) -> bool:
+    """Check a datatype against a named range or an OWL data-range union."""
+    if expected == RDFS.Literal:
+        return True
+    union_head = graph.value(expected, OWL.unionOf)
+    if union_head is not None:
+        return any(
+            _datatype_compatible(graph, actual, member)
+            for member in RDFCollection(graph, union_head)
+        )
+    return _is_class_compatible(graph, actual, expected)
+
+
+def _is_class_compatible(graph: Graph, actual: URIRef, expected: object) -> bool:
+    """True when ``actual`` is the expected type or a declared subclass."""
+    if actual == expected:
+        return True
+    visited = {actual}
+    frontier = [actual]
+    while frontier:
+        current = frontier.pop()
+        for parent in graph.objects(current, RDFS.subClassOf):
+            if parent == expected:
+                return True
+            if parent not in visited:
+                visited.add(parent)
+                frontier.append(parent)
+    return False
 
 
 def document_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
@@ -452,7 +593,22 @@ def assertion_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
 
     node = URIRef(payload["assertion_id"])
     graph.add((node, RDF.type, URIRef(ASSERTION_NS + "Assertion")))
-    graph.add((node, URIRef(CORE_NS + "describes"), URIRef(payload["subject_id"])))
+    subject_ref = payload.get("subject_ref")
+    if subject_ref:
+        reference = URIRef(
+            require_absolute_iri(subject_ref["reference_id"], "subject_ref.reference_id")
+        )
+        graph.add((reference, RDF.type, URIRef(IDENTITY_MIDDLE_NS + "UnresolvedReference")))
+        graph.add(
+            (
+                reference,
+                URIRef(IDENTITY_MIDDLE_NS + "referenceText"),
+                Literal(subject_ref["surface_form"], datatype=XSD.string),
+            )
+        )
+        graph.add((node, URIRef(ASSERTION_NS + "subjectReference"), reference))
+    else:
+        graph.add((node, URIRef(CORE_NS + "describes"), URIRef(payload["subject_id"])))
     graph.add(
         (
             node,
@@ -476,16 +632,53 @@ def assertion_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
             Literal(payload["valid_from"], datatype=XSD.dateTime),
         )
     )
-    if payload.get("valid_to") is not None:
+    valid_until = payload.get("valid_until", payload.get("valid_to"))
+    if valid_until is not None:
         graph.add(
             (
                 node,
                 URIRef(CORE_NS + "validUntil"),
-                Literal(payload["valid_to"], datatype=XSD.dateTime),
+                Literal(valid_until, datatype=XSD.dateTime),
             )
         )
-    for source_id in payload.get("source_ids") or ():
-        graph.add((node, URIRef(CORE_NS + "hasSource"), URIRef(source_id)))
+    source_ids, evidence = normalize_evidence(
+        payload.get("source_ids") or (), payload.get("evidence")
+    )
+    for source_id in source_ids:
+        source = URIRef(source_id)
+        graph.add((node, URIRef(CORE_NS + "hasSource"), source))
+        graph.add((source, RDF.type, URIRef(CORE_NS + "Source")))
+        source_name = source_id.rstrip("/").rsplit("/", 1)[-1].split("#")[-1]
+        graph.add((source, URIRef(CORE_NS + "name"), Literal(source_name, datatype=XSD.string)))
+    for item in evidence:
+        evidence_node = BNode()
+        graph.add((node, URIRef(ASSERTION_NS + "evidence"), evidence_node))
+        graph.add(
+            (
+                evidence_node,
+                URIRef(ASSERTION_NS + "evidenceSource"),
+                URIRef(item["source_id"]),
+            )
+        )
+        if item.get("locator") is not None:
+            graph.add(
+                (
+                    evidence_node,
+                    URIRef(ASSERTION_NS + "locator"),
+                    Literal(item["locator"], datatype=XSD.string),
+                )
+            )
+        span = item.get("span")
+        if isinstance(span, dict):
+            graph.add((evidence_node, URIRef(ASSERTION_NS + "spanStart"), Literal(span["start"])))
+            graph.add((evidence_node, URIRef(ASSERTION_NS + "spanEnd"), Literal(span["end"])))
+            graph.add(
+                (
+                    evidence_node,
+                    URIRef(ASSERTION_NS + "spanUnit"),
+                    Literal(span["unit"], datatype=XSD.string),
+                )
+            )
     confidence = payload.get("confidence")
     if confidence is not None:
         graph.add(
@@ -497,6 +690,28 @@ def assertion_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
         )
     if payload.get("supersedes") is not None:
         graph.add((node, URIRef(ASSERTION_NS + "supersedes"), URIRef(payload["supersedes"])))
+    return node
+
+
+def assertion_superseded_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
+    """Map a retraction event without changing the referenced assertion."""
+    if event.event_type != EVENT_TYPE_ASSERTION_SUPERSEDED:
+        raise ValueError(f"expected AssertionSuperseded, got {event.event_type}")
+    payload = event.payload
+    node = URIRef(f"urn:event:{event.event_id}")
+    graph.add((node, RDF.type, URIRef(CORE_NS + "Event")))
+    graph.add(
+        (node, URIRef(CORE_NS + "atTime"), Literal(payload["superseded_at"], datatype=XSD.dateTime))
+    )
+    graph.add((node, URIRef(ASSERTION_NS + "retracts"), URIRef(payload["assertion_id"])))
+    if payload.get("reason"):
+        graph.add(
+            (
+                node,
+                URIRef(ASSERTION_NS + "retractionReason"),
+                Literal(payload["reason"], datatype=XSD.string),
+            )
+        )
     return node
 
 

@@ -7,7 +7,7 @@
 
 `ontology/core/core.ttl` là **semantic kernel** — bộ từ vựng tối thiểu, cực ổn định,
 dùng chung cho mọi domain. Thiết kế giữ budget chặt: **15–25 classes, 30–50 predicates**
-(hiện tại: 20 / 33). Test `tests/test_ontology.py` chặn mọi vi phạm budget.
+(hiện tại: 19 / 33). Test `tests/test_ontology.py` chặn mọi vi phạm budget.
 
 ```bash
 .venv/bin/python tools/manage_ontology.py stats
@@ -15,8 +15,8 @@ dùng chung cho mọi domain. Thiết kế giữ budget chặt: **15–25 classe
 
 ```text
 module                       classes obj-props data-props
-ontology/core/core.ttl            20        24          9
-TOTAL                             20                            33 properties
+ontology/core/core.ttl            19        24          9
+TOTAL                             19                            33 properties
 ```
 
 ## Quy tắc thêm term vào kernel
@@ -44,12 +44,18 @@ core:hasSource a owl:ObjectProperty ;
 ## SHACL — contract dữ liệu bắt buộc
 
 SHACL shapes được chia theo contract trong bốn file dưới `shapes/`; các pipeline
-chạy gate phù hợp với loại dữ liệu trước khi ghi event. Ba shape chính trong
-`core_shapes.ttl`:
+chạy gate phù hợp với loại dữ liệu trước khi ghi event. `core_shapes.ttl` kiểm
+tra observation event và named entities/locations/sources. Assertions, identity
+references, identifiers và tracking results có shape riêng trong module tương
+ứng:
 
-- `ObservationShape` — đúng 1 `atTime` (xsd:dateTime), ≥ 1 `hasSource`, ≥ 1 `observes`
-- `LocationAssertionShape` — đúng 1 entity, đúng 1 location, đúng 1 `validFrom`, ≥ 1 source
-- `NamedThingShape` — agents/artifacts/locations/sources phải có `name`
+- `AssertionShape` — đúng một canonical subject hoặc unresolved reference,
+  predicate và object tương thích, valid-time `[validFrom, validUntil)`, source.
+- `ObservationResultShape` — ít nhất có measured position hoặc measurement;
+  position và typed values không được đổi thành world assertions.
+- `IdentifierShape` — scheme/value không rỗng và chỉ tới canonical entity;
+  `UnresolvedReferenceShape` giữ reference tách khỏi `core:Entity`.
+- `ObservationShape` — đúng 1 `atTime`, ≥ 1 `hasSource`, ≥ 1 `observes`.
 
 ## Chạy validation
 
@@ -102,10 +108,11 @@ Dependency DAG check PASSED (7 files, 6 import edges, no upward deps, no cycles)
 
 ## Bài tập
 
-1. Thêm một class `Sensor` vào `core.ttl` rồi chạy `make check`. Quan sát điều gì
-   chặn bạn (gợi ý: bank sách budget hoặc no-leak test).
-2. Sửa `shapes/core_shapes.ttl` cho phép `Observation` không cần source. Điều gì
-   xảy ra với contract "provenance là first-class"? Revert lại.
+1. Thử nạp một assertion dùng `core:currentLocation`, thuộc tính được đánh dấu
+   không assertable. Xác nhận predicate compatibility từ chối nó trước khi ghi log.
+2. Tạo observation result chỉ có measurements, rồi thêm measured position.
+   Xác nhận cả hai trường hợp conform `ObservationResultShape` mà không sinh
+   `core:locatedAt`.
 
 ## Điều gì vừa xảy ra
 

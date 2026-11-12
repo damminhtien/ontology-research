@@ -29,7 +29,7 @@ class TestEventContract:
         assert event.occurred_at.endswith("Z")
 
     def test_round_trip_serialization(self):
-        original = make_event("LocationObserved", {"entity_id": "urn:x:1", "confidence": None})
+        original = make_event("EntityCreated", {"entity_id": "urn:x:1", "confidence": None})
         restored = event_from_dict(json.loads(json.dumps(event_to_dict(original))))
         assert restored == original
 
@@ -55,13 +55,44 @@ class TestEventContract:
 
     def test_valid_at_round_trips(self):
         event = make_event(
-            "LocationObserved",
-            {"entity_id": "urn:x:1", "location_uri": "urn:world:location:x"},
+            "EntityCreated",
+            {"entity_id": "urn:x:1", "name": "x"},
             valid_at="2026-07-01T00:00:00Z",
         )
         assert event.valid_at == "2026-07-01T00:00:00Z"
         restored = event_from_dict(json.loads(json.dumps(event_to_dict(event))))
         assert restored == event
+
+    def test_v3_location_event_upcasts_to_generic_assertion_without_changing_event_id(self):
+        event_id = "f00d" * 8
+        record = {
+            "event_id": event_id,
+            "event_type": "LocationObserved",
+            "schema_version": 3,
+            "occurred_at": "2026-08-01T00:00:00Z",
+            "valid_at": None,
+            "sequence": 17,
+            "payload": {
+                "entity_id": "urn:world:entity:one",
+                "location_uri": "https://data.example/location/one",
+                "valid_from": "2026-07-01T00:00:00Z",
+                "source_ids": ["ais-feed"],
+                "confidence": 0.9,
+            },
+        }
+        event = event_from_dict(record)
+        assert event.event_type == "AssertionMade"
+        assert event.event_id == event_id
+        assert event.sequence == 17
+        assert event.payload["assertion_id"] == f"urn:assert:legacy:{event_id}"
+        assert event.payload["subject_id"] == "urn:world:entity:one"
+        assert event.payload["predicate_iri"] == CORE_ONTOLOGY_NS + "locatedAt"
+        assert event.payload["object"] == {
+            "kind": "location",
+            "value": "https://data.example/location/one",
+        }
+        assert event.payload["source_ids"] == ["urn:source:ais-feed"]
+        assert event.payload["valid_until"] is None
 
     def test_valid_at_defaults_to_none(self):
         assert make_event("EntityCreated", {}).valid_at is None

@@ -6,11 +6,12 @@ from conftest import CORE_ONTOLOGY, SHAPES_FILE
 from pyshacl import validate
 from rdflib import Graph, Literal, URIRef
 
-from foundry.events import EventLog
+from foundry.events import EventLog, make_event
 from foundry.identity import IdentityService
 from foundry.ingestion import IngestionPipeline
 from foundry.namespaces import pending_reference_iri
 from foundry.projector import replay_log
+from foundry.readmodel import parse_instant
 
 LOC = "https://data.example/entity/loc-da-nang"
 SRC = "https://data.example/source/s1"
@@ -38,8 +39,8 @@ class TestPendingObservations:
         assert result.accepted and result.pending
         assert result.canonical_id == pending_reference_iri("Ghost Vessel")
         payload = result.event.payload
-        assert payload["entity_id"] == ""  # no fake canonical id
-        assert payload["entity_ref"] == "Ghost Vessel"
+        assert payload["subject_id"] == ""  # no fake canonical id
+        assert payload["subject_ref"]["surface_form"] == "Ghost Vessel"
 
     def test_ambiguous_reference_routes_to_queue(self, tmp_path):
         log = EventLog(tmp_path / "events.jsonl")
@@ -85,6 +86,56 @@ class TestPendingObservations:
         # the pending observation linked to the minted entity
         assert model.current_location(minted.canonical_id).location_uri == LOC
         assert model.pending_count == 0
+
+    def test_unique_pending_link_is_removed_if_name_becomes_ambiguous(self, tmp_path):
+        log = EventLog(tmp_path / "events.jsonl")
+        pipeline = _pipeline(log)
+        pending = pipeline.ingest_location_observation(
+            entity_name="Ghost Vessel",
+            entity_type="Platform",
+            location_uri=LOC,
+            valid_from="2026-08-01T03:00:00Z",
+            source_ids=[SRC],
+        )
+        first = pipeline.ingest_entity(name="Ghost Vessel", entity_type="Platform", source_id="s1")
+        model, _stats = replay_log(log)
+        assert (
+            model.location_as_of(
+                first.canonical_id,
+                parse_instant("2026-08-02T00:00:00Z"),
+            ).location_uri
+            == LOC
+        )
+
+        second_id = "urn:world:entity:" + "c" * 32
+        log.append(
+            make_event(
+                "EntityCreated",
+                {
+                    "entity_id": second_id,
+                    "entity_type": "Platform",
+                    "name": "Ghost Vessel",
+                    "name_aliases": [],
+                    "external_ids": [],
+                    "source_id": SRC,
+                    "confidence": 1.0,
+                },
+            )
+        )
+        model, _stats = replay_log(log)
+        reference = pending.event.payload["subject_ref"]
+        assertion = model.get_assertion(pending.event.payload["assertion_id"])
+        assert assertion["subject_ref"] == reference
+        assert assertion["subject_id"] == ""
+        assert assertion["subject_status"] == "ambiguous"
+        assert model.pending_count == 1
+        assert (
+            model.location_as_of(
+                first.canonical_id,
+                parse_instant("2026-08-02T00:00:00Z"),
+            )
+            is None
+        )
 
     def test_pending_links_via_alias_too(self, tmp_path):
         log = EventLog(tmp_path / "events.jsonl")
@@ -159,7 +210,7 @@ class TestUnresolvedReferenceShape:
         rdf_type = URIRef("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
         graph.add((entity, rdf_type, URIRef(self.IDENTITY + "UnresolvedReference")))
         if with_name:
-            graph.add((entity, URIRef(self.CORE + "name"), Literal("Ghost Vessel")))
+            graph.add((entity, URIRef(self.IDENTITY + "referenceText"), Literal("Ghost Vessel")))
         return graph
 
     def _shapes(self) -> Graph:
@@ -183,19 +234,33 @@ class TestUnresolvedReferenceShape:
         )
         assert not conforms
 
-    def test_pending_observation_graph_conforms_to_core_shapes(self, tmp_path):
-        """The real gate: a pending observation passes the core shapes as-is."""
+    def test_pending_assertion_graph_conforms_without_entity_placeholder(self, tmp_path):
+        """The generic assertion gate accepts a reference without typing it as Entity."""
         pipeline = _pipeline(EventLog(tmp_path / "events.jsonl"))
-        graph = pipeline._build_pending_graph(
+        result = pipeline.ingest_location_observation(
             entity_name="Ghost Vessel",
+            entity_type="Platform",
             location_uri=LOC,
             valid_from="2026-08-20T03:00:00Z",
             source_ids=[SRC],
             confidence=0.9,
         )
+        assert result.accepted and result.pending
+        graph = pipeline._build_assertion_graph(result.event)
+        entity_ref = URIRef(pending_reference_iri("Ghost Vessel"))
+        assert (
+            entity_ref,
+            URIRef("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"),
+            URIRef(self.IDENTITY + "UnresolvedReference"),
+        ) in graph
+        assert (
+            entity_ref,
+            URIRef("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"),
+            URIRef(self.CORE + "Entity"),
+        ) not in graph
         conforms, _, report = validate(
             data_graph=graph,
-            shacl_graph=Graph().parse("shapes/core_shapes.ttl", format="turtle"),
+            shacl_graph=pipeline._shapes,
             inference="none",
             advanced=True,
         )

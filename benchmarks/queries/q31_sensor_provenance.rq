@@ -1,0 +1,19 @@
+# CQ-040..041: Identify sensors behind one observation or an entire track.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX sensor: <https://damminhtien.github.io/ontology-research/ontology/domain/sensor#>
+PREFIX tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#>
+
+SELECT DISTINCT ?sensorName WHERE {
+  {
+    ?observation sensor:detectedBy ?sensor .
+    FILTER (?observation = ?wantedObservation)
+  }
+  UNION
+  {
+    ?track tracking:hasTrackId ?trackId ; tracking:derivedFrom ?observation .
+    ?observation sensor:detectedBy ?sensor .
+    FILTER (?trackId = ?wantedTrackId)
+  }
+  ?sensor core:name ?sensorName .
+}
+ORDER BY ?sensorName

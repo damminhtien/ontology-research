@@ -1,0 +1,23 @@
+{
+  "id": "CQ-022",
+  "group": "Q4",
+  "slo_p95_ms": 500,
+  "query_file": "q19_conflict_count.rq",
+  "variables": [
+    "locationCount"
+  ],
+  "rows": [
+    [
+      2
+    ]
+  ],
+  "bindings": {
+    "entity": {
+      "iri": "https://data.example/entity/patrol-03"
+    },
+    "instant": {
+      "literal": "2026-08-23T00:00:00Z",
+      "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    }
+  }
+}

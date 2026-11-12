@@ -1,0 +1,16 @@
+# CQ-022: Count distinct active location values and surface contradictions.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#>
+
+SELECT (COUNT(DISTINCT ?place) AS ?locationCount) WHERE {
+  ?claim a assertion:Assertion ;
+      core:describes ?entity ;
+      assertion:predicate core:locatedAt ;
+      assertion:hasObject ?place ;
+      core:validFrom ?from .
+  OPTIONAL { ?claim core:validUntil ?until . }
+  FILTER (?from <= ?instant)
+  FILTER (!BOUND(?until) || ?instant < ?until)
+  FILTER NOT EXISTS { ?correction assertion:supersedes ?claim . }
+  FILTER NOT EXISTS { ?retraction assertion:retracts ?claim . }
+}

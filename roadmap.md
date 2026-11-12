@@ -18,34 +18,39 @@ thay vì một central KG): xem `docs/architecture.md` §2.
 ## 1. Snapshot hiện tại (đồng bộ mã nguồn — 2026-11-12)
 
 Quality gates: `make check` (lint, versions, alignment, SHACL, DAG, pytest và
-2 SLO gates). Xác minh ngày 2026-11-12: `make check` passed, 446 tests.
+2 SLO gates). Xác minh ngày 2026-11-12: `make check` passed, 495 tests.
 
 | Thành phần | Trạng thái | Bằng chứng trong repo |
 |---|---|---|
-| Event log (write model) | ✅ | `foundry/events.py` — JSONL segmented, flock + fsync, tail-recovery, sequence toàn cục, upcaster chain, **12 event types** |
+| Event log (write model) | ✅ | `foundry/events.py` — JSONL segmented, flock + fsync, tail-recovery, sequence toàn cục, upcaster chain, **schema v4 / 11 active event types** |
 | Identity registry | ✅ | `foundry/identity.py` — pure `lookup()`, alias multimap, type-aware, external id multi-valued, `IdentityStore` boundary; registry = log projection |
 | Ingestion pipeline | ✅ | `foundry/ingestion.py` — SHACL gate (4 shapes files), **4 data lanes**: reference (Wikidata), tracking (AIS), documents (extraction), corrections (merge/split/backfill/import) |
 | Read model (CQRS) | ✅ | `foundry/projector.py` + `readmodel.py` — sequence-ordered streaming replay, checkpointed, per-event idempotent, snapshot persist; in-memory track store |
 | Lake | ✅ | `foundry/lake.py` — Parquet+zstd, manifest-authoritative query, event-id dedup, compaction |
-| Assertions | ✅ | `foundry/assertions.py` — Document/Assertion ledger, supersedes, SHACL assertion shapes |
+| Assertions | ✅ | `foundry/assertions.py` — generic assertion ledger including location, half-open valid time, supersession/retraction projection, predicate compatibility and normalized provenance |
 | Extraction | ✅ | `foundry/extraction.py` — `PatternExtractor` deterministic + `LlmExtractor` (completion injectable), confidence cap 0.7, không auto-mint |
 | Reference lane | ✅ | `foundry/reference.py` + `wd.iter_entities` — cursor paging theo QID, snapshot versioned |
-| Tracking vertical | ✅ | `foundry/tracking.py` — `SensorRegistered`/`ObservationRecorded`/`TrackObserved`, gate qua domain SHACL |
+| Tracking vertical | ✅ | `foundry/tracking.py` — sensor, observation event, separate `ObservationResult` (position + typed measurements), and track; gate qua domain SHACL |
 | Console | ✅ scoped provenance reads + token-gated writes | `foundry/console/` — FastAPI + SPA; query token được giới hạn source ID; Admin hỗ trợ review, merge/split và backfill; writes được audit trong production log |
 | Governance | ✅ | `tools/manage_ontology.py` — SemVer registry, blast-radius, stability, migration/alignment |
+| Competency queries | ✅ | 41 executable CQs with fixed datasets and expected rows, covering temporal relationships, provenance, contradictions, corrections, identity, and tracking |
 | Benchmarks | ✅ | micro (`tools/benchmark.py`) streams log generation/replay and reports RSS/storage; e2e per-stage gate (`tools/benchmark_e2e.py`) |
-| Ontology | ✅ | 7 modules / 27 classes / 43 properties — `docs/guides/ontology-status.md` |
+| Ontology | ✅ | 7 modules / 28 classes / 68 properties — `docs/guides/ontology-status.md`; no new domain module |
 
 **Historical production snapshot (2026-09-02)**: 24.217 canonical entities
 Wikidata (song ngữ VI–EN) và 47.628 events trong production log. Production log
 không được lưu trong repo; cần đo lại trước khi dùng số này làm trạng thái hiện
 tại.
 
-**Event types hiện hành (12)**: `EntityCreated`, `LocationObserved`,
-`EntityMerged`, `EntitySplit`, `ExternalIdBound`,
+**Event types hiện hành (11)**: `EntityCreated`, `EntityMerged`, `EntitySplit`, `ExternalIdBound`,
 `ResolutionReviewQueued`, `DocumentRegistered`, `AssertionMade`,
 `AssertionSuperseded`, `SensorRegistered`, `ObservationRecorded`,
 `TrackObserved`.
+
+`LocationObserved` chỉ còn là dạng event lịch sử được upcast v3→v4 thành
+`AssertionMade(predicate_iri=core:locatedAt)`; producer mới không phát type này.
+`ObservationRecorded` tạo observation event và `tracking:ObservationResult`
+riêng biệt để lưu vị trí đo được cùng measurement có kiểu dữ liệu.
 
 `AffiliationAssessed` đã bị loại khỏi contract; affiliation mới dùng
 `AssertionMade` với predicate phù hợp (xem `CHANGELOG-DATA.md`).
@@ -60,8 +65,8 @@ redesign đã triển khai: `docs/architecture.md` §6 (bảng commit mapping).
 | Phase | Phạm vi đã ship |
 |-------|-----------------|
 | **0** — Engineering contract | requirements, scale targets, SLO baseline, CQ harness |
-| **1** — Semantic kernel v0 | core.ttl (20 classes / 33 props) + SHACL + CI; 10 CQ regression đã triển khai trên contract 16 CQ |
-| **2** — Production ingestion | event schema v3 (sequence/valid-time/upcasters, assertion predicate IRI), identity precision-first (ADR-0003/0006), SHACL gate, **4 data lanes**, unstructured-document extraction (extractor pluggable — LLM chỉ đề xuất); historical dataset snapshot of 24k entities |
+| **1** — Semantic kernel | core.ttl (19 classes / 33 properties) + SHACL + CI; current CQ contract has 41 executable cases |
+| **2** — Production ingestion | event schema v4 (sequence, valid-time, generic assertions and upcasters), identity precision-first (ADR-0003/0006), predicate compatibility and SHACL gate, **4 data lanes**, unstructured-document extraction (LLM only proposes); historical dataset snapshot of 24k entities |
 | **3** — Read graph (CQRS) | projector checkpointed + per-event idempotent (ADR-0004), Console v0.1, latency benchmark + SLO gate, e2e per-stage gate (§4.8) |
 | **4** — Domain vertical đầu tiên | location/organization/sensor/tracking modules + domain SHACL + ingestion mapping end-to-end (tracking vertical hoàn thành) |
 | **5** | governance + corrections hoàn chỉnh: SemVer registry, blast-radius, stability, migration/alignment; merge/split/review-queue/backfill/import; Document/Assertion model (§4.2); reference lane (§4.6); streaming projector; identity store boundary (§4.5); **Console admin write ops (auth + audit)** |

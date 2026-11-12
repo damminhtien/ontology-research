@@ -20,7 +20,7 @@ Mọi thiết kế dưới đây phục tùng bốn nguyên tắc này — chún
                     ┌──────────────────────────────────────────────┐
   Nguồn dữ liệu     │              FOUNDRY (write path)            │
   ─────────────     │                                              │
-  Wikidata SPARQL ─►│ fetch/normalize ─► IdentityService ─► SHACL ─┼─► EventLog (JSONL, schema v3)
+  Wikidata SPARQL ─►│ fetch/normalize ─► IdentityService ─► SHACL ─┼─► EventLog (JSONL, schema v4)
   (tools/ingest_    │ (foundry/wikidata.py)  (foundry/identity.py) │    data/production.jsonl
    wikidata.py)     │                        pure lookup + mint    │    = WRITE MODEL (sự thật duy nhất)
   Console seed ────►│ seed_console_data.py ──► IngestionPipeline ──┤
@@ -47,7 +47,7 @@ Thành phần và invariant đã được triển khai:
 
 | Thành phần | Vì sao tốt |
 |---|---|
-| Event schema v3 (sequence, valid_at, assertion predicate IRI, upcasters) | Replay kiểm tra sequence; log v1/v2 cũ vẫn đọc được |
+| Event schema v4 (sequence, valid-time, generic assertions, upcasters) | Replay kiểm tra sequence; log v1–v3 cũ vẫn đọc qua upcaster |
 | Identity precision-first + blocking index | unresolved_rate = 0% trên nguồn có QID; fuzzy không bao giờ tự merge |
 | Registry = log projection | Restart không mất định danh; re-ingest là external-id hit (đã verify 298/298) |
 | SHACL gate trước log | Không có fact vi phạm contract trong write model |
@@ -65,11 +65,11 @@ phải backlog hiện tại.
 | D1 | **Nhiều log song song, không có log "chính thức" duy nhất** | Sự cố thật: một lượt chạy ghi vào `data/events.jsonl` thay vì `data/production.jsonl` → 185 entity trùng, phải repair tay bằng 185 `EntityMerged` | **Cao** |
 | D2 | **EventLog không có bảo vệ single-writer, không fsync** | `append()` ghi thẳng vào file; 2 tiến trình chạy cùng lúc sẽ tính trùng `_next_sequence` (đều đếm từ disk) và xen kẽ dòng — log hỏng im lặng | **Cao** |
 | D3 | **Projector sắp replay theo `(occurred_at, event_id)` thay vì thứ tự log** | `occurred_at` độ phân giải giây; trong cùng một giây, thứ tự = uuid ngẫu nhiên ≠ thứ tự append nhân quả. Test helper `_sequenced_event` trong chính repo đã phải làm việc quanh điều này | **Cao** |
-| D4 | **Assertion không phải first-class** | `LocationObserved` trộn 3 vai trò: event "ta biết điều này", assertion "entity ở X từ T", record provenance. Không có assertion id → không correct/retract được một mệnh đề cụ thể; history chỉ append, "latest wins" là ngầm định | **Cao** |
+| D4 | **Assertion không phải first-class** | Lịch sử `LocationObserved` trộn 3 vai trò: event "ta biết điều này", assertion "entity ở X từ T", record provenance. Không có assertion id → không correct/retract được một mệnh đề cụ thể; history chỉ append, "latest wins" là ngầm định | **Cao** |
 | D5 | **`lake_query` đọc bằng glob, bỏ qua manifest** | `lake_query` build view từ `**/*.parquet` — file chưa flush xong hoặc file mồ côi (writer crash) sẽ bị query; `verify()` có sẵn nhưng không nằm trên query path | Trung bình |
 | D6 | **Reverse index `_by_location` chỉ đúng sau batch replay** | `rebuild_location_index()` chỉ được gọi cuối `replay()`; apply streaming một event mới để index cũ kỹ — invariant ẩn chỉ ai đọc code mới biết | Trung bình |
 | D7 | **Review queue không bền vững** | Record bị reject chỉ trả receipt trong RAM của lần chạy đó; không bảng review, không replay được; ambiguous collision chỉ sống trong stdout | Trung bình |
-| D8 | **Provenance/time/confidence ad hoc theo từng payload** | `source_ids` ở `LocationObserved`, `source_id` + `confidence` ở `EntityCreated`, không có cấu trúc chung; thêm fact type mới = tự chế lại bộ ba này | Trung bình |
+| D8 | **Provenance/time/confidence ad hoc theo từng payload** | Lịch sử `source_ids` ở `LocationObserved`, `source_id` + `confidence` ở `EntityCreated`, không có cấu trúc chung; thêm fact type mới = tự chế lại bộ ba này | Trung bình |
 | D9 | **Projector replay toàn phần mỗi lần khởi động** | 47k events → seconds mỗi lần; không checkpoint dù sequence đã có sẵn (ADR-0009 thiết kế đúng nhưng chưa dùng) | Thấp–TB |
 | D10 | **Lake không có compaction/dedup** | Mỗi lần persist = 1 file mới (đã 4 files cho 3 lượt ghi); persist lại cùng event → row trùng, `event_id` không unique-enforced | Thấp–TB |
 | D11 | **Reference data trộn với event facts** | Wikidata fetch là runtime step của ingestion; không có lane reference tĩnh, không có paging (fetch đạt trần LIMIT 3000) | Trung bình |
@@ -86,7 +86,7 @@ code hiện tại, không phải kế hoạch chuyển đổi còn mở.
 log riêng và **không bao giờ** là default của tool production. Writer an toàn:
 
 ```text
-EventLog (event schema v3; upcaster đọc log v1/v2)
+EventLog (event schema v4; upcaster reads log v1–v3)
 ├── writer lock file (flock) — writer thứ hai fail nhanh, không xen kẽ
 ├── fsync mỗi batch (mỗi lần extend) — crash không mất batch đã báo thành công
 ├── segment files: production-000001.jsonl, … (roll khi đạt ngưỡng hoặc trước
@@ -115,30 +115,45 @@ Document                          Assertion
   source_system                     predicate_iri (IRI tuyệt đối: core:locatedAt)
   content_ref                       object       (location_uri / entity_id / literal)
                                     ── generic provenance, mọi assertion như nhau:
-                                    valid_from / valid_to   (valid-time)
-                                    asserted_at             (transaction-time)
-                                    source_ids[]            (Document refs)
+                                    valid_from / valid_until (valid-time, [from, until))
+                                    occurred_at             (event record-time)
+                                    source_ids[]            (Source refs)
+                                    evidence[]              (source locator/span)
                                     confidence
-                                    status: asserted | corrected | retracted
+                                    status: asserted | superseded (read model)
                                     supersedes: assertion_id | null
 ```
 
-Quy tắc:
+Quy tắc hiện hành:
 
 - **Event chỉ còn vai trò ghi thay đổi của assertion**: `AssertionMade` (tạo),
-  `AssertionSuperseded` (correct/retract trỏ assertion cũ). Legacy
-  `LocationObserved` vẫn được hỗ trợ cho location lane; nó chưa được migrate
-  sang assertion lane (xem `CHANGELOG-DATA.md`, event schema v3).
+  `AssertionSuperseded` (retract assertion). Correction tạo assertion thay thế
+  với `supersedes` trỏ assertion trước đó. `LocationObserved` cũ được upcast
+  thành `AssertionMade(predicate_iri=core:locatedAt)` khi đọc; producer mới chỉ
+  dùng assertion lane (event schema v4, `CHANGELOG-DATA.md`).
 - **Assertion là information object, không phải event**: `assertion:Assertion ⊑
   core:InformationObject`; quan hệ là một node trong graph
   (`assertion:predicate` → IRI của property, vd `core:locatedAt`), nên hai mệnh
   đề chỉ khác quan hệ không còn trùng RDF form. Object dạng literal nằm ở
   `assertion:literalValue` (không dùng `core:name` cho giá trị).
-- Read model giữ history theo **assertion_id** — correct/retract một mệnh đề cụ
-  thể được, không còn "latest wins" ngầm định.
+- Read model giữ history theo **assertion_id** — correction/retraction cập nhật
+  active status và location projection ngay khi apply. Validity là khoảng nửa
+  mở `[valid_from, valid_until)`; nếu nhiều location assertion còn active cùng
+  lúc thì trả trạng thái conflict, không chọn theo thứ tự event.
+- `assertions_as_of(subject, instant, predicate)` trả mọi assertion đã resolve
+  và còn hiệu lực tại thời điểm đó cho bất kỳ predicate nào; cách truy vấn này
+  cũng hỗ trợ quan hệ thay đổi theo thời gian như `core:memberOf`.
+- `predicate_compatibility` kiểm tra property đã khai báo, được phép assert,
+  domain/range và kiểu object/literal. `core:currentLocation` cùng các sensor
+  measurement predicates là projection/output-only, không được ingest như world
+  assertions.
+- Source IDs được chuẩn hóa thành `core:Source`; evidence giữ source-local
+  locator/span. Unresolved subjects dùng `identity:UnresolvedReference`, không
+  được gán kiểu `core:Entity`.
 - Entity creation giữ nguyên `EntityCreated` (đã đúng vai trò event).
 
-Đây là workstream lớn nhất; làm sau khi 4.1 ổn vì nó thêm event type lên cùng log.
+Location and other facts now share the same assertion lane. The v3→v4 upcaster
+migrates legacy location events on read without rewriting log bytes.
 
 ### 4.3 Projector: sequence-ordered, checkpointed, per-event idempotent (sửa D3, D6, D9)
 
@@ -199,9 +214,12 @@ reference/
 
 ### 4.7 SHACL hỗ trợ unresolved identity (sửa D12)
 
-- Thêm node kind cho tham chiếu chưa resolve: observation về một entity chưa
-  mint vẫn qua gate, được ghi vào log, và tự nối vào entity khi identity resolve
-  sau (xử lý ở projector, không cần sửa log).
+- Tham chiếu chưa resolve là `identity:UnresolvedReference`, disjoint với
+  `core:Entity`. Assertion giữ `subjectReference` cùng surface form; nó chỉ được
+  nối vào entity khi đúng một identity phù hợp. Nếu alias trở nên ambiguous,
+  read model unlinks projection đó và chuyển reference trở lại pending.
+- Unknown object entities are queued for review; they are never fabricated as
+  canonical placeholders.
 
 ### 4.8 Benchmark end-to-end
 
@@ -228,7 +246,7 @@ B6. 4.6 Reference lane + paging; 4.7 SHACL unresolved; 4.8 e2e benchmark
 Mỗi bước giữ nguyên bất biến: log không rewrite; mọi migration là upcaster mới
 hoặc event mới. Tiến trình track ở `roadmap.md`, mục "Nền móng production facts".
 
-## 6. Trạng thái triển khai (đối chiếu 2026-11-11)
+## 6. Trạng thái triển khai (đối chiếu 2026-11-12)
 
 Toàn bộ thiết kế trong tài liệu này **đã triển khai**:
 
@@ -245,19 +263,23 @@ Toàn bộ thiết kế trong tài liệu này **đã triển khai**:
 | §4.8 E2E per-stage benchmark + gate | `b2cac79` |
 | Phase 5 Console admin write ops (token auth + audit trail) | `54eab65` |
 | Phase 6 item 1 query provenance access (`FOUNDRY_PROVENANCE_TOKENS`) | `foundry/console/api/provenance_access.py`, `tests/test_console_api.py` |
+| Task 2: location unified with generic assertions; corrections/retractions refresh location projection | implementation and regressions in `foundry/`, `tests/test_events.py`, `tests/test_readmodel.py` |
+| Task 3: ObservationResult, typed measurements, source normalization, Identifier and compatibility rules | implementation and regressions in `foundry/`, `tests/test_tracking.py`, `tests/test_semantic_consistency.py` |
+| CQ workload: 41 executable queries | `requirements/competency_questions.md`, `benchmarks/queries/`, `benchmarks/expected_results/` |
 
-D1–D12 đã đóng hết, bao gồm Console write operations. Query API chỉ trả
-provenance theo source-ID scope; read request không token nhận dữ liệu không có
-source IDs. Việc tiếp theo là scale ladder theo `roadmap.md`.
+D1–D12 and the follow-on assertion, observation, identity and workload repairs
+are closed. Query API chỉ trả provenance theo source-ID scope; read request
+không token nhận dữ liệu không có source IDs. Việc tiếp theo là scale ladder
+theo `roadmap.md`.
 
 ## 7. Rủi ro đã ghi nhận trong quá trình triển khai
 
 Các mục dưới đây là rủi ro rollout được ghi trong audit thiết kế; chúng không
 mô tả backlog còn mở.
 
-- **4.2 (Assertion) là breaking change ở tầng khái niệm**: assertion dùng
-  `AssertionMade`; legacy `LocationObserved` vẫn có consumer riêng. Upcaster
-  v2→v3 giữ khả năng đọc log cũ; hai lane chưa dual-write.
+- **4.2 (Assertion) is a breaking conceptual change, migrated in v4**:
+  `LocationObserved` is read only through the v3→v4 upcaster; new records use
+  `AssertionMade`. Historical log bytes are unchanged.
 - **4.3 đổi thứ tự replay** có thể đổi `first_seen`/`last_event_time` trên dữ
   liệu cùng giây — chấp nhận vì đó mới là thứ tự nhân quả đúng; ghi rõ trong
   release note.

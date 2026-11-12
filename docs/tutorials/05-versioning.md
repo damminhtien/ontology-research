@@ -80,19 +80,20 @@ cân nhắc giữ term cũ + thêm term mới thay vì redefine.
 ```
 
 ```text
-core                 stability=0.5     (breaking 1/2) [WARN below 0.99]
+core                 stability=0.3333  (breaking 2/3) [WARN below 0.99]
 sensor               stability=1.0     (breaking 0/1) [ok]
-tracking             stability=1.0     (breaking 0/1) [ok]
-assertion            stability=0.5     (breaking 1/2) [WARN below 0.95]
-identity             stability=1.0     (breaking 0/1) [ok]
+tracking             stability=1.0     (breaking 0/2) [ok]
+assertion            stability=0.6667  (breaking 1/3) [WARN below 0.95]
+identity             stability=0.5     (breaking 1/2) [WARN below 0.95]
 location             stability=1.0     (breaking 0/1) [ok]
 organization         stability=1.0     (breaking 0/1) [ok]
 
-2 module(s) below their stability threshold.
+3 module(s) below their stability threshold.
 ```
 
-Snapshot hiện tại (2026-11-11): `core` và `assertion` đang dưới ngưỡng; các
-module còn lại đạt ngưỡng. Chạy lại lệnh để đọc trạng thái mới nhất.
+Snapshot hiện tại (2026-11-12): `core`, `assertion` và `identity` đang dưới
+ngưỡng sau các breaking releases đã ghi nhận; các module còn lại đạt ngưỡng.
+Chạy lại lệnh để đọc trạng thái mới nhất.
 
 $$Stability(m) = 1 - \frac{N_{breaking}}{N_{releases}}$$
 

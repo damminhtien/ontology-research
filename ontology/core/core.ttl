@@ -9,18 +9,18 @@
 <https://damminhtien.github.io/ontology-research/ontology/core> a owl:Ontology ;
     dcterms:title "Semantic Core Kernel"@en ;
     dcterms:description "Semantic kernel: only stable, cross-domain classes and predicates. The hierarchy splits into disjoint branches — an information object (what we know: sources, statements) is never an event (what happened)."@en ;
-    dcterms:version "1.0.0" ;
+    dcterms:version "2.0.0" ;
     vann:preferredNamespacePrefix "core" ;
     vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/core#" .
 
 #################################################################
-# Classes (20) — Entity taxonomy, max depth kept shallow
+# Classes (19) — Entity taxonomy, max depth kept shallow
 #
 #   Entity
 #     ├── PhysicalObject ── Artifact ── {Platform, Facility}
 #     ├── Agent ── {Person, Organization}
 #     ├── System, Location, Role, Capability, Quality, State
-#     ├── InformationObject ── {Source, LocationAssertion} ── (middle: assertion:Assertion)
+#     ├── InformationObject ── {Source} ── (middle: assertion:Assertion)
 #     └── Event ── {Activity, Observation}
 #
 # The two branches are disjoint by design: a statement is an information
@@ -54,9 +54,6 @@ core:Event a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Event"@en ;
 core:Activity a owl:Class ; rdfs:subClassOf core:Event ; rdfs:label "Activity"@en .
 core:Observation a owl:Class ; rdfs:subClassOf core:Event ; rdfs:label "Observation"@en ;
     rdfs:comment "An act of observing, anchored in time and to a source."@en .
-core:LocationAssertion a owl:Class ; rdfs:subClassOf core:InformationObject ; rdfs:label "Location Assertion"@en ;
-    rdfs:comment "Reified claim that an entity was located somewhere from some time — an informational statement, not an event. Written by the LocationObserved lane; the generic assertion:Assertion lane (ontology/middle/assertion.ttl) is the target model that lane migrates onto."@en .
-
 core:Role a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Role"@en .
 core:Capability a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Capability"@en .
 core:Quality a owl:Class ; rdfs:subClassOf core:Entity ; rdfs:label "Quality"@en .
@@ -81,7 +78,8 @@ core:hasLocation a owl:ObjectProperty ; rdfs:domain core:Location ; rdfs:range c
     owl:inverseOf core:locatedAt ; rdfs:label "has located entity"@en .
 core:currentLocation a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:Location ;
     rdfs:label "current location"@en ;
-    rdfs:comment "OPERATIONAL PROJECTION ONLY — materialized by the read-model projector, never asserted directly by ingestion."@en .
+    rdfs:comment "Materialized by the read-model projector, never asserted directly by ingestion."@en ;
+    core:assertable false .
 
 core:participatesIn a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:Event ;
     rdfs:label "participates in"@en .
@@ -130,7 +128,8 @@ core:hasSource a owl:ObjectProperty ; rdfs:domain core:Entity ; rdfs:range core:
 
 core:name a owl:DatatypeProperty ; rdfs:domain core:Entity ; rdfs:range xsd:string ;
     rdfs:label "name"@en .
-core:alias a owl:DatatypeProperty ; rdfs:domain core:Entity ; rdfs:range xsd:string ;
+core:alias a owl:DatatypeProperty ; rdfs:domain core:Entity ;
+    rdfs:range [ a rdfs:Datatype ; owl:unionOf ( xsd:string rdf:langString ) ] ;
     rdfs:label "alias"@en ; rdfs:comment "Alternative names used by identity resolution."@en .
 core:externalId a owl:DatatypeProperty ; rdfs:domain core:Entity ; rdfs:range xsd:string ;
     rdfs:label "external id"@en .
@@ -146,3 +145,7 @@ core:validUntil a owl:DatatypeProperty ; rdfs:domain core:InformationObject ; rd
     rdfs:label "valid until"@en .
 core:hasConfidence a owl:DatatypeProperty ; rdfs:domain core:Entity ; rdfs:range xsd:decimal ;
     rdfs:label "has confidence"@en ; rdfs:comment "Assessed confidence in [0,1]. Constrained by SHACL. Carried by events (an observation act) and by derived information objects (an assertion), hence the domain-agnostic core:Entity."@en .
+
+core:assertable a owl:AnnotationProperty ;
+    rdfs:label "assertable"@en ;
+    rdfs:comment "Set false for operational projection properties that cannot be asserted as world facts."@en .

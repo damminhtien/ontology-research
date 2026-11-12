@@ -1,0 +1,12 @@
+# CQ-045: Summarize reported measurement fields across the tracked subject.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#>
+
+SELECT ?measurementName (COUNT(?measurement) AS ?sampleCount) WHERE {
+  ?observation core:observes ?entity .
+  ?result tracking:resultOf ?observation ; tracking:measurement ?measurement .
+  ?measurement tracking:measurementName ?measurementName .
+  FILTER (?entity = ?wantedEntity)
+}
+GROUP BY ?measurementName
+ORDER BY ?measurementName

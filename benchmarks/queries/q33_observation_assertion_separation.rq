@@ -1,0 +1,12 @@
+# CQ-043: A measured position does not create a world locatedAt triple.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#>
+
+SELECT ?atTime ?positionName WHERE {
+  ?observation core:observes ?entity ; core:atTime ?atTime .
+  ?result tracking:resultOf ?observation ; tracking:position ?position .
+  ?position core:name ?positionName .
+  FILTER (?entity = ?wantedEntity)
+  FILTER NOT EXISTS { ?entity core:locatedAt ?position . }
+}
+ORDER BY ?atTime

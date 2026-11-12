@@ -1,0 +1,22 @@
+{
+  "id": "CQ-033",
+  "group": "Q1",
+  "slo_p95_ms": 50,
+  "query_file": "q26_identifier_lookup.rq",
+  "variables": [
+    "entityName"
+  ],
+  "rows": [
+    [
+      "Coast Guard Region 7"
+    ]
+  ],
+  "bindings": {
+    "wantedScheme": {
+      "literal": "maritime-registry"
+    },
+    "wantedValue": {
+      "literal": "42"
+    }
+  }
+}

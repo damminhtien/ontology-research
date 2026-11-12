@@ -23,7 +23,7 @@ Ba hot query của read model:
 |-------|--------|--------:|
 | Q1 entity lookup | `get_entity(id)` | 50 ms |
 | Current location | `current_location(id)` | 100 ms |
-| Q4 temporal as-of | `location_as_of(id, instant)` | 500 ms |
+| Location state and conflicts as of an instant | `location_resolution(id, instant)` | 500 ms |
 
 ## Bước 1 — Chạy benchmark
 
@@ -71,6 +71,21 @@ ingest, lake persist, projector và lake query theo stage.
 ```
 
 ## Bước 3 — Xem trong Console
+
+The read model builds location history from generic `AssertionMade` records
+whose predicate is `core:locatedAt`. Validity uses a half-open interval
+`[valid_from, valid_until)`. A replacement assertion marks the referenced
+assertion corrected; `AssertionSuperseded` retracts a claim. Both operations
+refresh the current location index during event application. If multiple
+non-superseded locations are valid at the same instant, the model reports a
+conflict and does not pick a winner based on event order.
+
+The general assertion ledger also supports time varying relationships.
+`assertions_as_of(subject_id, instant, predicate_iri)` filters any predicate by
+the same half-open interval. For example, membership can end at one instant and
+a new membership can begin at that exact boundary without overwriting history.
+Projection statistics count only entities with one unique active location;
+expired or conflicting claims do not count as a current location.
 
 Mở tab **Projection** tại <http://127.0.0.1:8787/#/projection>:
 

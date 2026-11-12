@@ -1,0 +1,10 @@
+# CQ-037..038: Preserve typed sensor measurement value and unit.
+PREFIX tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#>
+
+SELECT ?value ?datatype ?unit WHERE {
+  ?result tracking:resultOf ?observation ; tracking:measurement ?measurement .
+  ?measurement tracking:measurementName ?name ; tracking:measurementValue ?value .
+  OPTIONAL { ?measurement tracking:measurementUnit ?unit . }
+  BIND(DATATYPE(?value) AS ?datatype)
+  FILTER (?observation = ?wantedObservation && ?name = ?wantedName)
+}

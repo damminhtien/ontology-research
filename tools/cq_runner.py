@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ontology_utils import find_module_files
-from rdflib import Graph
+from rdflib import Graph, Literal, URIRef
 from rdflib.plugins.sparql import prepareQuery
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -56,6 +56,25 @@ def load_benchmark_graph(
     return graph
 
 
+def _query_bindings(spec: dict) -> dict[str, object]:
+    """Convert compact JSON IRI/literal bindings into rdflib terms."""
+    bindings: dict[str, object] = {}
+    for variable, value in (spec.get("bindings") or {}).items():
+        if not isinstance(value, dict):
+            raise ValueError(f"binding {variable!r} must declare iri or literal")
+        if "iri" in value:
+            bindings[variable] = URIRef(value["iri"])
+        elif "literal" in value:
+            bindings[variable] = Literal(
+                value["literal"],
+                datatype=URIRef(value["datatype"]) if value.get("datatype") else None,
+                lang=value.get("lang"),
+            )
+        else:
+            raise ValueError(f"binding {variable!r} must declare iri or literal")
+    return bindings
+
+
 def run_query_spec(graph: Graph, spec: dict, *, queries_dir: Path = QUERIES_DIR) -> dict:
     """Run one competency query spec and compare against its ground truth."""
     result: dict = {
@@ -70,7 +89,7 @@ def run_query_spec(graph: Graph, spec: dict, *, queries_dir: Path = QUERIES_DIR)
     try:
         result["expected_rows"] = len(spec["rows"])
         query_text = (queries_dir / spec["query_file"]).read_text(encoding="utf-8")
-        binding_result = graph.query(prepareQuery(query_text))
+        binding_result = graph.query(prepareQuery(query_text), initBindings=_query_bindings(spec))
 
         variables = [str(v) for v in binding_result.vars]
         if variables != spec["variables"]:
@@ -86,7 +105,8 @@ def run_query_spec(graph: Graph, spec: dict, *, queries_dir: Path = QUERIES_DIR)
             actual_rows.append(row)
 
         expected = [
-            [cell if isinstance(cell, int) else str(cell) for cell in row] for row in spec["rows"]
+            [cell if cell is None or isinstance(cell, (bool, int)) else str(cell) for cell in row]
+            for row in spec["rows"]
         ]
         result["actual_rows"] = actual_rows
         result["passed"] = actual_rows == expected

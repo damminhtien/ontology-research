@@ -1,0 +1,22 @@
+{
+  "id": "CQ-032",
+  "group": "Q1",
+  "slo_p95_ms": 50,
+  "query_file": "q26_identifier_lookup.rq",
+  "variables": [
+    "entityName"
+  ],
+  "rows": [
+    [
+      "Patrol Vessel 03"
+    ]
+  ],
+  "bindings": {
+    "wantedScheme": {
+      "literal": "ais-mmsi"
+    },
+    "wantedValue": {
+      "literal": "990000017"
+    }
+  }
+}

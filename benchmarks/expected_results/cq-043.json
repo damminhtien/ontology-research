@@ -1,0 +1,29 @@
+{
+  "id": "CQ-043",
+  "group": "Q4",
+  "slo_p95_ms": 500,
+  "query_file": "q33_observation_assertion_separation.rq",
+  "variables": [
+    "atTime",
+    "positionName"
+  ],
+  "rows": [
+    [
+      "2026-08-20T02:00:00Z",
+      "Vung Tau"
+    ],
+    [
+      "2026-08-20T04:00:00Z",
+      "Da Nang"
+    ],
+    [
+      "2026-08-22T08:00:00Z",
+      "Phu Quoc"
+    ]
+  ],
+  "bindings": {
+    "wantedEntity": {
+      "iri": "https://data.example/entity/patrol-03"
+    }
+  }
+}

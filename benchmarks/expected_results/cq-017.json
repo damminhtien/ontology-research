@@ -1,0 +1,28 @@
+{
+  "id": "CQ-017",
+  "group": "Q4",
+  "slo_p95_ms": 500,
+  "query_file": "q17_temporal_history.rq",
+  "variables": [
+    "placeName",
+    "from",
+    "until"
+  ],
+  "rows": [
+    [
+      "Phu Quoc",
+      "2026-08-01T00:00:00Z",
+      "2026-08-10T00:00:00Z"
+    ],
+    [
+      "Vung Tau",
+      "2026-08-10T00:00:00Z",
+      "2026-08-20T00:00:00Z"
+    ],
+    [
+      "Da Nang",
+      "2026-08-20T00:00:00Z",
+      null
+    ]
+  ]
+}

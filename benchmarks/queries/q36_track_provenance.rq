@@ -1,0 +1,9 @@
+# CQ-046: Find the provenance source for a derived tracking product.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#>
+
+SELECT ?sourceName WHERE {
+  ?track tracking:hasTrackId ?trackId ; core:hasSource ?source .
+  ?source a core:Source ; core:name ?sourceName .
+  FILTER (?trackId = ?wantedTrackId)
+}

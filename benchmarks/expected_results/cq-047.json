@@ -1,0 +1,28 @@
+{
+  "id": "CQ-047",
+  "group": "Q4",
+  "slo_p95_ms": 500,
+  "query_file": "q37_temporal_relationship.rq",
+  "variables": [
+    "organizationName",
+    "from",
+    "until"
+  ],
+  "rows": [
+    [
+      "Coast Guard Region 7",
+      "2026-08-01T00:00:00Z",
+      "2026-08-15T00:00:00Z"
+    ],
+    [
+      "Coast Guard Region 8",
+      "2026-08-15T00:00:00Z",
+      null
+    ]
+  ],
+  "bindings": {
+    "person": {
+      "iri": "https://data.example/entity/person-17"
+    }
+  }
+}

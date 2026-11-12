@@ -1,9 +1,10 @@
 """Ingest an AIS-style tracking feed through the canonical pipeline (Phase 4).
 
-Maps a JSONL sensor feed (mmsi/name/sensor_id/track_id/location_uri/at_time)
-into the tracking vertical: platforms resolve by MMSI (trusted external id,
-ADR-0006), sensors register with their serials, and every observation/track
-passes the domain SHACL contracts before entering the log.
+Maps a JSONL sensor feed (mmsi/name/sensor_id/track_id/position_uri,
+measurements/at_time; legacy location_uri is accepted) into the tracking
+vertical. Platforms resolve by MMSI (trusted external id, ADR-0006), sensors
+register with their serials, and observation/result/track records pass their
+domain SHACL contracts before entering the log.
 
 Usage:
     .venv/bin/python tools/ingest_tracking_feed.py --feed feed.jsonl \

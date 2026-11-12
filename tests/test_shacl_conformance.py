@@ -3,8 +3,8 @@
 Contract under test (`shapes/core_shapes.ttl`):
   * Observation   : exactly one atTime, >= 1 source, >= 1 observed entity,
                     confidence in [0,1] when present;
-  * LocationAssertion : exactly one subject entity, exactly one location,
-                    exactly one validFrom, >= 1 source;
+  * Assertion      : generic statement structure and source provenance are
+                    validated by `shapes/assertion_shapes.ttl`;
   * Named things (agents/artifacts/locations/sources) : >= 1 name.
 """
 
@@ -23,6 +23,7 @@ ex = Namespace("https://data.example/entity/")
 def _shapes() -> Graph:
     g = Graph()
     g.parse(SHAPES_FILE.as_posix(), format="turtle")
+    g.parse("shapes/assertion_shapes.ttl", format="turtle")
     return g
 
 
@@ -73,13 +74,17 @@ class TestShaclConformance:
         for path_iri in ("atTime", "hasSource", "hasConfidence"):
             assert path_iri in report, f"expected violation on core:{path_iri}"
 
-    def test_location_assertion_requires_provenance(self):
+    def test_generic_assertion_requires_source_provenance(self):
         g = Graph()
         g.parse(CORE_ONTOLOGY.as_posix(), format="turtle")
-        bad = ex["la-bad"]
-        g.add((bad, RDF.type, URIRef(CORE + "LocationAssertion")))
+        bad = ex["assertion-bad"]
+        assertion = Namespace(
+            "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#"
+        )
+        g.add((bad, RDF.type, assertion.Assertion))
         g.add((bad, URIRef(CORE + "describes"), ex["patrol-01"]))
-        g.add((bad, URIRef(CORE + "locatedAt"), ex["loc-cam-ranh"]))
+        g.add((bad, assertion.predicate, URIRef(CORE + "locatedAt")))
+        g.add((bad, assertion.hasObject, ex["loc-cam-ranh"]))
         g.add(
             (
                 bad,
@@ -90,4 +95,4 @@ class TestShaclConformance:
         # hasSource intentionally absent
 
         conforms, _ = _run_shacl(g)
-        assert not conforms, "location assertion without a source must be rejected"
+        assert not conforms, "generic assertion without a source must be rejected"

@@ -6,12 +6,14 @@
 @prefix vann: <http://purl.org/vocab/vann/> .
 @prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
 @prefix assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#> .
+@prefix identity: <https://damminhtien.github.io/ontology-research/ontology/middle/identity#> .
 
 <https://damminhtien.github.io/ontology-research/ontology/middle/assertion> a owl:Ontology ;
     dcterms:title "Middle Layer: Document/Assertion Model"@en ;
     dcterms:description "Generic assertion mapping (docs/architecture.md §4.2). An Assertion reifies one statement about the world with provenance and bi-temporal validity; every concrete fact type builds on it. Reuses core properties (core:describes, core:hasSource, core:validFrom, core:validUntil, core:hasConfidence) — this module adds the two classes, the predicate/object properties and the supersedes relation. The event that records a statement is AssertionMade; an Assertion is the statement itself, not an event."@en ;
-    dcterms:version "1.0.0" ;
+    dcterms:version "1.1.0" ;
     owl:imports <https://damminhtien.github.io/ontology-research/ontology/core> ;
+    owl:imports <https://damminhtien.github.io/ontology-research/ontology/middle/identity> ;
     vann:preferredNamespacePrefix "assertion" ;
     vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#" .
 
@@ -25,7 +27,7 @@ assertion:Document a owl:Class ; rdfs:subClassOf core:Source ;
 
 assertion:Assertion a owl:Class ; rdfs:subClassOf core:InformationObject ;
     rdfs:label "Assertion"@en ;
-    rdfs:comment "One reified statement about the world — a derived information object, never an event. core:describes names the subject entity, assertion:predicate names the relation IRI, the object is an entity or location (assertion:hasObject) or a literal (assertion:literalValue), core:validFrom/core:validUntil carry valid time, core:hasSource cites Documents, core:hasConfidence is optional."@en .
+    rdfs:comment "One reified statement about the world — a derived information object, never an event. core:describes names a resolved subject; assertion:subjectReference names a pending noncanonical subject. assertion:predicate names the relation IRI, the object is an entity or location (assertion:hasObject) or a literal (assertion:literalValue), core:validFrom/core:validUntil carry half-open valid time, core:hasSource cites Sources, and assertion:evidence carries inline source locators."@en .
 
 #################################################################
 # Properties
@@ -33,16 +35,48 @@ assertion:Assertion a owl:Class ; rdfs:subClassOf core:InformationObject ;
 
 assertion:predicate a owl:ObjectProperty ; rdfs:domain assertion:Assertion ; rdfs:range rdf:Property ;
     rdfs:label "predicate"@en ;
-    rdfs:comment "The relation the statement asserts, referenced by IRI (e.g. core:locatedAt) so two statements with different relations never share an RDF form. Carried in events as predicate_iri."@en .
+    rdfs:comment "The relation the statement asserts, referenced by IRI (e.g. core:locatedAt) so two statements with different relations never share an RDF form. Carried in events as predicate_iri."@en ;
+    core:assertable false .
+
+assertion:subjectReference a owl:ObjectProperty ; rdfs:domain assertion:Assertion ; rdfs:range identity:UnresolvedReference ;
+    rdfs:label "subject reference"@en ;
+    rdfs:comment "Noncanonical subject reference retained until identity resolution; it is not a world entity."@en ;
+    core:assertable false .
 
 assertion:hasObject a owl:ObjectProperty ; rdfs:domain assertion:Assertion ; rdfs:range core:Entity ;
     rdfs:label "has object"@en ;
-    rdfs:comment "Entity or Location the statement points at. Literal-valued objects use assertion:literalValue instead."@en .
+    rdfs:comment "Entity or Location the statement points at. Literal-valued objects use assertion:literalValue instead."@en ;
+    core:assertable false .
 
 assertion:literalValue a owl:DatatypeProperty ; rdfs:domain assertion:Assertion ; rdfs:range rdfs:Literal ;
     rdfs:label "literal value"@en ;
-    rdfs:comment "Literal object of the statement. The datatype is carried per value (events carry literal_datatype_iri / literal_language), so the range is the widest literal class rather than xsd:string — a typed (``12000``^^xsd:decimal) or language-tagged (``Việt Nam``@vi) value is not a string. Entity/location objects use assertion:hasObject instead."@en .
+    rdfs:comment "Literal object of the statement. The datatype is carried per value (events carry literal_datatype_iri / literal_language), so the range is the widest literal class rather than xsd:string — a typed (``12000``^^xsd:decimal) or language-tagged (``Việt Nam``@vi) value is not a string. Entity/location objects use assertion:hasObject instead."@en ;
+    core:assertable false .
 
 assertion:supersedes a owl:ObjectProperty ; rdfs:domain assertion:Assertion ; rdfs:range assertion:Assertion ;
     rdfs:label "supersedes"@en ;
-    rdfs:comment "Correction link: this assertion replaces the referenced one (never a rewrite — ADR-0002)."@en .
+    rdfs:comment "Correction link: this assertion replaces the referenced one (never a rewrite — ADR-0002)."@en ;
+    core:assertable false .
+
+assertion:retracts a owl:ObjectProperty ; rdfs:domain core:Event ; rdfs:range assertion:Assertion ;
+    rdfs:label "retracts"@en ;
+    rdfs:comment "A supersession event that retracts an assertion without replacing its world claim."@en ;
+    core:assertable false .
+
+assertion:retractionReason a owl:DatatypeProperty ; rdfs:domain core:Event ; rdfs:range xsd:string ;
+    rdfs:label "retraction reason"@en ; core:assertable false .
+
+# Inline evidence records are untyped blank nodes. They carry a source and an
+# optional source-local locator or span; no Evidence ontology class is needed.
+assertion:evidence a owl:ObjectProperty ; rdfs:domain assertion:Assertion ; rdfs:range rdfs:Resource ;
+    rdfs:label "evidence reference"@en ; core:assertable false .
+assertion:evidenceSource a owl:ObjectProperty ; rdfs:domain rdfs:Resource ; rdfs:range core:Source ;
+    rdfs:label "evidence source"@en ; core:assertable false .
+assertion:locator a owl:DatatypeProperty ; rdfs:domain rdfs:Resource ; rdfs:range xsd:string ;
+    rdfs:label "source locator"@en ; core:assertable false .
+assertion:spanStart a owl:DatatypeProperty ; rdfs:domain rdfs:Resource ; rdfs:range xsd:integer ;
+    rdfs:label "span start"@en ; core:assertable false .
+assertion:spanEnd a owl:DatatypeProperty ; rdfs:domain rdfs:Resource ; rdfs:range xsd:integer ;
+    rdfs:label "span end"@en ; core:assertable false .
+assertion:spanUnit a owl:DatatypeProperty ; rdfs:domain rdfs:Resource ; rdfs:range xsd:string ;
+    rdfs:label "span unit"@en ; core:assertable false .

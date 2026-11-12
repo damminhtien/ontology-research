@@ -20,7 +20,7 @@ Các màn hình monitor đọc projection và trạng thái từ logic trong `fo
 
 - **Version check** — PASS/FAIL từ SemVer registry
 - **Dependency DAG** — có vòng lặp hay import ngược chiều không
-- **CQ regression** — 10 competency queries pass/fail
+- **CQ regression** — 41 executable competency queries pass/fail
 - **Worst stability** — module kém ổn định nhất
 - **Projection** — số entities + projection lag so SLO 5s
 - **Events logged** — tổng events theo type

@@ -1,0 +1,22 @@
+{
+  "id": "CQ-041",
+  "group": "Q5",
+  "slo_p95_ms": 500,
+  "query_file": "q31_sensor_provenance.rq",
+  "variables": [
+    "sensorName"
+  ],
+  "rows": [
+    [
+      "AIS Receiver 17"
+    ],
+    [
+      "Surface Radar 17"
+    ]
+  ],
+  "bindings": {
+    "wantedTrackId": {
+      "literal": "TRK-017"
+    }
+  }
+}

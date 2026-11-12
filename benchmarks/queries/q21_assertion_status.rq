@@ -1,0 +1,13 @@
+# CQ-024..026: Distinguish a corrected assertion, a retracted assertion and an active one.
+PREFIX assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#>
+
+SELECT ?status ?replacement WHERE {
+  ?assertion a assertion:Assertion .
+  OPTIONAL { ?replacement assertion:supersedes ?assertion . }
+  OPTIONAL { ?retraction assertion:retracts ?assertion . }
+  BIND(
+    IF(BOUND(?replacement), "corrected",
+       IF(BOUND(?retraction), "retracted", "active"))
+    AS ?status
+  )
+}

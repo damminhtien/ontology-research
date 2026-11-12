@@ -62,30 +62,8 @@ class Projector:
                 entity_type=payload["entity_type"],
                 name=payload["name"],
                 event_time=occurred,
+                aliases=payload.get("name_aliases") or (),
             )
-            # §4.7: link any pending observations that cited this name/aliases
-            self._model.flush_pending(
-                payload["entity_id"],
-                [payload["name"], *payload.get("name_aliases", [])],
-            )
-        elif event.event_type == "LocationObserved":
-            entity_id = payload.get("entity_id") or ""
-            if not entity_id:
-                self._model.add_pending_observation(
-                    entity_ref=payload.get("entity_ref") or "",
-                    location_uri=payload["location_uri"],
-                    valid_from=parse_instant(payload["valid_from"]),
-                    source_ids=tuple(payload.get("source_ids") or ()),
-                    event_id=event.event_id,
-                )
-            else:
-                self._model.add_location_observation(
-                    entity_id=entity_id,
-                    location_uri=payload["location_uri"],
-                    valid_from=parse_instant(payload["valid_from"]),
-                    source_ids=tuple(payload.get("source_ids") or ()),
-                    event_id=event.event_id,
-                )
         elif event.event_type == "EntityMerged":
             self._model.merge_entities(
                 survivor_id=payload["survivor_id"],

@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from rdflib import RDF, RDFS, Graph, URIRef
+from rdflib import RDF, RDFS, BNode, Graph, URIRef
+from rdflib.collection import Collection
 from rdflib.namespace import OWL
 
 
@@ -98,10 +99,23 @@ def describe_properties(graph: Graph) -> list[dict]:
                     "kind": kind,
                     "label": _first_literal(graph, prop, RDFS.label),
                     "domain": str(next(iter(graph.objects(prop, RDFS.domain)), "")),
-                    "range": str(next(iter(graph.objects(prop, RDFS.range)), "")),
+                    "range": _describe_range(
+                        graph, next(iter(graph.objects(prop, RDFS.range)), "")
+                    ),
                 }
             )
     return sorted(properties, key=lambda p: p["iri"])
+
+
+def _describe_range(graph: Graph, value: object) -> str:
+    """Render named and union data ranges deterministically for reports."""
+    if not isinstance(value, BNode):
+        return str(value)
+    union_head = graph.value(value, OWL.unionOf)
+    if union_head is not None:
+        members = sorted(str(member) for member in Collection(graph, union_head))
+        return "union(" + ", ".join(members) + ")"
+    return str(value)
 
 
 def attach_properties(classes: dict[str, dict], properties: list[dict]) -> None:

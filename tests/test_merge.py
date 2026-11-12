@@ -298,18 +298,30 @@ MERGE_E1_E2 = {
 
 
 LOC_A_EVENT = {
-    "entity_id": E2,
-    "location_uri": LOC_A,
+    "assertion_id": "urn:assert:test:merge-location-a",
+    "subject_id": E2,
+    "subject_ref": None,
+    "predicate_iri": "https://damminhtien.github.io/ontology-research/ontology/core#locatedAt",
+    "object": {"kind": "location", "value": LOC_A},
     "valid_from": "2026-07-01T00:00:00Z",
+    "valid_until": "2026-08-01T00:00:00Z",
     "source_ids": ["s"],
+    "evidence": [{"source_id": "s", "locator": None, "span": None}],
     "confidence": 0.9,
+    "supersedes": None,
 }
 LOC_B_EVENT = {
-    "entity_id": E2,
-    "location_uri": LOC_B,
+    "assertion_id": "urn:assert:test:merge-location-b",
+    "subject_id": E2,
+    "subject_ref": None,
+    "predicate_iri": "https://damminhtien.github.io/ontology-research/ontology/core#locatedAt",
+    "object": {"kind": "location", "value": LOC_B},
     "valid_from": "2026-08-01T00:00:00Z",
+    "valid_until": None,
     "source_ids": ["s"],
+    "evidence": [{"source_id": "s", "locator": None, "span": None}],
     "confidence": 0.9,
+    "supersedes": None,
 }
 
 
@@ -322,8 +334,8 @@ class TestProjectorMerge:
             [
                 ("EntityCreated", dict(EC1)),
                 ("EntityCreated", dict(EC2)),
-                ("LocationObserved", dict(LOC_A_EVENT)),
-                ("LocationObserved", dict(LOC_B_EVENT)),
+                ("AssertionMade", dict(LOC_A_EVENT)),
+                ("AssertionMade", dict(LOC_B_EVENT)),
                 ("EntityMerged", dict(MERGE_E1_E2)),
             ],
         )
@@ -510,13 +522,19 @@ class TestUnmerge:
         )
         log.append(
             make_event(
-                "LocationObserved",
+                "AssertionMade",
                 {
-                    "entity_id": E2,
-                    "location_uri": LOC_A,
+                    "assertion_id": "urn:assert:test:merge-location-a",
+                    "subject_id": E2,
+                    "subject_ref": None,
+                    "predicate_iri": "https://damminhtien.github.io/ontology-research/ontology/core#locatedAt",
+                    "object": {"kind": "location", "value": LOC_A},
                     "valid_from": "2026-07-01T00:00:00Z",
+                    "valid_until": None,
                     "source_ids": ["s"],
+                    "evidence": [{"source_id": "s", "locator": None, "span": None}],
                     "confidence": 0.9,
+                    "supersedes": None,
                 },
             )
         )
@@ -552,9 +570,9 @@ class TestUnmerge:
         # entity view restored from the merge tombstone; redirect gone
         assert model.get_entity(E2) is not None
         assert model.merged_into(E2) is None
-        # documented limitation: location history stays with the survivor
-        assert model.current_location(E1).location_uri == LOC_A
-        assert model.current_location(E2) is None
+        # Assertion history follows its original subject when the merge is undone.
+        assert model.current_location(E1) is None
+        assert model.current_location(E2).location_uri == LOC_A
 
         # and the whole thing replays deterministically
         model2, stats2 = replay_log(log)

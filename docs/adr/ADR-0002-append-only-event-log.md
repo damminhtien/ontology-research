@@ -4,7 +4,8 @@
 - Date: 2026-08-26
 - Amended (2026-08-31): contract v2 — sequence/offset, valid-time, upcasters;
   xem [ADR-0009](ADR-0009-event-contract-v2-sequence-valid-time-upcasters.md).
-  Event types hiện gồm cả `EntityMerged`
+  Current contract v4 and migration notes are in `CHANGELOG-DATA.md`.
+  Historical event types were later expanded with `EntityMerged`
   ([ADR-0007](ADR-0007-under-merge-repair-via-append-only-merge-events.md)) và
   `ExternalIdBound` ([ADR-0010](ADR-0010-registry-as-log-projection.md)).
 
@@ -17,8 +18,10 @@ và khiến provenance không thể truy vết.
 ## Decision
 
 Mọi thay đổi kiến thức ghi dưới dạng immutable domain events trên log
-append-only (`foundry/events.py`, schema v1): `EntityCreated`,
-`LocationObserved`, `AffiliationAssessed`. API surface của log không có
+append-only (`foundry/events.py`, originally schema v1). The current v4 contract
+uses `AssertionMade` for location and other world claims; `AssertionSuperseded`
+records retractions. Historical `LocationObserved` records are upcast when
+read and are not accepted for new writes. API surface của log không có
 update/delete — corrections là event mới supersede event cũ.
 
 Phase hiện tại dùng JSONL file; transport có thể nâng cấp lên Kafka-style

@@ -7,6 +7,35 @@ hành nằm trong file `VERSION` ở gốc repo; source code đọc qua
 
 ## event_schema
 
+### 4 — 2026-11-12
+
+- Location is now recorded through the generic `AssertionMade` contract. The
+  v3→v4 upcaster converts historical `LocationObserved` records to
+  `AssertionMade(predicate_iri=core:locatedAt)` while preserving event ID,
+  sequence and source references. Its deterministic legacy assertion ID makes
+  replay stable; unresolved subjects remain typed references, never entities.
+  `LocationObserved` is no longer an accepted event type for new writes.
+- `ObservationRecorded` projects a `core:Observation` event plus a distinct
+  `tracking:ObservationResult` information object. The upcaster preserves the
+  legacy `location_uri` as `position_uri` and supplies an empty measurement list
+  when old records have no typed measurements. Sensor positions do not become
+  `core:locatedAt` assertions.
+- Assertions use the half-open valid-time interval
+  `[valid_from, valid_until)`; old `valid_to` payload values are read as
+  `valid_until`. Corrections and retractions remain append-only events and now
+  refresh the location projection. Conflicting active claims are exposed as a
+  conflict, not silently resolved by event order.
+- `source_id` and `source_ids` are normalized to stable source IRIs. Inline
+  evidence carries the normalized source, locator and optional span through the
+  event and RDF mappings.
+- Predicate compatibility checks the registered domain/range, object kind and
+  literal datatype. `core:alias` explicitly accepts both `xsd:string` and
+  language-tagged `rdf:langString`; first-class Identifiers and unresolved
+  references remain separate from world entities.
+- The event contract now contains 11 write event types. Legacy
+  `LocationObserved` is retained only as an upcast input; it is not in
+  `EVENT_TYPES`.
+
 ### 3 — 2026-09-17
 
 - `AssertionMade` payload: `predicate` (tên quan hệ dạng chuỗi, vd `locatedAt`)
@@ -50,8 +79,8 @@ hành nằm trong file `VERSION` ở gốc repo; source code đọc qua
   extractor không mint được vocabulary); SHACL giữ ràng buộc cấu trúc
   (`assertion:predicate` đúng 1 IRI, `assertion:hasObject` ⊕
   `assertion:literalValue`).
-- Ngoài scope Task 1: lane `LocationObserved` / `core:LocationAssertion` chưa
-  migrate sang `AssertionMade(predicate_iri=core:locatedAt)`.
+- Lịch sử: tại thời điểm phát hành v3, location lane chưa được migrate. Việc
+  đó được hoàn tất bằng migration v3→v4 ở trên.
 
 ### 2 — amendment 2026-09-02
 

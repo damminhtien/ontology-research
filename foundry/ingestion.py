@@ -9,27 +9,28 @@ Nothing reaches the event log unless it passes the SHACL gate. Rejections
 return a structured receipt (never silently dropped) so upstream systems can
 route them to a repair/review queue.
 
-Covered today: slowly-changing structured records (EntityCreated) and
-high-rate location observations (LocationObserved). Unstructured documents
-via LLM extraction plug in ahead of the same gate.
+Covered today: slowly-changing structured records (EntityCreated), location
+claims (AssertionMade with core:locatedAt), document extraction, and sensor
+observations. Unstructured documents via LLM extraction plug in ahead of the
+same gate.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime
 from pathlib import Path
 
 from ontology_utils import materialize_type_closure
 from pyshacl import validate
 from rdflib import RDF, Graph, Literal, URIRef
-from rdflib.namespace import OWL, XSD
+from rdflib.namespace import OWL
 
 from foundry.assertions import (
     assertion_to_rdf,
     build_assertion,
     document_to_rdf,
     is_known_predicate,
+    predicate_compatibility,
     register_document,
 )
 from foundry.events import (
@@ -42,10 +43,12 @@ from foundry.events import (
 from foundry.extraction import Extractor, PatternExtractor
 from foundry.identity import IdentityService
 from foundry.namespaces import (
-    IDENTITY_MIDDLE_NS,
+    CORE_LOCATED_AT,
     new_fact_iri,
     pending_reference_iri,
 )
+from foundry.provenance import normalize_evidence
+from foundry.readmodel import parse_instant
 
 CORE = "https://damminhtien.github.io/ontology-research/ontology/core#"
 
@@ -146,7 +149,7 @@ class IngestionPipeline:
         self._ontology_path = ontology_path
         self._shapes = Graph()
         self._shapes.parse(shapes_path.as_posix(), format="turtle")
-        for sibling in ("assertion_shapes.ttl", "domain_shapes.ttl"):
+        for sibling in ("assertion_shapes.ttl", "domain_shapes.ttl", "identity_shapes.ttl"):
             sibling_path = shapes_path.parent / sibling
             if sibling_path.exists():
                 self._shapes.parse(sibling_path.as_posix(), format="turtle")
@@ -281,28 +284,33 @@ class IngestionPipeline:
         location_uri: str,
         valid_from: str,
         source_ids: list[str],
+        valid_until: str | None = None,
+        evidence: list[dict[str, object]] | None = None,
         confidence: float | None = None,
     ) -> IngestResult:
-        """Ingest one location observation as a reified LocationAssertion.
+        """Ingest a location claim through the generic AssertionMade lane.
 
-        The observation is validated against the SHACL contract before it may
-        enter the log; unknown entities and shape violations are rejected.
+        An unknown subject is stored as a noncanonical reference on the same
+        assertion contract and linked by the projector only after an
+        unambiguous identity event appears.
 
         Raises:
             ValueError: On malformed timestamps, empty sources or bad confidence.
         """
+        if not source_ids and not evidence:
+            raise ValueError("at least one source_id is required")
         try:
-            datetime.fromisoformat(valid_from.replace("Z", "+00:00"))
+            parse_instant(valid_from)
         except ValueError as exc:
             raise ValueError(f"invalid valid_from timestamp {valid_from!r}") from exc
-        if not source_ids:
-            raise ValueError("at least one source_id is required")
         if confidence is not None and not 0.0 <= confidence <= 1.0:
             raise ValueError(f"confidence {confidence} outside [0, 1]")
+        from foundry.namespaces import require_absolute_iri
 
-        # Pure lookup — never mints (architecture §4.7): an unresolved
-        # reference becomes a pending observation instead of polluting the
-        # registry with an entity that has no EntityCreated event.
+        require_absolute_iri(location_uri, "location_uri")
+        normalized_sources, normalized_evidence = normalize_evidence(source_ids, evidence)
+
+        # Pure lookup — never mints an entity from a location reference.
         found = self._identity.lookup(name=entity_name, entity_type=entity_type)
         if found.method not in {"alias", "external_id"}:
             if found.method == "ambiguous":
@@ -319,46 +327,44 @@ class IngestionPipeline:
                     reason=reason,
                 )
                 return _reject("", reason, event=queue_event)
-            # Miss with no candidates (§4.7): nothing to review — record the
-            # observation verbatim against an UnresolvedReference placeholder;
-            # the projector links it to the entity once it is minted.
-            data_graph = self._build_pending_graph(
-                entity_name=entity_name,
-                location_uri=location_uri,
-                valid_from=valid_from,
-                source_ids=source_ids,
-                confidence=confidence,
-            )
-            conforms, _, results_text = validate(
-                data_graph=data_graph,
-                shacl_graph=self._shapes,
-                inference="none",
-                advanced=True,
-            )
-            if not conforms:
-                return _reject("", f"SHACL violation: {results_text.strip()}")
-            event = make_event(
-                "LocationObserved",
-                {
-                    "entity_id": "",  # no canonical id yet — pending by design
-                    "entity_ref": entity_name,
-                    "location_uri": location_uri,
-                    "valid_from": valid_from,
-                    "source_ids": list(source_ids),
-                    "confidence": confidence,
-                },
-            )
-            self._log.append(event)
-            return replace(_accept(pending_reference_iri(entity_name), event), pending=True)
-        canonical_id = found.canonical_id
+            subject_id = ""
+            subject_ref = {
+                "reference_id": pending_reference_iri(entity_name),
+                "surface_form": entity_name.strip(),
+                "entity_type": entity_type,
+            }
+            canonical_id = subject_ref["reference_id"]
+        else:
+            subject_id = found.canonical_id
+            subject_ref = None
+            canonical_id = subject_id
 
-        data_graph = self._build_observation_graph(
-            canonical_id=canonical_id,
-            entity_type=entity_type,
-            location_uri=location_uri,
-            valid_from=valid_from,
-            source_ids=source_ids,
+        ontology = self._predicate_registry()
+        compatibility_error = predicate_compatibility(
+            ontology,
+            CORE_LOCATED_AT,
+            subject_class_iri=CORE + entity_type,
+            object_kind="location",
+            object_class_iri=CORE + "Location",
         )
+        if compatibility_error:
+            return _reject(canonical_id, compatibility_error)
+
+        self._load_assertion_context()
+        event = build_assertion(
+            subject_id=subject_id,
+            subject_ref=subject_ref,
+            predicate_iri=CORE_LOCATED_AT,
+            object_kind="location",
+            object_value=location_uri,
+            valid_from=valid_from,
+            valid_until=valid_until,
+            source_ids=list(normalized_sources),
+            evidence=list(normalized_evidence),
+            confidence=confidence,
+            known_assertions=frozenset(self._assertion_events),
+        )
+        data_graph = self._build_assertion_graph(event)
         conforms, _, results_text = validate(
             data_graph=data_graph,
             shacl_graph=self._shapes,
@@ -367,19 +373,9 @@ class IngestionPipeline:
         )
         if not conforms:
             return _reject(canonical_id, f"SHACL violation: {results_text.strip()}")
-
-        event = make_event(
-            "LocationObserved",
-            {
-                "entity_id": canonical_id,
-                "location_uri": location_uri,
-                "valid_from": valid_from,
-                "source_ids": list(source_ids),
-                "confidence": confidence,
-            },
-        )
         self._log.append(event)
-        return _accept(canonical_id, event)
+        self._remember_context_event(event)
+        return replace(_accept(canonical_id, event), pending=subject_ref is not None)
 
     # -- generic assertions (docs/architecture.md §4.2) -----------------------
 
@@ -411,6 +407,8 @@ class IngestionPipeline:
         object_value: str,
         valid_from: str,
         source_ids: list[str],
+        valid_until: str | None = None,
+        evidence: list[dict[str, object]] | None = None,
         confidence: float | None = None,
         supersedes: str | None = None,
         literal_datatype_iri: str | None = None,
@@ -437,12 +435,13 @@ class IngestionPipeline:
         violation (e.g. a cited document that was never registered) is rejected
         with a structured receipt.
         """
-        if not source_ids:
+        if not source_ids and not evidence:
             raise ValueError("at least one source_id is required")
-        if not is_known_predicate(self._predicate_registry(), predicate_iri):
+        ontology = self._predicate_registry()
+        if not is_known_predicate(ontology, predicate_iri):
             return _reject(
                 subject_id,
-                f"predicate {predicate_iri!r} is not declared by the registered ontology",
+                f"predicate {predicate_iri!r} is undeclared, non-assertable, or lacks domain/range",
             )
         if not self._identity.knows(subject_id):
             queue_event = self._queue_review(
@@ -454,6 +453,31 @@ class IngestionPipeline:
                 reason=f"assertion subject {subject_id} is not a known canonical entity",
             )
             return _reject(subject_id, "unknown assertion subject", event=queue_event)
+        if object_kind == "entity" and not self._identity.knows(object_value):
+            queue_event = self._queue_review(
+                reference_name=object_value,
+                external_source=None,
+                external_id=None,
+                entity_type="",
+                candidates=(),
+                reason=f"assertion object {object_value} is not a known canonical entity",
+            )
+            return _reject(subject_id, "unknown assertion object", event=queue_event)
+        subject_type, _, _ = self._identity.identity(subject_id)
+        object_type = CORE + "Location" if object_kind == "location" else CORE + "Entity"
+        if object_kind == "entity" and self._identity.knows(object_value):
+            object_type = CORE + self._identity.identity(object_value)[0]
+        compatibility_error = predicate_compatibility(
+            ontology,
+            predicate_iri,
+            subject_class_iri=CORE + subject_type,
+            object_kind=object_kind,
+            object_class_iri=object_type if object_kind != "literal" else None,
+            literal_datatype_iri=literal_datatype_iri,
+            literal_language=literal_language,
+        )
+        if compatibility_error:
+            return _reject(subject_id, compatibility_error)
         self._load_assertion_context()
         event = build_assertion(
             subject_id=subject_id,
@@ -461,7 +485,9 @@ class IngestionPipeline:
             object_kind=object_kind,
             object_value=object_value,
             valid_from=valid_from,
+            valid_until=valid_until,
             source_ids=source_ids,
+            evidence=evidence,
             confidence=confidence,
             supersedes=supersedes,
             literal_datatype_iri=literal_datatype_iri,
@@ -480,59 +506,6 @@ class IngestionPipeline:
         self._log.append(event)
         self._remember_context_event(event)
         return _accept(subject_id, event)
-
-    def _build_pending_graph(
-        self,
-        *,
-        entity_name: str,
-        location_uri: str,
-        valid_from: str,
-        source_ids: list[str],
-        confidence: float | None = None,
-    ) -> Graph:
-        """Map one observation whose subject has no canonical identity yet.
-
-        The subject of the LocationAssertion is an
-        ``identity:UnresolvedReference`` placeholder — a ``core:Entity``
-        subclass carrying the cited surface form — so the assertion passes
-        the same shapes without minting a fake canonical id (§4.7).
-        """
-        graph = Graph()
-        graph.parse(self._ontology_path.as_posix(), format="turtle")
-        # the placeholder's subClassOf axiom lives in the identity module —
-        # without it, sh:class core:Entity cannot see through the subclass
-        identity_module = self._ontology_path.parent.parent / "middle" / "identity.ttl"
-        graph.parse(identity_module.as_posix(), format="turtle")
-
-        subject = URIRef(new_fact_iri())
-        entity = URIRef(pending_reference_iri(entity_name))
-        location = URIRef(location_uri)
-
-        graph.add((subject, RDF.type, URIRef(CORE + "LocationAssertion")))
-        graph.add((subject, URIRef(CORE + "describes"), entity))
-        graph.add((subject, URIRef(CORE + "locatedAt"), location))
-        graph.add((subject, URIRef(CORE + "validFrom"), Literal(valid_from, datatype=XSD.dateTime)))
-        for source_id in source_ids:
-            source_node = URIRef(source_id)
-            graph.add((subject, URIRef(CORE + "hasSource"), source_node))
-            graph.add((source_node, RDF.type, URIRef(CORE + "Source")))
-            graph.add((source_node, URIRef(CORE + "name"), Literal(source_id)))
-        if confidence is not None:
-            graph.add(
-                (
-                    subject,
-                    URIRef(CORE + "hasConfidence"),
-                    Literal(str(confidence), datatype=XSD.decimal),
-                )
-            )
-
-        graph.add((entity, RDF.type, URIRef(IDENTITY_MIDDLE_NS + "UnresolvedReference")))
-        graph.add((entity, URIRef(CORE + "name"), Literal(entity_name)))
-        graph.add((location, RDF.type, URIRef(CORE + "Location")))
-        location_label = location_uri.rstrip("/").rsplit("/", 1)[-1].split("#")[-1]
-        graph.add((location, URIRef(CORE + "name"), Literal(location_label)))
-        materialize_type_closure(graph)
-        return graph
 
     # -- unstructured documents (Phase 2 — LLM chỉ đề xuất) -------------------
 
@@ -555,9 +528,10 @@ class IngestionPipeline:
           temporal anchor);
         - the subject must resolve by exact alias/external id — otherwise the
           candidate is durably queued for review and **no entity is minted**;
-        - entity objects cited by name resolve the same way, falling back to a
-          deterministic pending-placeholder IRI (§4.7) the ledger can re-point
-          later; location objects cited as text do the same;
+        - entity objects cited by name must resolve exactly or the candidate is
+          queued; unresolved object references never become fake entities;
+        - location objects must arrive as absolute IRIs because this lane has no
+          canonical location-name registry;
         - accepted candidates become low-confidence assertions whose provenance
           is the citing document.
         """
@@ -589,14 +563,38 @@ class IngestionPipeline:
 
             object_kind, object_value = candidate.object_kind, candidate.object_value
             is_iri = object_value.startswith(("urn:", "http://", "https://"))
-            if object_kind == "entity" and not is_iri and not self._identity.knows(object_value):
-                obj_found = self._identity.lookup(name=object_value)
-                if obj_found.method in {"alias", "external_id"}:
+            if object_kind == "entity" and not self._identity.knows(object_value):
+                obj_found = self._identity.lookup(name=object_value) if not is_iri else None
+                if obj_found is not None and obj_found.method in {"alias", "external_id"}:
                     object_value = obj_found.canonical_id
                 else:
-                    object_value = pending_reference_iri(object_value)
-            elif object_kind == "location" and not is_iri:
-                object_value = pending_reference_iri(object_value)
+                    self._queue_review(
+                        reference_name=object_value,
+                        external_source=None,
+                        external_id=None,
+                        entity_type="",
+                        candidates=obj_found.candidates if obj_found else (),
+                        reason=(
+                            f"extracted object {object_value!r} has no unique canonical identity; "
+                            f"source document {document_id}"
+                        ),
+                    )
+                    queued += 1
+                    continue
+            if object_kind == "location" and not is_iri:
+                self._queue_review(
+                    reference_name=object_value,
+                    external_source=None,
+                    external_id=None,
+                    entity_type="Location",
+                    candidates=(),
+                    reason=(
+                        f"extracted location {object_value!r} is not an absolute location IRI; "
+                        f"source document {document_id}"
+                    ),
+                )
+                queued += 1
+                continue
 
             results.append(
                 self.ingest_assertion(
@@ -687,8 +685,11 @@ class IngestionPipeline:
         subject_name: str,
         subject_entity_id: str,
         at_time: str,
-        location_uri: str | None,
+        location_uri: str | None = None,
+        position_uri: str | None = None,
+        measurements: list[dict[str, object]] | None = None,
         source_ids: list[str],
+        evidence: list[dict[str, object]] | None = None,
         confidence: float | None = None,
     ) -> IngestResult:
         """Record one sensor detection as a ``core:Observation``.
@@ -698,6 +699,11 @@ class IngestionPipeline:
         """
         if not source_ids:
             raise ValueError("at least one source_id is required")
+        if position_uri is not None and location_uri is not None and position_uri != location_uri:
+            raise ValueError(
+                "position_uri and legacy location_uri must match when both are supplied"
+            )
+        position = position_uri if position_uri is not None else location_uri
         from datetime import datetime as _dt
 
         try:
@@ -714,8 +720,10 @@ class IngestionPipeline:
             subject_entity_id=subject_entity_id,
             subject_name=subject_name,
             at_time=at_time,
-            location_uri=location_uri,
+            position_uri=position,
+            measurements=measurements,
             source_ids=source_ids,
+            evidence=evidence,
             confidence=confidence,
         )
         graph = self._build_domain_graph(event, mappers=[observation_to_rdf])
@@ -905,14 +913,16 @@ class IngestionPipeline:
 
     def _type_and_name(self, graph: Graph, mapped: SemanticEvent) -> None:
         """Type and name the subject and object of one mapped assertion."""
-        entity_type, aliases, _ = self._identity.identity(mapped.payload["subject_id"])
-        subject = URIRef(mapped.payload["subject_id"])
-        class_uri = URIRef(CORE + entity_type)
-        if (class_uri, RDF.type, OWL.Class) not in graph:
-            class_uri = URIRef(CORE + "Entity")  # unknown type: fall back to the root
-        graph.add((subject, RDF.type, class_uri))
-        display_name = next(iter(sorted(aliases)), mapped.payload["subject_id"])
-        graph.add((subject, URIRef(CORE + "name"), Literal(display_name)))
+        subject_id = mapped.payload.get("subject_id") or ""
+        if subject_id:
+            entity_type, aliases, _ = self._identity.identity(subject_id)
+            subject = URIRef(subject_id)
+            class_uri = URIRef(CORE + entity_type)
+            if (class_uri, RDF.type, OWL.Class) not in graph:
+                class_uri = URIRef(CORE + "Entity")
+            graph.add((subject, RDF.type, class_uri))
+            display_name = next(iter(sorted(aliases)), subject_id)
+            graph.add((subject, URIRef(CORE + "name"), Literal(display_name)))
 
         obj = mapped.payload["object"]
         if obj["kind"] not in ("entity", "location"):
@@ -967,55 +977,3 @@ class IngestionPipeline:
         )
         self._log.append(event)
         return event
-
-    def _build_observation_graph(
-        self,
-        *,
-        canonical_id: str,
-        entity_type: str,
-        location_uri: str,
-        valid_from: str,
-        source_ids: list[str],
-        confidence: float | None = None,
-    ) -> Graph:
-        """Map one observation onto the core ontology and expand type closure."""
-        graph = Graph()
-        graph.parse(self._ontology_path.as_posix(), format="turtle")
-
-        subject = URIRef(new_fact_iri())
-        entity = URIRef(canonical_id)
-        location = URIRef(location_uri)
-
-        graph.add((subject, RDF.type, URIRef(CORE + "LocationAssertion")))
-        graph.add((subject, URIRef(CORE + "describes"), entity))
-        graph.add((subject, URIRef(CORE + "locatedAt"), location))
-        graph.add(
-            (
-                subject,
-                URIRef(CORE + "validFrom"),
-                Literal(valid_from, datatype=XSD.dateTime),
-            )
-        )
-        for source_id in source_ids:
-            source_node = URIRef(source_id)
-            graph.add((subject, URIRef(CORE + "hasSource"), source_node))
-            graph.add((source_node, RDF.type, URIRef(CORE + "Source")))
-            graph.add((source_node, URIRef(CORE + "name"), Literal(source_id)))
-        if confidence is not None:
-            graph.add(
-                (
-                    subject,
-                    URIRef(CORE + "hasConfidence"),
-                    Literal(str(confidence), datatype=XSD.decimal),
-                )
-            )
-
-        graph.add((entity, RDF.type, URIRef(CORE + entity_type)))
-        _, aliases, _ = self._identity.identity(canonical_id)
-        display_name = next(iter(sorted(aliases)), canonical_id)
-        graph.add((entity, URIRef(CORE + "name"), Literal(display_name)))
-        graph.add((location, RDF.type, URIRef(CORE + "Location")))
-        location_label = location_uri.rstrip("/").rsplit("/", 1)[-1].split("#")[-1]
-        graph.add((location, URIRef(CORE + "name"), Literal(location_label)))
-        materialize_type_closure(graph)
-        return graph

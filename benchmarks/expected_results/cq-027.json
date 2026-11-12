@@ -1,0 +1,19 @@
+{
+  "id": "CQ-027",
+  "group": "Q5",
+  "slo_p95_ms": 500,
+  "query_file": "q22_provenance_sources.rq",
+  "variables": [
+    "sourceName"
+  ],
+  "rows": [
+    [
+      "Operations report 2026-08-09"
+    ]
+  ],
+  "bindings": {
+    "assertion": {
+      "iri": "https://data.example/entity/assert-17-corrected"
+    }
+  }
+}

@@ -4,6 +4,19 @@ Generated from `registry/releases.json` by `tools/manage_ontology.py release`. D
 
 ## core
 
+### 2.0.0 (2026-11-12T08:00:34Z) - MAJOR
+
+Commit: `bff8a29`
+
+- - [MAJOR] LocationAssertion: class removed
+- ~ [MAJOR] alias: range: 'http://www.w3.org/2001/XMLSchema#string' -> 'union(http://www.w3.org/1999/02/22-rdf-syntax-ns#langString, http://www.w3.org/2001/XMLSchema#string)'
+
+#### Migration
+
+Remove core:LocationAssertion after migrating location records to assertion:Assertion; allow core:alias as xsd:string or rdf:langString.
+
+Migration script: `migrations/core/1.0.0_to_2.0.0.rq`
+
 ### 1.0.0 (2026-09-17T12:02:11Z) - MAJOR
 
 Commit: `4227a35`
@@ -36,6 +49,24 @@ Commit: `4cbf25d`
 
 ## tracking
 
+### 0.2.0 (2026-11-12T07:35:04Z) - MINOR
+
+Commit: `bff8a29`
+
+- + [MINOR] ObservationResult: class added
+- + [MINOR] evidence: object-property added
+- + [MINOR] evidenceSource: object-property added
+- + [MINOR] locator: data-property added
+- + [MINOR] measurement: object-property added
+- + [MINOR] measurementName: data-property added
+- + [MINOR] measurementUnit: data-property added
+- + [MINOR] measurementValue: data-property added
+- + [MINOR] position: object-property added
+- + [MINOR] resultOf: object-property added
+- + [MINOR] spanEnd: data-property added
+- + [MINOR] spanStart: data-property added
+- + [MINOR] spanUnit: data-property added
+
 ### 0.1.0 (2026-08-27T14:02:27Z) - NONE
 
 Commit: `4cbf25d`
@@ -43,6 +74,21 @@ Commit: `4cbf25d`
 - Initial baseline release.
 
 ## assertion
+
+### 1.1.0 (2026-11-12T07:35:04Z) - MINOR
+
+Commit: `bff8a29`
+
+- + [MINOR] evidence: object-property added
+- + [MINOR] evidenceSource: object-property added
+- + [MINOR] locator: data-property added
+- + [MINOR] retractionReason: data-property added
+- + [MINOR] retracts: object-property added
+- + [MINOR] spanEnd: data-property added
+- + [MINOR] spanStart: data-property added
+- + [MINOR] spanUnit: data-property added
+- + [MINOR] subjectReference: object-property added
+- ~ [PATCH] Assertion: comment: updated
 
 ### 1.0.0 (2026-09-17T12:02:35Z) - MAJOR
 
@@ -61,6 +107,21 @@ Commit: `4227a35`
 - Initial baseline release.
 
 ## identity
+
+### 1.0.0 (2026-11-12T07:35:04Z) - MAJOR
+
+Commit: `bff8a29`
+
+- + [MINOR] Identifier: class added
+- + [MINOR] identifierScheme: data-property added
+- + [MINOR] identifierValue: data-property added
+- + [MINOR] identifies: object-property added
+- + [MINOR] referenceText: data-property added
+- ~ [MAJOR] UnresolvedReference: comment: updated; parents removed: ['https://damminhtien.github.io/ontology-research/ontology/core#Entity']
+
+#### Migration
+
+Make identity:UnresolvedReference disjoint with and separate from core:Entity; introduce identity:Identifier as a first-class information object. Historical unresolved placeholders must not be typed as world entities.
 
 ### 0.1.0 (2026-09-12T11:22:11Z) - NONE
 

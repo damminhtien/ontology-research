@@ -1,0 +1,16 @@
+{
+  "id": "CQ-031",
+  "group": "Q1",
+  "slo_p95_ms": 50,
+  "query_file": "q25_pending_identity.rq",
+  "variables": [
+    "referenceText",
+    "typeName"
+  ],
+  "rows": [
+    [
+      "Ghost Vessel",
+      "Unresolved reference"
+    ]
+  ]
+}

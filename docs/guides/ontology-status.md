@@ -1,4 +1,4 @@
-# Ontology status & evaluation (2026-11-11)
+# Ontology status & evaluation (2026-11-12)
 
 Báo cáo đánh giá định kỳ của ontology — nguồn số liệu: `tools/manage_ontology.py
 stats / stability / blast-radius / report`, audit usage chạy trên toàn bộ
@@ -6,37 +6,41 @@ stats / stability / blast-radius / report`, audit usage chạy trên toàn bộ
 Chạy `make quality` để lấy số liệu mới về khai báo schema, focus node của
 SHACL và kết quả CQ; xem [phương pháp đánh giá](ontology-quality.md).
 
-## 1. Inventory: 7 modules, 27 classes, 43 properties
+## 1. Inventory: 7 modules, 28 classes, 68 properties
 
 | Module | Lớp | Classes | Obj-props | Data-props | Dùng bởi production code |
 |--------|-----|--------:|----------:|-----------:|--------------------------|
-| core | 0 | 20 | 24 | 9 | mọi module (kernel) |
-| middle/assertion | 1 | 2 | 3 | 1 | `foundry/assertions.py`, `ingestion.py` |
-| middle/identity | 1 | 1 | 0 | 0 | `foundry/ingestion.py` (pending identity flow) |
-| middle/location | 1 | 2 | 0 | 0 | LocationAssertion (gate observation) |
+| core | 0 | 19 | 24 | 9 | mọi module (kernel) |
+| middle/assertion | 1 | 2 | 7 | 6 | `foundry/assertions.py`, `ingestion.py` |
+| middle/identity | 1 | 2 | 1 | 3 | `foundry/identity_rdf.py` (Identifier, unresolved references) |
+| middle/location | 1 | 2 | 0 | 0 | Country, AdministrativeRegion |
 | middle/organization | 1 | 0 | 1 | 0 | membership mapping (chưa có lane) |
-| domain/sensor | 2 | 1 | 2 | 0 | `foundry/tracking.py` (Phase 4) |
-| domain/tracking | 2 | 1 | 2 | 1 | `foundry/tracking.py`, `readmodel.py` (Phase 4) |
+| domain/sensor | 2 | 1 | 2 | 0 | `foundry/tracking.py` |
+| domain/tracking | 2 | 2 | 7 | 8 | `foundry/tracking.py`, `readmodel.py` |
 
 `middle/assertion` tách `Assertion` khỏi `core:Event` (nay ⊑
 `core:InformationObject` — `AssertionMade` mới là event) và có
-`assertion:predicate` (quan hệ dạng IRI) cùng `assertion:literalValue`.
-Inventory được đối chiếu bằng `tools/manage_ontology.py stats` ngày 2026-11-11.
+`assertion:predicate` (quan hệ dạng IRI), `assertion:literalValue`, correction
+links and evidence. Location facts use this same assertion class. The existing
+tracking module adds `ObservationResult` for sensor position and typed
+measurements; identity adds `Identifier` for scheme/value/entity links. No
+module or domain taxonomy was added. Inventory was checked with
+`tools/manage_ontology.py stats` on 2026-11-12.
 
 Namespace frozen (ADR-0008), freeze guards trong CI; SemVer registry +
 `check-versions` xanh. `tools/manage_ontology.py stability` hiện báo:
 
 | Module | Stability | Breaking / releases | Status |
 |---|---:|---:|---|
-| core | 0.5 | 1 / 2 | dưới ngưỡng 0.99 |
-| assertion | 0.5 | 1 / 2 | dưới ngưỡng 0.95 |
+| core | 0.3333 | 2 / 3 | dưới ngưỡng 0.99 |
+| assertion | 0.6667 | 1 / 3 | dưới ngưỡng 0.95 |
 | sensor | 1.0 | 0 / 1 | đạt ngưỡng |
-| tracking | 1.0 | 0 / 1 | đạt ngưỡng |
-| identity | 1.0 | 0 / 1 | đạt ngưỡng |
+| tracking | 1.0 | 0 / 2 | đạt ngưỡng |
+| identity | 0.5 | 1 / 2 | dưới ngưỡng 0.95 |
 | location | 1.0 | 0 / 1 | đạt ngưỡng |
 | organization | 1.0 | 0 / 1 | đạt ngưỡng |
 
-Hai module dưới ngưỡng là cảnh báo governance được báo bởi công cụ; chạy lại
+Ba module dưới ngưỡng là cảnh báo governance được báo bởi công cụ; chạy lại
 `stability` sau mỗi release để cập nhật trạng thái.
 
 ## 2. Reserved terms và usage coverage
@@ -74,15 +78,16 @@ vào queries (0) — competency queries chỉ phụ thuộc class hierarchy, đ�
 
 | Shapes file | Target | Enforced ở |
 |---|---|---|
-| core_shapes.ttl | ObservationShape, LocationAssertionShape, NamedThingShape | pipeline gate + `make validate` |
-| domain_shapes.ttl | TrackShape, SensorShape | pipeline gate (tracking vertical) + `make validate` |
+| core_shapes.ttl | ObservationShape, NamedThingShape | pipeline gate + `make validate` |
+| domain_shapes.ttl | TrackShape, ObservationResultShape, SensorShape | pipeline gate (tracking vertical) + `make validate` |
 | assertion_shapes.ttl | AssertionShape, DocumentShape | pipeline gate (assertion lane) + `make validate` |
-| identity_shapes.ttl | UnresolvedReferenceShape | pipeline gate (pending) + `make validate` |
+| identity_shapes.ttl | UnresolvedReferenceShape, IdentifierShape | pipeline gate (pending/identity) + `make validate` |
 
-SHACL contracts được kiểm tra trong `make check`. Trong corpus benchmark hiện
-tại, 5/8 shape có focus node; `AssertionShape`, `DocumentShape` và
-`UnresolvedReferenceShape` cần thêm dữ liệu đại diện vào corpus chung.
-10 CQ bắt buộc khớp đáp án, 6 câu là backlog
+SHACL contracts được kiểm tra trong `make check`. Snapshot 2026-11-12 có 9/9
+shape target theo class với focus node và corpus conform; unit regressions cũng
+kiểm tra assertion, document, unresolved reference, identifier và observation
+result. Có 41 competency queries bắt buộc, chạy được trên workload cố định;
+các câu ngoài workload hiện tại đã được gỡ khỏi contract
 (xem [Competency Questions](../generated/competency_questions.md)).
 
 ## 5. Gaps & hành động
@@ -91,7 +96,7 @@ tại, 5/8 shape có focus node; `AssertionShape`, `DocumentShape` và
    lane chưa có data source; giữ nguyên tới khi Phase 7 VN profile cần.
 2. **Reserved terms (21)** — đánh dấu trong report này thay vì xoá; reviewed
    lại mỗi Phase 6/7 milestone.
-3. **`core:externalId` unused** — external ids vận hành qua event payload
-   (`external_ids`/`ExternalIdBound`), không qua RDF graph; chấp nhận (khoản
-   chênh giữa write model RDF mapping và event payload), reviewed nếu cần
-   query external ids qua SPARQL.
+3. **`core:externalId` remains unused** — source-scoped values are represented
+   as `identity:Identifier` resources instead of a flat entity literal, and
+   mapped to RDF from `EntityCreated`/`ExternalIdBound`. Keep the reserved core
+   mirror unchanged until an explicit compatibility decision.

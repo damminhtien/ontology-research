@@ -9,53 +9,22 @@
     "count"
   ],
   "rows": [
-    [
-      "Administrative Region",
-      2
-    ],
-    [
-      "Country",
-      1
-    ],
-    [
-      "Location",
-      5
-    ],
-    [
-      "Location Assertion",
-      2
-    ],
-    [
-      "Observation",
-      3
-    ],
-    [
-      "Organization",
-      2
-    ],
-    [
-      "Person",
-      1
-    ],
-    [
-      "Platform",
-      2
-    ],
-    [
-      "Role",
-      1
-    ],
-    [
-      "Sensor",
-      1
-    ],
-    [
-      "Source",
-      3
-    ],
-    [
-      "Track",
-      1
-    ]
+    ["Administrative Region", 3],
+    ["Assertion", 11],
+    ["Country", 1],
+    ["Document", 1],
+    ["Event", 1],
+    ["Identifier", 4],
+    ["Location", 8],
+    ["Observation", 6],
+    ["Observation result", 6],
+    ["Organization", 4],
+    ["Person", 2],
+    ["Platform", 3],
+    ["Role", 1],
+    ["Sensor", 3],
+    ["Source", 8],
+    ["Track", 2],
+    ["Unresolved reference", 1]
   ]
 }

@@ -1,0 +1,29 @@
+{
+  "id": "CQ-030",
+  "group": "Q5",
+  "slo_p95_ms": 500,
+  "query_file": "q24_source_fact_interval.rq",
+  "variables": [
+    "assertion",
+    "from"
+  ],
+  "rows": [
+    [
+      "https://data.example/entity/assert-17-period-2",
+      "2026-08-10T00:00:00Z"
+    ]
+  ],
+  "bindings": {
+    "source": {
+      "iri": "https://data.example/source/ais-2026-08-01"
+    },
+    "start": {
+      "literal": "2026-08-01T00:00:00Z",
+      "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "end": {
+      "literal": "2026-08-21T00:00:00Z",
+      "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    }
+  }
+}

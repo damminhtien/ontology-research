@@ -18,7 +18,7 @@ không phải toàn bộ dự án.
 ## Kiến trúc một màn hình
 
 ```text
-4 DATA LANES ──► IDENTITY + SHACL GATE ──► EVENT LOG (12 types, append-only)
+4 DATA LANES ──► IDENTITY + SHACL GATE ──► EVENT LOG (schema v4, 11 types)
   reference (Wikidata, cursor-paged Parquet lane)        │
   tracking (AIS feed → sensor/observation/track)         ├─► read model (CQRS,
   documents (extraction — LLM chỉ đề xuất)               │     checkpointed, Console)
@@ -35,7 +35,7 @@ identity resolution + SHACL gate trước khi chạm log.
 roadmap.md                     # Kế hoạch + snapshot đồng bộ mã nguồn
 VERSION + CHANGELOG-DATA.md    # Phiên bản hợp đồng dữ liệu (không hardcode trong code)
 requirements/                  # Engineering contract (CQ, SLO, scale targets)
-ontology/                      # 7 modules: core (20/33) + middle + domain (27 classes)
+ontology/                      # 7 modules: core (19/33) + middle + domain (28 classes total)
 shapes/                        # 4 SHACL shape files (core/domain/assertion/identity)
 foundry/                       # Platform: events, identity, ingestion, lake,
                                #   projector, readmodel, assertions, extraction,
@@ -45,7 +45,7 @@ tools/                         # 18 CLI scripts: validate, DAG, manage_ontology,
                                #   ingest_wikidata/tracking_feed, build_reference_lane,
                                #   merge/split/backfill/import_events, check_slo…
 registry/                      # Ontology release registry (SemVer enforcement)
-benchmarks/                    # 10 implemented competency queries + baselines + e2e gate
+benchmarks/                    # 41 executable competency queries + expected results + SLO/e2e gates
 tests/                         # pytest suite (kernel, SHACL, CQ, lanes, corrections)
 docs/                          # ADRs 0001-0010, architecture, workflows, tutorials
 ```
@@ -83,7 +83,7 @@ Chi tiết cả 4 lanes + correction workflows:
 
 1. **Never make the operational query path pay for semantic complexity it does not need.**
 2. Benchmark → Data pipeline → Query → Ontology richness (không ngược lại).
-3. Kernel nhỏ (core 20 classes); domain concepts không bao giờ vào core.
+3. Kernel nhỏ (core 19 classes); domain concepts không bao giờ vào core.
 4. SHACL là contract: CI fail khi dữ liệu vi phạm — kể cả dữ liệu từ LLM.
 5. Dependency DAG `core ← middle ← domain`; ngược chiều/circular → CI fail.
 6. Log append-only: corrections là event mới; precision-first identity —

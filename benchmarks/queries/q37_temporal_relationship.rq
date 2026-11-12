@@ -1,0 +1,15 @@
+# CQ-047: Retrieve a generic relationship's changing valid-time history.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#>
+
+SELECT ?organizationName ?from ?until WHERE {
+  ?claim a assertion:Assertion ;
+      core:describes ?member ;
+      assertion:predicate core:memberOf ;
+      assertion:hasObject ?organization ;
+      core:validFrom ?from .
+  OPTIONAL { ?claim core:validUntil ?until . }
+  ?organization core:name ?organizationName .
+  FILTER (?member = ?person)
+}
+ORDER BY ?from

@@ -18,6 +18,7 @@
 ex:loc-vietnam a location:Country .
 ex:loc-khanh-hoa a location:AdministrativeRegion .
 ex:loc-cam-ranh a location:AdministrativeRegion .
+ex:loc-vungtau a location:AdministrativeRegion .
 
 # ---- Organization hierarchy -------------------------------------------------
 ex:org-cg-region4 organization:subordinateTo ex:org-maritime-hq .
@@ -29,13 +30,39 @@ ex:radar-01 a sensor:Sensor ;
 
 # Physical detection links (complement core:hasSource provenance)
 ex:obs-001 sensor:detectedBy ex:radar-01 .
+ex:result-001 a tracking:ObservationResult ;
+    tracking:resultOf ex:obs-001 ;
+    tracking:position ex:loc-cam-ranh ;
+    tracking:measurement [
+        tracking:measurementName "speed" ;
+        tracking:measurementValue "12.4"^^xsd:decimal ;
+        tracking:measurementUnit "kn"
+    ] ;
+    core:hasConfidence "0.92"^^xsd:decimal .
+
+ex:result-002 a tracking:ObservationResult ;
+    tracking:resultOf ex:obs-002 ;
+    tracking:position ex:loc-hanoi ;
+    tracking:measurement [
+        tracking:measurementName "quality" ;
+        tracking:measurementValue "0.85"^^xsd:decimal
+    ] ;
+    core:hasConfidence "0.85"^^xsd:decimal .
 
 ex:obs-003 a core:Observation ;
     core:observes ex:patrol-01 ;
     core:atTime "2026-08-20T05:15:00Z"^^xsd:dateTime ;
     core:hasSource src:ais-feed ;
-    core:hasConfidence "0.90"^^xsd:decimal ;
     sensor:detectedBy ex:radar-01 .
+ex:result-003 a tracking:ObservationResult ;
+    tracking:resultOf ex:obs-003 ;
+    tracking:position ex:loc-vungtau ;
+    tracking:measurement [
+        tracking:measurementName "heading" ;
+        tracking:measurementValue "184.5"^^xsd:decimal;
+        tracking:measurementUnit "degree"
+    ] ;
+    core:hasConfidence "0.90"^^xsd:decimal .
 
 # ---- Track (derived information product, ADR-0005) ---------------------------
 ex:track-t101 a tracking:Track ;

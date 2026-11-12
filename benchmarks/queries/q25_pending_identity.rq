@@ -1,0 +1,12 @@
+# CQ-031: An unresolved subject remains a reference, never a world entity.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX identity: <https://damminhtien.github.io/ontology-research/ontology/middle/identity#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#>
+
+SELECT ?referenceText ?typeName WHERE {
+  ?assertion assertion:subjectReference ?reference .
+  ?reference a identity:UnresolvedReference ; identity:referenceText ?referenceText .
+  identity:UnresolvedReference rdfs:label ?typeName .
+  FILTER NOT EXISTS { ?reference a core:Entity . }
+}

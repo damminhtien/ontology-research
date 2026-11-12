@@ -56,7 +56,7 @@ cat data/events.jsonl | .venv/bin/python -m json.tool --json-lines | head -20
 ```
 
 Mỗi dòng là một JSON object: `event_id`, `event_type` (ví dụ `EntityCreated`,
-`LocationObserved`, `ResolutionReviewQueued`), `schema_version`, `occurred_at`
+`AssertionMade`, `ObservationRecorded`, `ResolutionReviewQueued`), `schema_version`, `occurred_at`
 (record-time), `valid_at` (valid-time, `null` = trùng record-time), `sequence`
 (vị trí 1-based trong log), `payload`. Đây là **write model** — canonical truth
 của hệ thống. Contract chi
@@ -117,17 +117,19 @@ bị reject. Chi tiết: [ADR-0007](../adr/ADR-0007-under-merge-repair-via-appen
 Toàn bộ các luồng sửa dữ liệu + data lanes gom ở
 [Workflows guide](../guides/workflows.md).
 
-## Bước 6 — Observation về entity chưa mint (pending)
+## Bước 6 — Assertion về entity chưa mint (pending)
 
-Reference nói về một entity chưa tồn tại trong registry? Observation **không
-bị reject** nữa — nó được ghi verbatim với placeholder `urn:world:pending:*`
-(`identity:UnresolvedReference`), và read model **tự nối** vào entity ngay khi
-entity đó được mint (khớp tên hoặc alias):
+Một location assertion từ nguồn nói về entity chưa tồn tại trong registry vẫn
+được lưu với `identity:UnresolvedReference` riêng, không mint một entity giả.
+Read model chỉ liên kết assertion khi tên hoặc alias resolve tới đúng một
+canonical entity; nếu có nhiều ứng viên thì reference vẫn pending/ambiguous:
 
 ```python
-pending = pipeline.ingest_location_observation(...)  # subject chưa có → accepted, pending=True
+pending = pipeline.ingest_location_observation(
+    ...
+)  # subject chưa có → AssertionMade với subject_ref
 created = pipeline.ingest_entity(name=...)  # mint sau
-# → pending observation đã nằm trong current_location của entity
+# → liên kết khi identity duy nhất; nếu tên mơ hồ thì vẫn pending
 ```
 
 Ambiguity thật (một tên, hai entity cùng loại) vẫn vào review queue. Chi tiết:
@@ -138,9 +140,15 @@ Ambiguity thật (một tên, hai entity cùng loại) vẫn vào review queue. 
 | Lane | Đầu vào | Công cụ | Event types |
 |------|---------|---------|-------------|
 | Reference (Wikidata) | SPARQL / Parquet snapshot | `build_reference_lane.py` → `ingest_wikidata.py --from-lane` | `EntityCreated`, `ExternalIdBound` |
-| Tracking (AIS feed) | JSONL sensor feed | `ingest_tracking_feed.py` | `SensorRegistered`, `ObservationRecorded`, `TrackObserved` |
+| Tracking (AIS feed) | JSONL sensor feed (`position_uri`, typed `measurements`) | `ingest_tracking_feed.py` | `SensorRegistered`, `ObservationRecorded` → `ObservationResult`, `TrackObserved` |
 | Documents (văn bản) | Báo cáo/tin — extractor *đề xuất* | `pipeline.ingest_document(...)` | `DocumentRegistered`, `AssertionMade` |
-| Corrections | Human decision | merge/split/backfill/import CLI | `EntityMerged`, `EntitySplit`, `ExternalIdBound`, `ResolutionReviewQueued` |
+| Corrections | Human decision | merge/split/backfill/import CLI | `EntityMerged`, `EntitySplit`, `ExternalIdBound`, `ResolutionReviewQueued`, `AssertionSuperseded` |
+
+Tracking writes the observation act as `core:Observation` and its reported
+position, typed measurement values, units and evidence as a separate
+`tracking:ObservationResult`. Position is sensor output; it does not itself
+assert `core:locatedAt`. Source IDs and inline evidence use the same normalized
+provenance model as assertions.
 
 Document lane theo nguyên tắc *"LLM chỉ đề xuất; semantic system quyết định"*:
 `PatternExtractor` (deterministic VI/EN, không cần LLM) làm mặc định,
@@ -159,14 +167,15 @@ Mở tab **Data Monitor** tại <http://127.0.0.1:8787/#/monitor>:
 - Event log stats: số lượng và event types được seed vào `data/events.jsonl`
 - SHACL validation gate: kết quả trên các ontology modules và benchmark datasets
   so với toàn bộ shape files
-- Competency queries: 10 implemented queries, trạng thái pass/fail từng câu
+- Competency queries: 41 executable queries, trạng thái pass/fail từng câu
 
 Tab **Dashboard** có card "Events logged" hiển thị cùng số liệu.
 
 ## Bài tập
 
-1. Thêm một `LocationObserved` hợp lệ cho Patrol Vessel 01 vào code seed, chạy lại
-   `--force`, rồi mở Console xem `with_location` tăng lên.
+1. Thêm một location assertion hợp lệ cho Patrol Vessel 01 qua pipeline, chạy lại
+   `--force`, rồi mở Console xem location projection được cập nhật. Event mới
+   phải là `AssertionMade` với predicate `core:locatedAt`.
 2. Thử ingest một observation với `confidence=1.5`. Điều gì xảy ra và ở lớp nào
    (pipeline hay SHACL)?
 

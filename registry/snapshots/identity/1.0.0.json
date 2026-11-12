@@ -1,0 +1,47 @@
+{
+  "date": "2026-11-12T07:35:04Z",
+  "file": "ontology/middle/identity.ttl",
+  "module_iri": "https://damminhtien.github.io/ontology-research/ontology/middle/identity",
+  "snapshot_version": 1,
+  "terms": {
+    "https://damminhtien.github.io/ontology-research/ontology/middle/identity#Identifier": {
+      "comment": "A first-class identifier value and issuing scheme that identifies one canonical entity.",
+      "kind": "class",
+      "label": "Identifier",
+      "parents": [
+        "https://damminhtien.github.io/ontology-research/ontology/core#InformationObject"
+      ]
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/identity#UnresolvedReference": {
+      "comment": "A source reference whose canonical world identity is not known. It is not a core:Entity and cannot satisfy a world-entity property range. The projector links assertions carrying the same reference ID only when one canonical identity is unambiguous.",
+      "kind": "class",
+      "label": "Unresolved reference",
+      "parents": []
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/identity#identifierScheme": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/identity#Identifier",
+      "kind": "data-property",
+      "label": "identifier scheme",
+      "range": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/identity#identifierValue": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/identity#Identifier",
+      "kind": "data-property",
+      "label": "identifier value",
+      "range": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/identity#identifies": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/identity#Identifier",
+      "kind": "object-property",
+      "label": "identifies",
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/identity#referenceText": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/identity#UnresolvedReference",
+      "kind": "data-property",
+      "label": "reference text",
+      "range": "http://www.w3.org/2001/XMLSchema#string"
+    }
+  },
+  "version": "1.0.0"
+}

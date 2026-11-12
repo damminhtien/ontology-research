@@ -123,7 +123,7 @@ class TestObservationIngestion:
         )
         assert result.accepted, result.reason
         events = pipeline._log.read_all()
-        assert [e.event_type for e in events] == ["EntityCreated", "LocationObserved"]
+        assert [e.event_type for e in events] == ["EntityCreated", "AssertionMade"]
 
     def test_observation_for_unknown_entity_is_accepted_pending(self, pipeline):
         result = pipeline.ingest_location_observation(
@@ -133,13 +133,13 @@ class TestObservationIngestion:
             valid_from="2026-08-20T03:00:00Z",
             source_ids=[SOURCE_URI],
         )
-        # D12/§4.7: unresolved references are recorded as pending observations,
+        # D12/§4.7: unresolved references are recorded as pending assertions,
         # not rejected — they link up when the entity is minted later
         assert result.accepted and result.pending
-        assert result.event.event_type == "LocationObserved"
-        assert result.event.payload["entity_id"] == ""
-        assert result.event.payload["entity_ref"] == "Ghost Vessel"
-        assert [e.event_type for e in pipeline._log.read_all()] == ["LocationObserved"]
+        assert result.event.event_type == "AssertionMade"
+        assert result.event.payload["subject_id"] == ""
+        assert result.event.payload["subject_ref"]["surface_form"] == "Ghost Vessel"
+        assert [e.event_type for e in pipeline._log.read_all()] == ["AssertionMade"]
 
     def test_observation_missing_source_fails_shacl_gate(self, pipeline):
         self.ingest_platform(pipeline)

@@ -1,0 +1,13 @@
+# CQ-030: Find active facts sourced from S whose valid start is in [start,end).
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#>
+
+SELECT ?assertion ?from WHERE {
+  ?assertion a assertion:Assertion ;
+      core:hasSource ?source ;
+      core:validFrom ?from .
+  FILTER (?from >= ?start && ?from < ?end)
+  FILTER NOT EXISTS { ?correction assertion:supersedes ?assertion . }
+  FILTER NOT EXISTS { ?retraction assertion:retracts ?assertion . }
+}
+ORDER BY ?from

@@ -12,7 +12,7 @@ không phải toàn bộ dự án. Nguyên tắc xuyên suốt:
 
 | Lớp | Thành phần | Điểm vào |
 |-----|------------|----------|
-| **Ontology kernel** | 7 modules / 27 classes / 43 properties, SHACL contracts, usage-tracked | `ontology/` · [Ontology status](guides/ontology-status.md) |
+| **Ontology kernel** | 7 modules / 28 classes / 68 properties, SHACL contracts, usage-tracked | `ontology/` · [Ontology status](guides/ontology-status.md) |
 | **Ingestion** | Append-only event log, identity resolution precision-first, SHACL gate | `foundry/` |
 | **Read model** | CQRS projector + query latency benchmark với SLO gate | `foundry/projector.py` |
 | **Governance** | SemVer registry, migration gate cho MAJOR, blast radius, stability | `registry/` |
@@ -57,10 +57,10 @@ Nếu gặp lỗi, bắt đầu với [Tutorial 01 — Getting started](tutorial
 ```text
 ontology/core/      # semantic kernel (Turtle + RDFS), namespace frozen (ADR-0008)
 shapes/             # SHACL contracts
-foundry/            # platform: events (schema v3), identity, ingestion, projector, lake, console
+foundry/            # platform: events (schema v4), identity, ingestion, projector, lake, console
 tools/              # CLI: validate, DAG check, manage_ontology, benchmark, check_slo,
                     #      ingest_wikidata, merge_entities, backfill_external_ids
 registry/           # release registry (SemVer enforcement)
-benchmarks/         # 10 implemented competency queries + expected results + SLO baselines
+benchmarks/         # 41 executable competency queries + expected results + SLO baselines
 docs/               # bộ tài liệu này
 ```

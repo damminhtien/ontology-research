@@ -1,0 +1,103 @@
+{
+  "date": "2026-11-12T07:35:04Z",
+  "file": "ontology/middle/assertion.ttl",
+  "module_iri": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion",
+  "snapshot_version": 1,
+  "terms": {
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion": {
+      "comment": "One reified statement about the world — a derived information object, never an event. core:describes names a resolved subject; assertion:subjectReference names a pending noncanonical subject. assertion:predicate names the relation IRI, the object is an entity or location (assertion:hasObject) or a literal (assertion:literalValue), core:validFrom/core:validUntil carry half-open valid time, core:hasSource cites Sources, and assertion:evidence carries inline source locators.",
+      "kind": "class",
+      "label": "Assertion",
+      "parents": [
+        "https://damminhtien.github.io/ontology-research/ontology/core#InformationObject"
+      ]
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Document": {
+      "comment": "A provenance source document (report, record, crawl). Assertions cite documents via core:hasSource.",
+      "kind": "class",
+      "label": "Document",
+      "parents": [
+        "https://damminhtien.github.io/ontology-research/ontology/core#Source"
+      ]
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#evidence": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion",
+      "kind": "object-property",
+      "label": "evidence reference",
+      "range": "http://www.w3.org/2000/01/rdf-schema#Resource"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#evidenceSource": {
+      "domain": "http://www.w3.org/2000/01/rdf-schema#Resource",
+      "kind": "object-property",
+      "label": "evidence source",
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Source"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#hasObject": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion",
+      "kind": "object-property",
+      "label": "has object",
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#literalValue": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion",
+      "kind": "data-property",
+      "label": "literal value",
+      "range": "http://www.w3.org/2000/01/rdf-schema#Literal"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#locator": {
+      "domain": "http://www.w3.org/2000/01/rdf-schema#Resource",
+      "kind": "data-property",
+      "label": "source locator",
+      "range": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#predicate": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion",
+      "kind": "object-property",
+      "label": "predicate",
+      "range": "http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#retractionReason": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Event",
+      "kind": "data-property",
+      "label": "retraction reason",
+      "range": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#retracts": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/core#Event",
+      "kind": "object-property",
+      "label": "retracts",
+      "range": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#spanEnd": {
+      "domain": "http://www.w3.org/2000/01/rdf-schema#Resource",
+      "kind": "data-property",
+      "label": "span end",
+      "range": "http://www.w3.org/2001/XMLSchema#integer"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#spanStart": {
+      "domain": "http://www.w3.org/2000/01/rdf-schema#Resource",
+      "kind": "data-property",
+      "label": "span start",
+      "range": "http://www.w3.org/2001/XMLSchema#integer"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#spanUnit": {
+      "domain": "http://www.w3.org/2000/01/rdf-schema#Resource",
+      "kind": "data-property",
+      "label": "span unit",
+      "range": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#subjectReference": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion",
+      "kind": "object-property",
+      "label": "subject reference",
+      "range": "https://damminhtien.github.io/ontology-research/ontology/middle/identity#UnresolvedReference"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#supersedes": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion",
+      "kind": "object-property",
+      "label": "supersedes",
+      "range": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion#Assertion"
+    }
+  },
+  "version": "1.1.0"
+}

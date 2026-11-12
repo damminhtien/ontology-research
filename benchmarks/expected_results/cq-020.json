@@ -1,0 +1,23 @@
+{
+  "id": "CQ-020",
+  "group": "Q4",
+  "slo_p95_ms": 500,
+  "query_file": "q18_temporal_asof.rq",
+  "variables": [
+    "placeName"
+  ],
+  "rows": [
+    [
+      "Vung Tau"
+    ]
+  ],
+  "bindings": {
+    "entity": {
+      "iri": "https://data.example/entity/patrol-03"
+    },
+    "instant": {
+      "literal": "2026-08-10T00:00:00Z",
+      "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    }
+  }
+}

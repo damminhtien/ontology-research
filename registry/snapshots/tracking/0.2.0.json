@@ -1,0 +1,115 @@
+{
+  "date": "2026-11-12T07:35:04Z",
+  "file": "ontology/domain/tracking.ttl",
+  "module_iri": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking",
+  "snapshot_version": 1,
+  "terms": {
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#ObservationResult": {
+      "comment": "Position and typed measurements reported by one observation event. A result records sensor output and does not itself assert a world fact.",
+      "kind": "class",
+      "label": "Observation result",
+      "parents": [
+        "https://damminhtien.github.io/ontology-research/ontology/core#InformationObject"
+      ]
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#Track": {
+      "comment": "Derived hypothesis correlating observations about one entity over time. Not an Event (ADR-0005).",
+      "kind": "class",
+      "label": "Track",
+      "parents": [
+        "https://damminhtien.github.io/ontology-research/ontology/core#InformationObject"
+      ]
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#derivedFrom": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#Track",
+      "kind": "object-property",
+      "label": "derived from",
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Observation"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#evidence": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#ObservationResult",
+      "kind": "object-property",
+      "label": "evidence reference",
+      "range": "http://www.w3.org/2000/01/rdf-schema#Resource"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#evidenceSource": {
+      "domain": "http://www.w3.org/2000/01/rdf-schema#Resource",
+      "kind": "object-property",
+      "label": "evidence source",
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Source"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#hasTrackId": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#Track",
+      "kind": "data-property",
+      "label": "has track id",
+      "range": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#locator": {
+      "domain": "http://www.w3.org/2000/01/rdf-schema#Resource",
+      "kind": "data-property",
+      "label": "source locator",
+      "range": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#measurement": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#ObservationResult",
+      "kind": "object-property",
+      "label": "measurement result",
+      "range": "http://www.w3.org/2000/01/rdf-schema#Resource"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#measurementName": {
+      "domain": "http://www.w3.org/2000/01/rdf-schema#Resource",
+      "kind": "data-property",
+      "label": "measurement name",
+      "range": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#measurementUnit": {
+      "domain": "http://www.w3.org/2000/01/rdf-schema#Resource",
+      "kind": "data-property",
+      "label": "measurement unit",
+      "range": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#measurementValue": {
+      "domain": "http://www.w3.org/2000/01/rdf-schema#Resource",
+      "kind": "data-property",
+      "label": "measurement value",
+      "range": "http://www.w3.org/2000/01/rdf-schema#Literal"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#position": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#ObservationResult",
+      "kind": "object-property",
+      "label": "measured position",
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Location"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#resultOf": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#ObservationResult",
+      "kind": "object-property",
+      "label": "result of observation",
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Observation"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#spanEnd": {
+      "domain": "http://www.w3.org/2000/01/rdf-schema#Resource",
+      "kind": "data-property",
+      "label": "span end",
+      "range": "http://www.w3.org/2001/XMLSchema#integer"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#spanStart": {
+      "domain": "http://www.w3.org/2000/01/rdf-schema#Resource",
+      "kind": "data-property",
+      "label": "span start",
+      "range": "http://www.w3.org/2001/XMLSchema#integer"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#spanUnit": {
+      "domain": "http://www.w3.org/2000/01/rdf-schema#Resource",
+      "kind": "data-property",
+      "label": "span unit",
+      "range": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#trackOf": {
+      "domain": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#Track",
+      "kind": "object-property",
+      "label": "track of",
+      "range": "https://damminhtien.github.io/ontology-research/ontology/core#Entity"
+    }
+  },
+  "version": "0.2.0"
+}

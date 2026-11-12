@@ -1,0 +1,12 @@
+# CQ-039: Follow a track through observations to their result positions in time order.
+PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+PREFIX tracking: <https://damminhtien.github.io/ontology-research/ontology/domain/tracking#>
+
+SELECT ?atTime ?positionName WHERE {
+  ?track tracking:hasTrackId ?trackId ; tracking:derivedFrom ?observation .
+  ?observation core:atTime ?atTime .
+  ?result tracking:resultOf ?observation ; tracking:position ?position .
+  ?position core:name ?positionName .
+  FILTER (?trackId = ?wantedTrackId)
+}
+ORDER BY ?atTime
