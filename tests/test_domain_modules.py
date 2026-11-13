@@ -105,7 +105,7 @@ class TestDomainModules:
                 iri
                 == f"https://damminhtien.github.io/ontology-research/ontology/domain/{iri_suffix}"
             )
-            assert version == ("0.1.0" if iri_suffix == "sensor" else "0.2.0")
+            assert version == ("0.1.0" if iri_suffix == "sensor" else "1.0.0")
 
     def test_sensor_closure_reaches_entity(self):
         graph = load_module(DOMAIN["sensor"])

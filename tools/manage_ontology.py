@@ -35,6 +35,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from ontology_utils import (
     describe_classes,
@@ -44,7 +45,7 @@ from ontology_utils import (
     local_name,
 )
 from rdflib import RDF, Graph, URIRef
-from rdflib.namespace import OWL
+from rdflib.namespace import OWL, RDFS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -61,12 +62,34 @@ REGISTRY_DIRNAME = "registry"
 MIGRATIONS_DIRNAME = "migrations"
 ALIGNMENTS_FILENAME = "alignments.json"
 ALIGNMENT_RELATIONS = (
+    "subClassOf",
+    "equivalentClass",
+    "sameAs",
     "exactMatch",
     "closeMatch",
     "broadMatch",
     "narrowMatch",
     "relatedMatch",
 )
+ALIGNMENT_MODES = ("reference", "export")
+ALIGNMENT_TERM_KINDS = (
+    "class",
+    "object_property",
+    "datatype_property",
+    "annotation_property",
+    "individual",
+    "skos_concept",
+)
+_ALIGNMENT_PREDICATES = {
+    "subClassOf": str(RDFS.subClassOf),
+    "equivalentClass": str(OWL.equivalentClass),
+    "sameAs": str(OWL.sameAs),
+    "exactMatch": "http://www.w3.org/2004/02/skos/core#exactMatch",
+    "closeMatch": "http://www.w3.org/2004/02/skos/core#closeMatch",
+    "broadMatch": "http://www.w3.org/2004/02/skos/core#broadMatch",
+    "narrowMatch": "http://www.w3.org/2004/02/skos/core#narrowMatch",
+    "relatedMatch": "http://www.w3.org/2004/02/skos/core#relatedMatch",
+}
 RELEASES_FILE = "releases.json"
 SNAPSHOT_VERSION = 1
 STABILITY_THRESHOLD_CORE = 0.99
@@ -1177,6 +1200,26 @@ def collect_defined_term_iris(module_paths: list[Path]) -> set[str]:
     return iris
 
 
+def collect_defined_term_kinds(module_paths: list[Path]) -> dict[str, set[str]]:
+    """Return declared semantic kinds for each local class, property or individual."""
+    type_kinds = {
+        OWL.Class: "class",
+        OWL.ObjectProperty: "object_property",
+        OWL.DatatypeProperty: "datatype_property",
+        OWL.AnnotationProperty: "annotation_property",
+        OWL.NamedIndividual: "individual",
+    }
+    kinds: dict[str, set[str]] = {}
+    for path in module_paths:
+        graph = load_graph(path)
+        for rdf_type, kind in type_kinds.items():
+            for term in graph.subjects(RDF.type, rdf_type):
+                kinds.setdefault(str(term), set()).add(kind)
+        for term in graph.subjects(RDF.type, URIRef("http://www.w3.org/2004/02/skos/core#Concept")):
+            kinds.setdefault(str(term), set()).add("skos_concept")
+    return kinds
+
+
 def alignments_file(repo_root: Path | None = None) -> Path:
     base = repo_root if repo_root is not None else REPO_ROOT
     return base / REGISTRY_DIRNAME / ALIGNMENTS_FILENAME
@@ -1186,37 +1229,171 @@ def load_alignments(path: Path) -> list[dict]:
     if not path.exists():
         return []
     document = json.loads(path.read_text(encoding="utf-8"))
-    return list(document.get("alignments", []))
+    if not isinstance(document, dict) or document.get("version") != 2:
+        raise ValueError(f"{path} must use alignment registry version 2")
+    alignments = document.get("alignments")
+    if not isinstance(alignments, list):
+        raise ValueError(f"{path} must contain an alignments list")
+    return alignments
 
 
 def save_alignments(path: Path, alignments: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps({"version": 1, "alignments": alignments}, indent=2) + "\n",
+        json.dumps({"version": 2, "alignments": alignments}, indent=2) + "\n",
         encoding="utf-8",
     )
 
 
-def cmd_align_add(args: argparse.Namespace) -> int:
-    """Record one semantic alignment; source term must exist in the modules."""
-    path = alignments_file()
-    alignments = load_alignments(path)
-    key = (args.source, args.target, args.relation)
-    if any((a["source"], a["target"], a["relation"]) == key for a in alignments):
-        print(f"[error] alignment already recorded: {args.source} {args.relation} {args.target}")
-        return 1
-    if args.source not in collect_defined_term_iris(find_module_files()):
-        print(f"[error] source term is not defined in any module: {args.source}")
-        return 1
-    alignments.append(
-        {
-            "source": args.source,
-            "target": args.target,
-            "relation": args.relation,
-            "note": args.note,
-            "added": utc_now_iso(),
+def _is_absolute_iri(value: object) -> bool:
+    """Check an absolute IRI lexical form without resolving it over the network."""
+    if not isinstance(value, str) or not value or any(char.isspace() for char in value):
+        return False
+    try:
+        return bool(urlsplit(value).scheme)
+    except ValueError:
+        return False
+
+
+def validate_alignments(alignments: list[dict], term_kinds: dict[str, set[str]]) -> list[str]:
+    """Validate registry shape, local source kinds, and RDF export semantics."""
+    errors: list[str] = []
+    seen: set[tuple[str, str, str]] = set()
+    for index, alignment in enumerate(alignments):
+        label = f"alignment[{index}]"
+        if not isinstance(alignment, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        required = {
+            "source",
+            "target",
+            "relation",
+            "mode",
+            "source_type",
+            "target_type",
+            "note",
+            "added",
         }
-    )
+        missing = sorted(required - alignment.keys())
+        if missing:
+            errors.append(f"{label} missing fields: {', '.join(missing)}")
+            continue
+        allowed = required | {"predicate", "evidence", "verified_identity"}
+        unknown = sorted(alignment.keys() - allowed)
+        if unknown:
+            errors.append(f"{label} has unknown fields: {', '.join(unknown)}")
+        source = alignment["source"]
+        target = alignment["target"]
+        relation = alignment["relation"]
+        mode = alignment["mode"]
+        predicate = alignment.get("predicate")
+        if not _is_absolute_iri(source):
+            errors.append(f"{label} source must be an absolute IRI")
+        if not _is_absolute_iri(target):
+            errors.append(f"{label} target must be an absolute IRI")
+        if not isinstance(relation, str) or relation not in ALIGNMENT_RELATIONS:
+            errors.append(f"{label} has unknown relation {relation!r}")
+        if not isinstance(mode, str) or mode not in ALIGNMENT_MODES:
+            errors.append(f"{label} has unknown mode {mode!r}")
+        source_type = alignment["source_type"]
+        target_type = alignment["target_type"]
+        if not isinstance(source_type, str) or source_type not in ALIGNMENT_TERM_KINDS:
+            errors.append(f"{label} has invalid source_type {alignment['source_type']!r}")
+        if not isinstance(target_type, str) or target_type not in ALIGNMENT_TERM_KINDS:
+            errors.append(f"{label} has invalid target_type {alignment['target_type']!r}")
+        if not isinstance(alignment["note"], str):
+            errors.append(f"{label} note must be a string")
+        if not isinstance(alignment["added"], str):
+            errors.append(f"{label} added must be an ISO-8601 timestamp")
+        else:
+            try:
+                datetime.fromisoformat(alignment["added"].replace("Z", "+00:00"))
+            except ValueError:
+                errors.append(f"{label} added must be an ISO-8601 timestamp")
+        if isinstance(source, str):
+            actual_kinds = term_kinds.get(source, set())
+            if not actual_kinds:
+                errors.append(f"{label} source term no longer defined: {source}")
+            elif isinstance(source_type, str) and source_type not in actual_kinds:
+                errors.append(
+                    f"{label} source type {alignment['source_type']!r} does not match "
+                    f"declared kinds {sorted(actual_kinds)}"
+                )
+        if isinstance(target, str) and target in term_kinds:
+            target_kinds = term_kinds[target]
+            if isinstance(target_type, str) and target_type not in target_kinds:
+                errors.append(
+                    f"{label} target type {target_type!r} does not match "
+                    f"declared kinds {sorted(target_kinds)}"
+                )
+        key = tuple(map(repr, (source, target, relation)))
+        if key in seen:
+            errors.append(f"{label} duplicates an earlier source/target/relation mapping")
+        seen.add(key)
+
+        if mode == "reference":
+            if predicate is not None or "evidence" in alignment or "verified_identity" in alignment:
+                errors.append(f"{label} reference mappings cannot export RDF or include evidence")
+            continue
+        if mode != "export" or not isinstance(relation, str):
+            continue
+        if not _is_absolute_iri(predicate):
+            errors.append(f"{label} export mappings require an absolute predicate IRI")
+        elif relation in _ALIGNMENT_PREDICATES and predicate != _ALIGNMENT_PREDICATES[relation]:
+            errors.append(f"{label} predicate does not match relation {relation!r}")
+        if not _is_absolute_iri(alignment.get("evidence")):
+            errors.append(f"{label} export mappings require an absolute evidence IRI")
+        if relation in {"subClassOf", "equivalentClass"}:
+            if (source_type, target_type) != ("class", "class"):
+                errors.append(f"{label} class relations require class endpoints")
+        elif relation == "sameAs":
+            if (source_type, target_type) != ("individual", "individual"):
+                errors.append(f"{label} sameAs requires individual endpoints")
+            if alignment.get("verified_identity") is not True:
+                errors.append(f"{label} sameAs requires verified_identity=true")
+        elif "verified_identity" in alignment:
+            errors.append(f"{label} verified_identity is only valid for sameAs mappings")
+        elif relation in {
+            "exactMatch",
+            "closeMatch",
+            "broadMatch",
+            "narrowMatch",
+            "relatedMatch",
+        } and (source_type, target_type) != ("skos_concept", "skos_concept"):
+            errors.append(f"{label} SKOS matches require SKOS concept endpoints")
+    return errors
+
+
+def cmd_align_add(args: argparse.Namespace) -> int:
+    """Record one validated documentation or RDF-export alignment."""
+    path = alignments_file()
+    try:
+        alignments = load_alignments(path)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"[error] invalid alignment registry: {exc}")
+        return 1
+    alignment = {
+        "source": args.source,
+        "target": args.target,
+        "relation": args.relation,
+        "mode": args.mode,
+        "source_type": args.source_type,
+        "target_type": args.target_type,
+        "note": args.note or "",
+        "added": utc_now_iso(),
+    }
+    if args.predicate:
+        alignment["predicate"] = args.predicate
+    if args.evidence:
+        alignment["evidence"] = args.evidence
+    if args.verified_identity:
+        alignment["verified_identity"] = True
+    alignments.append(alignment)
+    errors = validate_alignments(alignments, collect_defined_term_kinds(find_module_files()))
+    if errors:
+        for error in errors:
+            print(f"[error] {error}")
+        return 1
     save_alignments(path, alignments)
     print(f"Aligned {args.source} {args.relation} {args.target}")
     return 0
@@ -1236,15 +1413,12 @@ def cmd_align_list(_args: argparse.Namespace) -> int:
 
 
 def cmd_align_check(_args: argparse.Namespace) -> int:
-    """Fail if any recorded alignment points at a term the modules no longer define."""
-    alignments = load_alignments(alignments_file())
-    term_iris = collect_defined_term_iris(find_module_files())
-    errors: list[str] = []
-    for alignment in alignments:
-        if alignment["relation"] not in ALIGNMENT_RELATIONS:
-            errors.append(f"unknown relation '{alignment['relation']}' on {alignment['source']}")
-        if alignment["source"] not in term_iris:
-            errors.append(f"source term no longer defined: {alignment['source']}")
+    """Validate registry shape, mappings and source term declarations."""
+    try:
+        alignments = load_alignments(alignments_file())
+        errors = validate_alignments(alignments, collect_defined_term_kinds(find_module_files()))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        errors = [f"cannot load alignment registry: {exc}"]
     if errors:
         for error in errors:
             print(f"[error] {error}")
@@ -1462,6 +1636,12 @@ def main() -> int:
     align_add.add_argument("source", help="source term IRI (must be defined in a module)")
     align_add.add_argument("target", help="target term IRI (external allowed)")
     align_add.add_argument("--relation", default="closeMatch", choices=ALIGNMENT_RELATIONS)
+    align_add.add_argument("--mode", choices=ALIGNMENT_MODES, default="reference")
+    align_add.add_argument("--source-type", choices=ALIGNMENT_TERM_KINDS, required=True)
+    align_add.add_argument("--target-type", choices=ALIGNMENT_TERM_KINDS, required=True)
+    align_add.add_argument("--predicate", help="RDF predicate IRI for an export mapping")
+    align_add.add_argument("--evidence", help="evidence IRI required for an export mapping")
+    align_add.add_argument("--verified-identity", action="store_true")
     align_add.add_argument("--note", default=None, help="why this alignment holds")
     align_add.set_defaults(func=cmd_align_add)
     align_sub.add_parser("list", help="show recorded alignments").set_defaults(func=cmd_align_list)

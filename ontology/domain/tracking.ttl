@@ -10,7 +10,7 @@
 <https://damminhtien.github.io/ontology-research/ontology/domain/tracking> a owl:Ontology ;
     dcterms:title "Domain Layer: Tracking"@en ;
     dcterms:description "Tracks correlate observations into hypotheses about entities. A Track is a derived information product (InformationObject), never an Event; see ADR-0005."@en ;
-    dcterms:version "0.2.0" ;
+    dcterms:version "1.0.0" ;
     owl:imports <https://damminhtien.github.io/ontology-research/ontology/core> ;
     vann:preferredNamespacePrefix "tracking" ;
     vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/domain/tracking#" .
@@ -26,6 +26,14 @@ tracking:Track a owl:Class ; rdfs:subClassOf core:InformationObject ;
 tracking:ObservationResult a owl:Class ; rdfs:subClassOf core:InformationObject ;
     rdfs:label "Observation result"@en ;
     rdfs:comment "Position and typed measurements reported by one observation event. A result records sensor output and does not itself assert a world fact."@en .
+
+tracking:Measurement a owl:Class ; rdfs:subClassOf core:InformationObject ;
+    rdfs:label "Measurement"@en ;
+    rdfs:comment "A measured value and optional unit in an observation result."@en .
+
+tracking:EvidenceReference a owl:Class ; rdfs:subClassOf core:InformationObject ;
+    rdfs:label "Evidence reference"@en ;
+    rdfs:comment "An inline source-local locator or span attached to an observation result."@en .
 
 #################################################################
 # Properties
@@ -57,42 +65,42 @@ tracking:position a owl:ObjectProperty ;
     core:assertable false .
 
 tracking:measurement a owl:ObjectProperty ;
-    rdfs:domain tracking:ObservationResult ; rdfs:range rdfs:Resource ;
+    rdfs:domain tracking:ObservationResult ; rdfs:range tracking:Measurement ;
     rdfs:label "measurement result"@en ; core:assertable false .
 
 tracking:measurementName a owl:DatatypeProperty ;
-    rdfs:domain rdfs:Resource ; rdfs:range xsd:string ;
+    rdfs:domain tracking:Measurement ; rdfs:range xsd:string ;
     rdfs:label "measurement name"@en ; core:assertable false .
 
 tracking:measurementValue a owl:DatatypeProperty ;
-    rdfs:domain rdfs:Resource ; rdfs:range rdfs:Literal ;
+    rdfs:domain tracking:Measurement ; rdfs:range rdfs:Literal ;
     rdfs:label "measurement value"@en ; core:assertable false .
 
 tracking:measurementUnit a owl:DatatypeProperty ;
-    rdfs:domain rdfs:Resource ; rdfs:range xsd:string ;
+    rdfs:domain tracking:Measurement ; rdfs:range xsd:string ;
     rdfs:label "measurement unit"@en ; core:assertable false .
 
 tracking:evidence a owl:ObjectProperty ;
-    rdfs:domain tracking:ObservationResult ; rdfs:range rdfs:Resource ;
+    rdfs:domain tracking:ObservationResult ; rdfs:range tracking:EvidenceReference ;
     rdfs:label "evidence reference"@en ; core:assertable false .
 
 tracking:evidenceSource a owl:ObjectProperty ;
-    rdfs:domain rdfs:Resource ; rdfs:range core:Source ;
+    rdfs:domain tracking:EvidenceReference ; rdfs:range core:Source ;
     rdfs:label "evidence source"@en ; core:assertable false .
 
 tracking:locator a owl:DatatypeProperty ;
-    rdfs:domain rdfs:Resource ; rdfs:range xsd:string ;
+    rdfs:domain tracking:EvidenceReference ; rdfs:range xsd:string ;
     rdfs:label "source locator"@en ; core:assertable false .
 
 tracking:spanStart a owl:DatatypeProperty ;
-    rdfs:domain rdfs:Resource ; rdfs:range xsd:integer ;
+    rdfs:domain tracking:EvidenceReference ; rdfs:range xsd:integer ;
     rdfs:label "span start"@en ; core:assertable false .
 
 tracking:spanEnd a owl:DatatypeProperty ;
-    rdfs:domain rdfs:Resource ; rdfs:range xsd:integer ;
+    rdfs:domain tracking:EvidenceReference ; rdfs:range xsd:integer ;
     rdfs:label "span end"@en ; core:assertable false .
 
 tracking:spanUnit a owl:DatatypeProperty ;
-    rdfs:domain rdfs:Resource ; rdfs:range xsd:string ;
+    rdfs:domain tracking:EvidenceReference ; rdfs:range xsd:string ;
     rdfs:label "span unit"@en ; core:assertable false .
 
