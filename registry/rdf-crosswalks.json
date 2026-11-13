@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "profiles": {
+    "canonical-v1": {
+      "default_graph": true,
+      "mappings": [
+        {
+          "event_type": "EntityCreated or ExternalIdBound",
+          "mapper": "foundry.identity_rdf.entity_identity_to_rdf",
+          "condition": "Apply to the identity event payload without changing its existing IRIs."
+        },
+        {
+          "event_type": "DocumentRegistered",
+          "mapper": "foundry.assertions.document_to_rdf",
+          "condition": "The event supplies a stable document_id and title."
+        },
+        {
+          "event_type": "AssertionMade",
+          "mapper": "foundry.assertions.assertion_to_rdf",
+          "condition": "The event carries its assertion_id, subject or pending reference, predicate IRI, object, valid interval and provenance."
+        },
+        {
+          "event_type": "AssertionSuperseded",
+          "mapper": "foundry.assertions.assertion_superseded_to_rdf",
+          "condition": "The event names the assertion it retracts."
+        },
+        {
+          "event_type": "SensorRegistered",
+          "mapper": "foundry.tracking.sensor_to_rdf",
+          "condition": "The event carries stable sensor and platform entity IRIs."
+        },
+        {
+          "event_type": "ObservationRecorded",
+          "mapper": "foundry.tracking.observation_to_rdf",
+          "condition": "The event carries stable observation, sensor, feature and result IRIs."
+        },
+        {
+          "event_type": "TrackObserved",
+          "mapper": "foundry.tracking.track_to_rdf",
+          "condition": "The event carries a track id, entity id and any explicitly referenced observation ids."
+        }
+      ]
+    },
+    "interop-v1": {
+      "graph_iri": "urn:ontology-research:graph:interop-v1",
+      "mappings": [
+        {
+          "source": "assertion:Assertion or assertion:Document",
+          "predicate": "rdf:type",
+          "target": "prov:Entity",
+          "condition": "Emit for each assertion or document represented by a log event."
+        },
+        {
+          "source": "urn:event:{event_id}",
+          "predicate": "rdf:type",
+          "target": "prov:Activity",
+          "condition": "Use the persisted event IRI only for events that generate an assertion, document or track RDF entity."
+        },
+        {
+          "source": "assertion or document entity",
+          "predicate": "prov:wasGeneratedBy",
+          "target": "urn:event:{event_id}",
+          "condition": "The corresponding AssertionMade or DocumentRegistered event generated the existing entity IRI."
+        },
+        {
+          "source": "urn:event:{assertion_event_id}",
+          "predicate": "prov:used",
+          "target": "registered document IRI",
+          "condition": "The assertion source_ids includes a document_id registered somewhere in the same event log; external source citations remain in the canonical core:hasSource graph."
+        },
+        {
+          "source": "tracking:Track",
+          "predicate": "prov:wasDerivedFrom",
+          "target": "core:Observation",
+          "condition": "TrackObserved explicitly lists the observation id and an ObservationRecorded event for that id exists in the same log."
+        },
+        {
+          "source": "sensor IRI",
+          "predicate": "rdf:type",
+          "target": "sosa:Sensor",
+          "condition": "The sensor IRI is already present in SensorRegistered or ObservationRecorded event data."
+        },
+        {
+          "source": "core:Observation IRI",
+          "predicate": "sosa:madeBySensor",
+          "target": "existing sensor IRI",
+          "condition": "ObservationRecorded names the sensor_entity_id."
+        },
+        {
+          "source": "core:Observation IRI",
+          "predicate": "sosa:hasFeatureOfInterest",
+          "target": "existing subject_entity_id IRI",
+          "condition": "ObservationRecorded names the observed entity."
+        },
+        {
+          "source": "core:Observation IRI",
+          "predicate": "sosa:hasResult",
+          "target": "existing observation_result_id IRI",
+          "condition": "ObservationRecorded supplies the distinct result IRI."
+        },
+        {
+          "source": "core:Observation IRI",
+          "predicate": "sosa:phenomenonTime",
+          "target": "time:Instant",
+          "condition": "ObservationRecorded.at_time is the observed-world time; never substitute the event log's occurred_at as sosa:resultTime."
+        },
+        {
+          "source": "location IRI",
+          "predicate": "geo:hasGeometry",
+          "target": "geo:Geometry with geo:asWKT",
+          "condition": "A geometry CSV row names a location typed core:Location in the projection, has a unique absolute location IRI and source IRI, and gives finite longitude/latitude within their respective ranges. The WKT CRS is CRS84 and its coordinate order is longitude then latitude."
+        },
+        {
+          "source": "geo:Geometry",
+          "predicate": "prov:wasDerivedFrom",
+          "target": "registered document IRI",
+          "condition": "The geometry CSV source_iri is registered as a DocumentRegistered document; otherwise retain it only as dcterms:source citation."
+        }
+      ]
+    }
+  }
+}
