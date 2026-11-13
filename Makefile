@@ -1,4 +1,4 @@
-.PHONY: setup validate dag align test lint fmt check conformance quality ontology-design clean docs-setup docs-sync docs-serve docs-build
+.PHONY: setup validate dag align test lint fmt check conformance quality ontology-design oxigraph-test oxigraph-eval clean docs-setup docs-sync docs-serve docs-build
 
 PY := .venv/bin/python
 
@@ -70,6 +70,12 @@ check: lint ontology-design quality versions align validate dag test slo
 
 conformance:
 	$(PY) tools/check_conformance.py
+
+oxigraph-test:
+	uv run --no-project --python 3.13 --with-requirements requirements/evaluation-oxigraph.txt python -m pytest -q tests/test_oxigraph_snapshots.py
+
+oxigraph-eval:
+	uv run --no-project --python 3.13 --with-requirements requirements/evaluation-oxigraph.txt python tools/evaluate_oxigraph.py
 
 
 clean:
