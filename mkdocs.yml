@@ -69,6 +69,7 @@ nav:
       - Offline RDF export: guides/rdf-export.md
       - Oxigraph snapshot evaluation: guides/oxigraph-evaluation.md
       - OWL 2 DL migration: migrations/ontology-owl2dl-major-2026.md
+      - Splink resolver evaluation: guides/splink-evaluation.md
   - Engineering docs:
       - Roadmap 12 tháng: generated/roadmap.md
       - Coding conventions: generated/conventions.md

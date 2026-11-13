@@ -1,4 +1,4 @@
-.PHONY: setup validate dag align test lint fmt check conformance quality ontology-design oxigraph-test oxigraph-eval clean docs-setup docs-sync docs-serve docs-build
+.PHONY: setup validate dag align test lint fmt check conformance quality ontology-design oxigraph-test oxigraph-eval splink-test splink-fetch splink-eval clean docs-setup docs-sync docs-serve docs-build
 
 PY := .venv/bin/python
 
@@ -77,6 +77,14 @@ oxigraph-test:
 oxigraph-eval:
 	uv run --no-project --python 3.13 --with-requirements requirements/evaluation-oxigraph.txt python tools/evaluate_oxigraph.py
 
+splink-test:
+	uv run --no-project --python 3.13 --with-requirements requirements/evaluation-splink.txt python -m pytest -q tests/test_splink_evaluation.py
+
+splink-fetch:
+	uv run --no-project --python 3.13 --with-requirements requirements/evaluation-splink.txt python tools/evaluate_splink.py --fetch-data
+
+splink-eval:
+	uv run --no-project --python 3.13 --with-requirements requirements/evaluation-splink.txt python tools/evaluate_splink.py
 
 clean:
 	find . -name __pycache__ -type d -exec rm -rf {} +
