@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+from collections.abc import Collection, Iterator
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -44,6 +45,32 @@ class ExportSummary:
     skipped_event_types: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class ProjectionContext:
+    """Log-wide references needed to project individual events consistently."""
+
+    event_count: int
+    last_sequence: int
+    registered_documents: frozenset[str]
+    registered_observation_ids: frozenset[str]
+    projected_locations: frozenset[str]
+    skipped_event_types: tuple[str, ...]
+
+
+_PROJECTED_EVENT_TYPES = frozenset(
+    {
+        "EntityCreated",
+        "ExternalIdBound",
+        "DocumentRegistered",
+        "AssertionMade",
+        "AssertionSuperseded",
+        "SensorRegistered",
+        "ObservationRecorded",
+        "TrackObserved",
+    }
+)
+
+
 def _activity(event: SemanticEvent) -> URIRef:
     """Return the stable PROV activity IRI for a persisted event."""
     return URIRef(f"urn:event:{event.event_id}")
@@ -62,8 +89,8 @@ def _add_provenance(
     graph: Graph,
     event: SemanticEvent,
     entity: URIRef,
-    registered_documents: set[str],
-    registered_observations: set[str],
+    registered_documents: Collection[str],
+    registered_observations: Collection[str],
 ) -> None:
     """Add recorded generation and source use without inferring agents."""
     _record_generation(graph, entity, event)
@@ -178,24 +205,28 @@ def _add_geometries(
                 graph.add((geometry, URIRef(f"{PROV}wasDerivedFrom"), URIRef(source_iri)))
 
 
-def project_event_log(
-    event_log_path: Path,
-    *,
-    profile: str = "canonical-v1",
-    geometry_path: Path | None = None,
-) -> ExportSummary:
-    """Project an event log to TriG-ready canonical and optional interop graphs."""
+def _validate_export_options(profile: str, geometry_path: Path | None) -> None:
+    """Validate the requested profile before opening or scanning the event log."""
     if profile not in {"canonical-v1", "interop-v1"}:
         raise ValueError(f"unknown RDF export profile {profile!r}")
     if geometry_path is not None and profile != "interop-v1":
         raise ValueError("geometry CSV is only supported by the interop-v1 profile")
+
+
+def collect_projection_context(event_log_path: Path) -> ProjectionContext:
+    """Collect cross-event references required by the streaming RDF mapper."""
     log = EventLog(event_log_path)
     registered_documents: set[str] = set()
     registered_observation_ids: set[str] = set()
     projected_locations: set[str] = set()
+    skipped_event_types: set[str] = set()
     event_count = 0
+    last_sequence = 0
     for event in log.iter_all():
         event_count += 1
+        last_sequence = event.sequence or event_count
+        if event.event_type not in _PROJECTED_EVENT_TYPES:
+            skipped_event_types.add(event.event_type)
         if event.event_type == "DocumentRegistered":
             registered_documents.add(event.payload["document_id"])
         elif event.event_type == "ObservationRecorded":
@@ -210,11 +241,38 @@ def project_event_log(
         elif event.event_type == "EntityCreated" and event.payload.get("entity_type") == "Location":
             projected_locations.add(event.payload["entity_id"])
 
-    dataset = Dataset()
-    canonical = dataset.default_graph
-    interop = dataset.graph(INTEROP_GRAPH_IRI) if profile == "interop-v1" else None
-    skipped_event_types: set[str] = set()
+    return ProjectionContext(
+        event_count=event_count,
+        last_sequence=last_sequence,
+        registered_documents=frozenset(registered_documents),
+        registered_observation_ids=frozenset(registered_observation_ids),
+        projected_locations=frozenset(projected_locations),
+        skipped_event_types=tuple(sorted(skipped_event_types)),
+    )
+
+
+def iter_projected_quads(
+    event_log_path: Path,
+    *,
+    profile: str = "canonical-v1",
+    geometry_path: Path | None = None,
+    context: ProjectionContext | None = None,
+) -> Iterator[tuple[object, object, object, URIRef | None]]:
+    """Yield projected RDF quads while holding only one event's triples in memory."""
+    _validate_export_options(profile, geometry_path)
+    projection_context = context or collect_projection_context(event_log_path)
+    log = EventLog(event_log_path)
+    canonical = Graph()
+    interop = Graph() if profile == "interop-v1" else None
+
+    def yield_graph(graph: Graph, graph_iri: URIRef | None) -> Iterator[tuple]:
+        for subject, predicate, object_ in graph:
+            yield subject, predicate, object_, graph_iri
+
     for event in log.iter_all():
+        canonical.remove((None, None, None))
+        if interop is not None:
+            interop.remove((None, None, None))
         entity: URIRef | None = None
         if event.event_type == "EntityCreated" or event.event_type == "ExternalIdBound":
             entity_identity_to_rdf(canonical, event)
@@ -231,32 +289,53 @@ def project_event_log(
         elif event.event_type == "TrackObserved":
             track_to_rdf(canonical, event)
             entity = URIRef(f"{TRACKING}track-{event.payload['track_id']}")
-        else:
-            skipped_event_types.add(event.event_type)
 
-        if interop is None:
-            continue
-        if event.event_type == "ObservationRecorded":
-            _add_sosa_observation(interop, event)
-        if entity is not None and event.event_type in {
-            "DocumentRegistered",
-            "AssertionMade",
-            "TrackObserved",
-        }:
-            _add_provenance(
-                interop,
-                event,
-                entity,
-                registered_documents,
-                registered_observation_ids,
-            )
+        yield from yield_graph(canonical, None)
+        if interop is not None:
+            if event.event_type == "ObservationRecorded":
+                _add_sosa_observation(interop, event)
+            if entity is not None and event.event_type in {
+                "DocumentRegistered",
+                "AssertionMade",
+                "TrackObserved",
+            }:
+                _add_provenance(
+                    interop,
+                    event,
+                    entity,
+                    projection_context.registered_documents,
+                    projection_context.registered_observation_ids,
+                )
+            yield from yield_graph(interop, INTEROP_GRAPH_IRI)
 
     if interop is not None and geometry_path is not None:
+        interop.remove((None, None, None))
         _add_geometries(
             interop,
             geometry_path,
-            canonical_graph=canonical,
-            projected_locations=projected_locations,
-            registered_documents=registered_documents,
+            canonical_graph=Graph(),
+            projected_locations=set(projection_context.projected_locations),
+            registered_documents=projection_context.registered_documents,
         )
-    return ExportSummary(dataset, event_count, tuple(sorted(skipped_event_types)))
+        yield from yield_graph(interop, INTEROP_GRAPH_IRI)
+
+
+def project_event_log(
+    event_log_path: Path,
+    *,
+    profile: str = "canonical-v1",
+    geometry_path: Path | None = None,
+) -> ExportSummary:
+    """Project an event log to TriG-ready canonical and optional interop graphs."""
+    _validate_export_options(profile, geometry_path)
+    context = collect_projection_context(event_log_path)
+    dataset = Dataset()
+    for subject, predicate, object_, graph_iri in iter_projected_quads(
+        event_log_path,
+        profile=profile,
+        geometry_path=geometry_path,
+        context=context,
+    ):
+        graph = dataset.default_graph if graph_iri is None else dataset.graph(graph_iri)
+        graph.add((subject, predicate, object_))
+    return ExportSummary(dataset, context.event_count, context.skipped_event_types)
