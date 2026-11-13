@@ -1,0 +1,15 @@
+{
+  "dataset": "FEBRL4",
+  "source_repository": "https://github.com/moj-analytical-services/splink_datasets",
+  "source_revision": "75876d806d9eff72072d21878150ee50a96d5f41",
+  "files": {
+    "dataset4a.csv": {
+      "url": "https://raw.githubusercontent.com/moj-analytical-services/splink_datasets/75876d806d9eff72072d21878150ee50a96d5f41/data/febrl/dataset4a.csv",
+      "sha256": "797ffc5072b5d6cbfdcd0bcb603b92be8916fa67fe8e180db366994c5389d3a0"
+    },
+    "dataset4b.csv": {
+      "url": "https://raw.githubusercontent.com/moj-analytical-services/splink_datasets/75876d806d9eff72072d21878150ee50a96d5f41/data/febrl/dataset4b.csv",
+      "sha256": "af0330f0c355b7b12006ac0b8a2de23539d3bc868153f9416fc5ae43cc5f401c"
+    }
+  }
+}
