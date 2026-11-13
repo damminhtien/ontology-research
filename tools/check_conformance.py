@@ -42,6 +42,12 @@ IDENTITY = Namespace("https://damminhtien.github.io/ontology-research/ontology/m
 ASSERTION = Namespace("https://damminhtien.github.io/ontology-research/ontology/middle/assertion#")
 TRACKING = Namespace("https://damminhtien.github.io/ontology-research/ontology/domain/tracking#")
 EX = Namespace("urn:ontology-research:conformance:")
+SHACL_GROUP_NAMES = (
+    "core_shapes.ttl",
+    "identity_shapes.ttl",
+    "domain_shapes.ttl",
+    "assertion_shapes.ttl",
+)
 
 
 def _download(url: str, destination: Path, digest: str | None = None) -> None:
@@ -271,6 +277,11 @@ def _bad_fixture(shape_name: str) -> Graph:
     return graph
 
 
+def _shacl_group_paths() -> tuple[Path, ...]:
+    """Return the four canonical SHACL contract groups used by conformance."""
+    return tuple(REPO_ROOT / "shapes" / name for name in SHACL_GROUP_NAMES)
+
+
 def _jena_conforms(jena_shacl: Path, shapes: Path, data: Path, env: dict[str, str]) -> bool:
     """Read sh:conforms from Jena's RDF validation report, not the CLI exit code."""
     output = _run(
@@ -295,17 +306,16 @@ def _shacl_checks(tmp: Path, jena_home: Path, java_home: Path) -> None:
     """Require pySHACL and Jena to agree on positive and negative fixtures."""
     env = dict(os.environ, JAVA_HOME=str(java_home), JENA_HOME=str(jena_home))
     jena_shacl = jena_home / "bin" / "shacl"
+    shape_paths = _shacl_group_paths()
     positive = _load_data_graph()
     cases: list[tuple[str, Graph, bool]] = [("seed", positive, True)]
-    for shape_path in sorted((REPO_ROOT / "shapes").glob("*.ttl")):
+    for shape_path in shape_paths:
         cases.append((shape_path.name, _bad_fixture(shape_path.name), False))
     for index, (case_name, graph, expected) in enumerate(cases):
-        shapes = (REPO_ROOT / "shapes" / case_name) if case_name.endswith("_shapes.ttl") else None
+        shapes = next((path for path in shape_paths if path.name == case_name), None)
         data_path = tmp / f"shacl-{index}.ttl"
         data_path.write_text(graph.serialize(format="turtle"), encoding="utf-8")
-        for shape_path in (
-            sorted((REPO_ROOT / "shapes").glob("*.ttl")) if shapes is None else [shapes]
-        ):
+        for shape_path in shape_paths if shapes is None else [shapes]:
             shape_graph = Graph().parse(shape_path)
             conforms, _, _ = pyshacl_validate(
                 data_graph=graph,
