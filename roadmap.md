@@ -18,7 +18,7 @@ thay vì một central KG): xem `docs/architecture.md` §2.
 ## 1. Snapshot hiện tại (đồng bộ mã nguồn — 2026-11-12)
 
 Quality gates: `make check` (lint, versions, alignment, SHACL, DAG, pytest và
-2 SLO gates). Xác minh ngày 2026-11-12: `make check` passed, 503 tests.
+2 SLO gates). Xác minh ngày 2026-11-12: `make check` passed, 505 tests.
 
 | Thành phần | Trạng thái | Bằng chứng trong repo |
 |---|---|---|

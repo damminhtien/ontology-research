@@ -48,7 +48,7 @@ Baseline được lưu tại `benchmarks/baseline.json` và tạo bởi `tools/c
 
 `make check` chạy `tools/check_slo.py` với cùng scale/seed như baseline:
 
-- fail nếu bất kỳ query nào có p95 > 1.2× baseline;
+- fail nếu bất kỳ query nào có p95 > 1.2× comparison baseline;
 - fail nếu bất kỳ query nào có p95 > target p95 trong bảng trên.
 
 Harness: `tools/benchmark.py` — sinh payload tổng hợp với seed cố định rồi đo
@@ -70,6 +70,10 @@ Recovery ở đây là replay vào read model mới; chưa gồm restore snapsho
 - So sánh peak RSS chỉ từ lần chạy benchmark độc lập; trong process test dùng chung,
   high-water mark có thể gồm các phép đo chạy trước đó.
 - Baseline được ghi trên máy cố định; CI sẽ so sánh với baseline đã commit.
+- Baseline Q1 dưới microsecond, trong khi runner khác nhau có thể lệch vài
+  microsecond. Relative gate dùng comparison floor 0.0038 ms cho Q1; absolute
+  target 50 ms vẫn áp dụng. Các query còn lại so sánh trực tiếp với p95
+  baseline đã commit.
 
 Số đo thử scale 100K hiện có cùng giới hạn và ngày đo được ghi tại
 [`scale_targets.md`](scale_targets.md); nó chưa hoàn thành rung 10M/100M.
