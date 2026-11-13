@@ -13,7 +13,7 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 | `blast-radius TERM` | Đếm consumers theo 3 lớp: modules/queries/applications |
 | `stability` | `Stability(m) = 1 − N_breaking/N_releases` theo module |
 | `migrate MODULE` | Sinh SPARQL Update migration cho thay đổi breaking |
-| `align add SOURCE TARGET [--relation REL] [--note TEXT]` | Ghi semantic alignment |
+| `align add SOURCE TARGET --source-type TYPE --target-type TYPE [--mode {reference,export}] [--relation REL] [--predicate IRI] [--evidence IRI] [--verified-identity] [--note TEXT]` | Ghi alignment đã được kiểm tra kiểu; mapping RDF cần predicate và evidence |
 | `align list` / `align check` | Liệt kê hoặc validate alignment registry |
 | `report` | Sinh markdown registry report vào `build/` |
 | `new-module NAME --layer middle\|domain` | Scaffold module mới với header chuẩn |
@@ -49,6 +49,7 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 | `.venv/bin/python tools/split_entity.py --survivor ID --duplicate ID [--reason TEXT]` | Undo một merge đã ghi: restore set đọc từ `EntityMerged`; append `EntitySplit` |
 | `.venv/bin/python tools/backfill_external_ids.py [--log PATH] [--no-lake]` | Khôi phục QID binding của log cũ (quy ước `source_id: wikidata:QID`) thành `ExternalIdBound` events; idempotent |
 | `.venv/bin/python tools/import_events.py --src PATH --dst PATH [--skip N] [--dry-run]` | Copy events giữa hai log, re-stamp sequence theo log nhận (event_id giữ nguyên) |
+| `.venv/bin/python tools/export_rdf.py --event-log PATH --profile {canonical-v1,interop-v1} --output PATH [--geometry CSV]` | Export offline event log thành TriG; xem [RDF export profiles](rdf-export.md) |
 
 ## Visualization & Console
 
@@ -72,4 +73,5 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 |--------|---------|
 | `make setup` | Tạo `.venv` + cài `requirements.txt` |
 | `make check` | `lint` + `versions` + `validate` + `dag` + `test` + `slo` |
+| `make conformance` | ROBOT/HermiT, Jena/pySHACL, 41 CQ và W3C RDFC-1.0; chạy độc lập với `make check` |
 | `make fmt` | `ruff check --fix` + `ruff format` |
