@@ -1,0 +1,4 @@
+pyoxigraph==0.5.13
+pyshacl>=0.26
+pytest>=8.0
+rdflib>=7.0
