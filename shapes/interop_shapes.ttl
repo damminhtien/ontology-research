@@ -1,0 +1,74 @@
+@prefix geo:  <http://www.opengis.net/ont/geosparql#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+prov:EntityShape a sh:NodeShape ;
+    sh:targetClass prov:Entity ;
+    sh:property [
+        sh:path prov:wasGeneratedBy ;
+        sh:minCount 1 ;
+        sh:class prov:Activity ;
+    ] .
+
+prov:ActivityShape a sh:NodeShape ;
+    sh:targetClass prov:Activity ;
+    sh:property [
+        sh:path prov:generated ;
+        sh:minCount 1 ;
+        sh:class prov:Entity ;
+    ] .
+
+sosa:ObservationShape a sh:NodeShape ;
+    sh:targetClass sosa:Observation ;
+    sh:property [
+        sh:path sosa:madeBySensor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class sosa:Sensor ;
+    ] ;
+    sh:property [
+        sh:path sosa:hasFeatureOfInterest ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path sosa:hasResult ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path sosa:phenomenonTime ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class time:Instant ;
+    ] ;
+    sh:property [
+        sh:path sosa:resultTime ;
+        sh:maxCount 0 ;
+        sh:message "Export must not replace observation time with event-log record time."@en ;
+    ] .
+
+time:InstantShape a sh:NodeShape ;
+    sh:targetClass time:Instant ;
+    sh:property [
+        sh:path time:inXSDDateTimeStamp ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:dateTimeStamp ;
+    ] .
+
+geo:GeometryShape a sh:NodeShape ;
+    sh:targetClass geo:Geometry ;
+    sh:property [
+        sh:path geo:asWKT ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype geo:wktLiteral ;
+    ] ;
+    sh:property [
+        sh:path <http://purl.org/dc/terms/source> ;
+        sh:minCount 1 ;
+    ] .
