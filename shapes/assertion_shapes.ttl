@@ -12,11 +12,8 @@
 # counts mirror the write-path validation in
 # foundry/assertions.py.
 #
-# assertion:predicate is constrained as sh:nodeKind sh:IRI rather than
-# sh:class rdf:Property: the ontology declares the range rdf:Property, but
-# rdf:type/rdfs:subClassOf* of the relation is only visible to a gate that has
-# already loaded the module declaring it, while "the event carries an absolute
-# property IRI" is guaranteed by the write path and the log upcaster.
+# assertion:predicate is constrained as an IRI. The write path validates the
+# predicate against declared, assertable properties before accepting an event.
 
 @prefix sh:        <http://www.w3.org/ns/shacl#> .
 @prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
@@ -40,7 +37,7 @@ assertion:AssertionShape a sh:NodeShape ;
         sh:path assertion:predicate ;
         sh:minCount 1 ; sh:maxCount 1 ;
         sh:nodeKind sh:IRI ;
-        sh:message "Assertion must name exactly one relation IRI (rdfs:range rdf:Property)."@en ;
+        sh:message "Assertion must name exactly one relation IRI."@en ;
     ] ;
     sh:property [
         sh:path assertion:hasObject ;

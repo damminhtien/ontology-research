@@ -13,6 +13,12 @@
     vann:preferredNamespacePrefix "core" ;
     vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/core#" .
 
+dcterms:description a owl:AnnotationProperty .
+dcterms:title a owl:AnnotationProperty .
+dcterms:version a owl:AnnotationProperty .
+vann:preferredNamespacePrefix a owl:AnnotationProperty .
+vann:preferredNamespaceUri a owl:AnnotationProperty .
+
 #################################################################
 # Classes (19) — Entity taxonomy, max depth kept shallow
 #

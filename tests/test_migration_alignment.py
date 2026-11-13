@@ -264,9 +264,22 @@ class TestAlignmentRegistry:
         path = tmp_path / "alignments.json"
         mgmt.save_alignments(
             path,
-            [{"source": "s", "target": "t", "relation": "exactMatch", "note": "", "added": "x"}],
+            [
+                {
+                    "source": "s",
+                    "target": "t",
+                    "relation": "exactMatch",
+                    "mode": "reference",
+                    "source_type": "class",
+                    "target_type": "class",
+                    "note": "",
+                    "added": "2026-01-01T00:00:00Z",
+                }
+            ],
         )
         assert len(mgmt.load_alignments(path)) == 1
+        document = json.loads(path.read_text(encoding="utf-8"))
+        assert document["version"] == 2
 
     def test_repo_alignments_file_exists_and_valid(self):
         alignments = mgmt.load_alignments(mgmt.alignments_file())
@@ -286,8 +299,11 @@ class TestAlignmentRegistry:
                     "source": "https://damminhtien.github.io/ontology-research/ontology/core#Ghost",
                     "target": "https://schema.org/Thing",
                     "relation": "closeMatch",
+                    "mode": "reference",
+                    "source_type": "class",
+                    "target_type": "class",
                     "note": "",
-                    "added": "x",
+                    "added": "2026-01-01T00:00:00Z",
                 }
             ],
         )
@@ -304,10 +320,16 @@ class TestAlignmentRegistry:
             source="https://damminhtien.github.io/ontology-research/ontology/core#NoSuchTerm",
             target="https://schema.org/Thing",
             relation="closeMatch",
+            mode="reference",
+            source_type="class",
+            target_type="class",
+            predicate=None,
+            evidence=None,
+            verified_identity=False,
             note="",
         )
         assert mgmt.cmd_align_add(args) == 1
-        assert "not defined" in capsys.readouterr().out
+        assert "no longer defined" in capsys.readouterr().out
 
     def test_align_add_rejects_duplicate(self, tmp_path, monkeypatch, capsys):
         path = tmp_path / "alignments.json"
@@ -317,8 +339,71 @@ class TestAlignmentRegistry:
             source="https://damminhtien.github.io/ontology-research/ontology/core#Person",
             target="https://schema.org/Person",
             relation="exactMatch",
+            mode="reference",
+            source_type="class",
+            target_type="class",
+            predicate=None,
+            evidence=None,
+            verified_identity=False,
             note="dup",
         )
         assert mgmt.cmd_align_add(args) == 0
         assert mgmt.cmd_align_add(args) == 1
-        assert "already recorded" in capsys.readouterr().out
+        assert "duplicates an earlier" in capsys.readouterr().out
+
+    def test_export_mapping_requires_matching_semantics(self):
+        person = "https://damminhtien.github.io/ontology-research/ontology/core#Person"
+        mapping = {
+            "source": person,
+            "target": "https://schema.org/Person",
+            "relation": "exactMatch",
+            "mode": "export",
+            "source_type": "class",
+            "target_type": "class",
+            "predicate": "http://www.w3.org/2004/02/skos/core#exactMatch",
+            "evidence": "https://example.org/mapping-evidence",
+            "note": "Incorrect class-to-concept export.",
+            "added": "2026-01-01T00:00:00Z",
+        }
+        errors = mgmt.validate_alignments(
+            [mapping], mgmt.collect_defined_term_kinds([CORE_ONTOLOGY])
+        )
+        assert any("SKOS matches require SKOS concept endpoints" in error for error in errors)
+
+    def test_same_as_requires_verified_individuals_and_evidence(self):
+        mapping = {
+            "source": "https://damminhtien.github.io/ontology-research/ontology/core#Person",
+            "target": "https://example.org/person/1",
+            "relation": "sameAs",
+            "mode": "export",
+            "source_type": "class",
+            "target_type": "individual",
+            "predicate": "http://www.w3.org/2002/07/owl#sameAs",
+            "evidence": "https://example.org/mapping-evidence",
+            "note": "",
+            "added": "2026-01-01T00:00:00Z",
+        }
+        errors = mgmt.validate_alignments(
+            [mapping], mgmt.collect_defined_term_kinds([CORE_ONTOLOGY])
+        )
+        assert any("sameAs requires individual endpoints" in error for error in errors)
+        assert any("sameAs requires verified_identity=true" in error for error in errors)
+
+    def test_export_alignment_rejects_invalid_iri_and_timestamp(self):
+        mapping = {
+            "source": "not an iri",
+            "target": "https://schema.org/Person",
+            "relation": "subClassOf",
+            "mode": "export",
+            "source_type": "class",
+            "target_type": "class",
+            "predicate": "http://www.w3.org/2004/02/skos/core#exactMatch",
+            "evidence": "not-an-iri",
+            "note": "",
+            "added": "yesterday",
+        }
+        errors = mgmt.validate_alignments([mapping], {})
+        assert any("source must be an absolute IRI" in error for error in errors)
+        assert any("ISO-8601" in error for error in errors)
+        assert any("predicate does not match relation" in error for error in errors)
+        assert any("absolute evidence IRI" in error for error in errors)
