@@ -1,0 +1,562 @@
+{
+  "generated_at": "2026-11-15T15:48:49.514519+08:00",
+  "hardware": {
+    "cpu_count": 12,
+    "machine": "arm64",
+    "memory_bytes": 68719476736,
+    "platform": "macOS-27.2.1-arm64-arm-64bit-Mach-O"
+  },
+  "measurement_notes": {
+    "cold_queries": "one first workload query after opening each store; Fuseki readiness and read-only probes run before its measured first workload query; operating-system page cache was not cleared",
+    "engine_level": "Oxigraph Store.query and a persistent Java QueryExecution client over TDB2; both include query parsing and result materialization; Jena timing excludes only the harness protocol and JSON output",
+    "service_level": "Fuseki loopback HTTP only; includes HTTP and SPARQL JSON serialization overhead and is reported separately from engine-level latency",
+    "snapshots": "event-log full rebuild; previous CURRENT retained until completed store reopen",
+    "warm_percentiles": "per-call samples after five warmups; not comparable to historical batch averages"
+  },
+  "report_version": 2,
+  "reproduction": {
+    "command": "make oxigraph-eval",
+    "entities_and_assertions_seed": 42,
+    "fuseki_archive_sha512": "ba65f5867d2d4741b2ed9e2af5a0d4fbb447909894ab2a0c6bc4dac8997f4fe339c87b13c48d45d054977769f0f8bf763ea346b1f7792d5cdc458041bd43a132",
+    "generator": "tools/benchmark.py::generate_events(seed=42)",
+    "generator_sha256": "692fe6899814dced0c252823a0defc8d87d985e3c234e1d286a86bc055192dc6",
+    "harness_compile_seconds": 0.369,
+    "jena_archive_sha512": "2b467d2ff940c207aea935e012ecbb0f0ab3e6bf59b3fc4b3fbc6cf9cea11f1428e97882ec078a5ffc57e114e0f5c88ea98c4575e687cc1dd232f99324b7b2a2",
+    "jena_harness_sha256": "539ca6ef4de692527f04feb30586ca3f0afc8556da1ddc56dc9d06209a6041c3",
+    "requirements_sha256": "7aa971ee0198b188d5fb9b57ae79ef2129e203263c465b88365f40efa63b38ef",
+    "runs_per_query_per_scale": 100,
+    "scales": [
+      10000,
+      100000
+    ]
+  },
+  "scales": [
+    {
+      "assertions_per_entity": 10,
+      "entities": 10000,
+      "events": 110000,
+      "jena_tdb2": {
+        "load_seconds": 3.497,
+        "open_seconds": 0.274243,
+        "query_endpoint": "loopback only; query-only Fuseki config; update endpoint rejected",
+        "store_bytes": 334269262
+      },
+      "quads": 1240000,
+      "query_latency": {
+        "engine_level": {
+          "cold_first_after_open_ms": {
+            "jena_tdb2_engine": {
+              "point_lookup": 65.3583,
+              "provenance": 1.6621,
+              "temporal": 265.6348
+            },
+            "oxigraph_engine": {
+              "point_lookup": 0.3907,
+              "provenance": 0.3313,
+              "temporal": 0.3614
+            }
+          },
+          "jena_tdb2_query_process_peak_rss_bytes": 1377206272,
+          "sample_count_per_query": 100,
+          "warm_engine_percentiles": {
+            "jena_tdb2_engine": {
+              "point_lookup": {
+                "p50_ms": 0.3071,
+                "p95_ms": 0.5005,
+                "p99_ms": 0.5244,
+                "sample_count": 100,
+                "warmup_count": 5
+              },
+              "provenance": {
+                "p50_ms": 0.4963,
+                "p95_ms": 0.7585,
+                "p99_ms": 0.8695,
+                "sample_count": 100,
+                "warmup_count": 5
+              },
+              "temporal": {
+                "p50_ms": 51.2579,
+                "p95_ms": 55.5312,
+                "p99_ms": 64.6069,
+                "sample_count": 100,
+                "warmup_count": 5
+              }
+            },
+            "oxigraph_engine": {
+              "point_lookup": {
+                "p50_ms": 0.0556,
+                "p95_ms": 0.0715,
+                "p99_ms": 0.151,
+                "sample_count": 100,
+                "warmup_count": 5
+              },
+              "provenance": {
+                "p50_ms": 0.193,
+                "p95_ms": 0.4189,
+                "p99_ms": 3.3712,
+                "sample_count": 100,
+                "warmup_count": 5
+              },
+              "temporal": {
+                "p50_ms": 0.226,
+                "p95_ms": 0.3289,
+                "p99_ms": 0.4998,
+                "sample_count": 100,
+                "warmup_count": 5
+              }
+            }
+          },
+          "warmup_count": 5
+        },
+        "peak_rss_bytes": {
+          "jena_fuseki_server_process": 667926528,
+          "jena_tdb2_engine_process": 1377206272,
+          "jena_tdb2_loader_process": 3221864448,
+          "oxigraph_first_build_process": 2537799680,
+          "oxigraph_first_reopen_process": 784039936,
+          "oxigraph_rebuild_process": 2531852288,
+          "oxigraph_runtime_process": 835829760
+        },
+        "service_level": {
+          "cold_first_workload_after_ready_ms": {
+            "point_lookup": 19.4626,
+            "provenance": 4.23,
+            "temporal": 249.3672
+          },
+          "sample_count_per_query": 100,
+          "service": "Apache Jena Fuseki loopback HTTP; includes HTTP and SPARQL JSON overhead",
+          "warm_http_percentiles": {
+            "point_lookup": {
+              "p50_ms": 1.1999,
+              "p95_ms": 1.7272,
+              "p99_ms": 1.7995,
+              "sample_count": 100,
+              "warmup_count": 5
+            },
+            "provenance": {
+              "p50_ms": 1.6804,
+              "p95_ms": 2.2478,
+              "p99_ms": 2.5285,
+              "sample_count": 100,
+              "warmup_count": 5
+            },
+            "temporal": {
+              "p50_ms": 52.5698,
+              "p95_ms": 54.2978,
+              "p99_ms": 55.4605,
+              "sample_count": 100,
+              "warmup_count": 5
+            }
+          },
+          "warmup_count": 5
+        }
+      },
+      "seed": 42,
+      "snapshot": {
+        "first_build_seconds": 26.488,
+        "manifest": {
+          "created_at": "2026-11-15T07:29:49.556902+00:00",
+          "engine": {
+            "name": "Oxigraph",
+            "pyoxigraph_version": "0.5.13"
+          },
+          "format_version": 1,
+          "ontology_modules": [
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/core",
+              "path": "ontology/core/core.ttl",
+              "version": "2.0.0"
+            },
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/domain/sensor",
+              "path": "ontology/domain/sensor.ttl",
+              "version": "0.1.0"
+            },
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking",
+              "path": "ontology/domain/tracking.ttl",
+              "version": "1.0.0"
+            },
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion",
+              "path": "ontology/middle/assertion.ttl",
+              "version": "2.0.0"
+            },
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/middle/identity",
+              "path": "ontology/middle/identity.ttl",
+              "version": "1.0.0"
+            },
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/middle/location",
+              "path": "ontology/middle/location.ttl",
+              "version": "0.1.0"
+            },
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/middle/organization",
+              "path": "ontology/middle/organization.ttl",
+              "version": "0.1.0"
+            }
+          ],
+          "profile": "canonical-v1",
+          "projection": {
+            "build_seconds": 27.850622,
+            "emitted_quad_count": 1240000,
+            "reopen_seconds": 0.122193,
+            "triple_count": 1020003
+          },
+          "source": {
+            "event_count": 110000,
+            "last_sequence": 110000,
+            "segments": [
+              {
+                "name": "benchmark-events-000001.jsonl",
+                "sha256": "27788b5c0bd9ab154251b7b19ef693e4c8013ca87742c953176d230420450ac2",
+                "size_bytes": 33553687
+              },
+              {
+                "name": "benchmark-events-000002.jsonl",
+                "sha256": "dd26c0da41c4dcc878628183a39db3f30295d23682c35504d8c729438d807150",
+                "size_bytes": 33554056
+              },
+              {
+                "name": "benchmark-events.jsonl",
+                "sha256": "71a6aece7755fb4d9ad48962f610ee5468fdcee63269cce67a5a52114ea18285",
+                "size_bytes": 11322246
+              }
+            ],
+            "sha256": "4909d105f20de1ea99824fc063c38939517d0233d39f708349076969d0f5c0b1",
+            "size_bytes": 78429989
+          }
+        },
+        "old_and_new_snapshot_query_equal": true,
+        "rebuild_seconds": 28.383,
+        "reopen_seconds": 0.003371,
+        "store_bytes": 559145232
+      },
+      "triples": 1020003
+    },
+    {
+      "assertions_per_entity": 10,
+      "entities": 100000,
+      "events": 1100000,
+      "jena_tdb2": {
+        "load_seconds": 29.888,
+        "open_seconds": 0.302057,
+        "query_endpoint": "loopback only; query-only Fuseki config; update endpoint rejected",
+        "store_bytes": 1707962110
+      },
+      "quads": 12400000,
+      "query_latency": {
+        "engine_level": {
+          "cold_first_after_open_ms": {
+            "jena_tdb2_engine": {
+              "point_lookup": 74.324,
+              "provenance": 1.7503,
+              "temporal": 899.1233
+            },
+            "oxigraph_engine": {
+              "point_lookup": 0.5395,
+              "provenance": 0.5548,
+              "temporal": 0.6026
+            }
+          },
+          "jena_tdb2_query_process_peak_rss_bytes": 2141798400,
+          "sample_count_per_query": 100,
+          "warm_engine_percentiles": {
+            "jena_tdb2_engine": {
+              "point_lookup": {
+                "p50_ms": 0.3938,
+                "p95_ms": 0.6249,
+                "p99_ms": 0.6984,
+                "sample_count": 100,
+                "warmup_count": 5
+              },
+              "provenance": {
+                "p50_ms": 0.6664,
+                "p95_ms": 1.0097,
+                "p99_ms": 1.0462,
+                "sample_count": 100,
+                "warmup_count": 5
+              },
+              "temporal": {
+                "p50_ms": 588.6289,
+                "p95_ms": 595.5112,
+                "p99_ms": 596.343,
+                "sample_count": 100,
+                "warmup_count": 5
+              }
+            },
+            "oxigraph_engine": {
+              "point_lookup": {
+                "p50_ms": 0.0818,
+                "p95_ms": 0.1266,
+                "p99_ms": 0.1555,
+                "sample_count": 100,
+                "warmup_count": 5
+              },
+              "provenance": {
+                "p50_ms": 0.38,
+                "p95_ms": 0.5847,
+                "p99_ms": 0.8234,
+                "sample_count": 100,
+                "warmup_count": 5
+              },
+              "temporal": {
+                "p50_ms": 0.2919,
+                "p95_ms": 0.4435,
+                "p99_ms": 0.5877,
+                "sample_count": 100,
+                "warmup_count": 5
+              }
+            }
+          },
+          "warmup_count": 5
+        },
+        "peak_rss_bytes": {
+          "jena_fuseki_server_process": 1130086400,
+          "jena_tdb2_engine_process": 2141798400,
+          "jena_tdb2_loader_process": 7102873600,
+          "oxigraph_first_build_process": 17536155648,
+          "oxigraph_first_reopen_process": 6450724864,
+          "oxigraph_rebuild_process": 23124377600,
+          "oxigraph_runtime_process": 6660636672
+        },
+        "service_level": {
+          "cold_first_workload_after_ready_ms": {
+            "point_lookup": 20.9467,
+            "provenance": 4.0928,
+            "temporal": 866.372
+          },
+          "sample_count_per_query": 100,
+          "service": "Apache Jena Fuseki loopback HTTP; includes HTTP and SPARQL JSON overhead",
+          "warm_http_percentiles": {
+            "point_lookup": {
+              "p50_ms": 1.5068,
+              "p95_ms": 1.9729,
+              "p99_ms": 2.0892,
+              "sample_count": 100,
+              "warmup_count": 5
+            },
+            "provenance": {
+              "p50_ms": 2.181,
+              "p95_ms": 2.7849,
+              "p99_ms": 3.2722,
+              "sample_count": 100,
+              "warmup_count": 5
+            },
+            "temporal": {
+              "p50_ms": 591.8903,
+              "p95_ms": 603.6824,
+              "p99_ms": 628.8888,
+              "sample_count": 100,
+              "warmup_count": 5
+            }
+          },
+          "warmup_count": 5
+        }
+      },
+      "seed": 42,
+      "snapshot": {
+        "first_build_seconds": 381.574,
+        "manifest": {
+          "created_at": "2026-11-15T07:45:40.724686+00:00",
+          "engine": {
+            "name": "Oxigraph",
+            "pyoxigraph_version": "0.5.13"
+          },
+          "format_version": 1,
+          "ontology_modules": [
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/core",
+              "path": "ontology/core/core.ttl",
+              "version": "2.0.0"
+            },
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/domain/sensor",
+              "path": "ontology/domain/sensor.ttl",
+              "version": "0.1.0"
+            },
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/domain/tracking",
+              "path": "ontology/domain/tracking.ttl",
+              "version": "1.0.0"
+            },
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/middle/assertion",
+              "path": "ontology/middle/assertion.ttl",
+              "version": "2.0.0"
+            },
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/middle/identity",
+              "path": "ontology/middle/identity.ttl",
+              "version": "1.0.0"
+            },
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/middle/location",
+              "path": "ontology/middle/location.ttl",
+              "version": "0.1.0"
+            },
+            {
+              "iri": "https://damminhtien.github.io/ontology-research/ontology/middle/organization",
+              "path": "ontology/middle/organization.ttl",
+              "version": "0.1.0"
+            }
+          ],
+          "profile": "canonical-v1",
+          "projection": {
+            "build_seconds": 518.007366,
+            "emitted_quad_count": 12400000,
+            "reopen_seconds": 1.135647,
+            "triple_count": 10200003
+          },
+          "source": {
+            "event_count": 1100000,
+            "last_sequence": 1100000,
+            "segments": [
+              {
+                "name": "benchmark-events-000001.jsonl",
+                "sha256": "84aea758f96fe150d96f8fba7b8d7b2f4401226178885578c246644e0f0e0bd9",
+                "size_bytes": 33553687
+              },
+              {
+                "name": "benchmark-events-000002.jsonl",
+                "sha256": "fad5cfd83aa34e0c5e51246dc14c9bdc0bf4cdf57d9b91cf43332fd7ffd60110",
+                "size_bytes": 33554056
+              },
+              {
+                "name": "benchmark-events-000003.jsonl",
+                "sha256": "9c20d8c587c49fda22613d3727a74a3573d179de14d20293cb663b6bba3a362b",
+                "size_bytes": 33554319
+              },
+              {
+                "name": "benchmark-events-000004.jsonl",
+                "sha256": "7a9ba6a7303574d410cccdd2c0c9eac42583ec2e2656236f7cf2b7a3090a97ea",
+                "size_bytes": 33554151
+              },
+              {
+                "name": "benchmark-events-000005.jsonl",
+                "sha256": "14fc7b9a707af0cdd2c7dfd04a80084947c15e86fe94060be68a05fac00c3982",
+                "size_bytes": 33553951
+              },
+              {
+                "name": "benchmark-events-000006.jsonl",
+                "sha256": "adb7eb978ee7319aed8cbe24a452f7f8524d355dadeb8c13f77282ef349afbf9",
+                "size_bytes": 33553728
+              },
+              {
+                "name": "benchmark-events-000007.jsonl",
+                "sha256": "1920c85502fbc944ce968c18a4aa66996950aa4b743594cf605c9ff7c97a9fdd",
+                "size_bytes": 33553967
+              },
+              {
+                "name": "benchmark-events-000008.jsonl",
+                "sha256": "aef3c672cd58ae63ddfbc0d1a00e6cdce6c58ffbae2d54ee92b135a6cfc80518",
+                "size_bytes": 33553744
+              },
+              {
+                "name": "benchmark-events-000009.jsonl",
+                "sha256": "023ff2cda2114e5e988f0ad75be58950915d12e3e55b4077dccf69172025254a",
+                "size_bytes": 33553863
+              },
+              {
+                "name": "benchmark-events-000010.jsonl",
+                "sha256": "61675ebea8af0e494e6fc1fa375b999aa8caab74c7092bfeddb874ca9f3f079d",
+                "size_bytes": 33553700
+              },
+              {
+                "name": "benchmark-events-000011.jsonl",
+                "sha256": "94c002a46463985914211353e33473bba5cf0b2728713c4073fa2d64a10845b1",
+                "size_bytes": 33553955
+              },
+              {
+                "name": "benchmark-events-000012.jsonl",
+                "sha256": "4ef55f948e5a2278178dc62394e054cdb11e3cdee288b986c9c419fa27936469",
+                "size_bytes": 33554379
+              },
+              {
+                "name": "benchmark-events-000013.jsonl",
+                "sha256": "7508f181c907d67c3599ec9ec020de0c4190d5fb7151a8a3f83ca9c186115117",
+                "size_bytes": 33554175
+              },
+              {
+                "name": "benchmark-events-000014.jsonl",
+                "sha256": "00e17f9d40b3dd468175e37b465cacc76d87553fc09889fed342829b196c5672",
+                "size_bytes": 33553704
+              },
+              {
+                "name": "benchmark-events-000015.jsonl",
+                "sha256": "38438fbbffdbef45bb534430a96131cc4b7437bf6c2c09f9e6c6a2faf42e7169",
+                "size_bytes": 33554159
+              },
+              {
+                "name": "benchmark-events-000016.jsonl",
+                "sha256": "014e8eede83f56fcc86dea9bf19cb24e70ed658eb3e6f6a7eb17802e84f2368c",
+                "size_bytes": 33554297
+              },
+              {
+                "name": "benchmark-events-000017.jsonl",
+                "sha256": "c2513b28f4febc31e85b2fdebe2f2a6bdaf8d684a1a8e0dee0fe297c95f8e880",
+                "size_bytes": 33554061
+              },
+              {
+                "name": "benchmark-events-000018.jsonl",
+                "sha256": "82ad62701835fb0f3b013265e31bd1ce5fe48a0d1ac11d93450bbd1b376ef117",
+                "size_bytes": 33554031
+              },
+              {
+                "name": "benchmark-events-000019.jsonl",
+                "sha256": "a5f2c91e487c240667ad999adc4ff7691de794ace356010dd2c553ae15fa12eb",
+                "size_bytes": 33554331
+              },
+              {
+                "name": "benchmark-events-000020.jsonl",
+                "sha256": "c18c81672e61b2421851b87da8347bc38763449a67cf3fafa96450cce78ec567",
+                "size_bytes": 33553939
+              },
+              {
+                "name": "benchmark-events-000021.jsonl",
+                "sha256": "252597d304610402aee0e7ccceda2b94152b6c6232143aabb1e23c8ac7d6b908",
+                "size_bytes": 33553904
+              },
+              {
+                "name": "benchmark-events-000022.jsonl",
+                "sha256": "a5d2a0db5efe6cd3cc4665e0dd343bf7fdc3616807e52abed38a03c6d09c8d8f",
+                "size_bytes": 33554065
+              },
+              {
+                "name": "benchmark-events-000023.jsonl",
+                "sha256": "9dc17c3df6e6d974f7dcdbed39b6b7865ba7723a821807f549ead353fb40e08d",
+                "size_bytes": 33553742
+              },
+              {
+                "name": "benchmark-events.jsonl",
+                "sha256": "0c71a4f9be8d798734ca10c50f4edd4a45c58c120bfb10eb58e4e40892686ddc",
+                "size_bytes": 14757922
+              }
+            ],
+            "sha256": "a30ef1953a1a768600f5c533edf1f66d0a50b8af3011f1d03f430a94089f4ee9",
+            "size_bytes": 786499830
+          }
+        },
+        "old_and_new_snapshot_query_equal": true,
+        "rebuild_seconds": 525.4,
+        "reopen_seconds": 0.004138,
+        "store_bytes": 5592113641
+      },
+      "triples": 10200003
+    }
+  ],
+  "seed_cq_equivalence": {
+    "jena_arq": 41,
+    "oxigraph": 41,
+    "rdflib": 41,
+    "total": 41
+  },
+  "software": {
+    "apache_jena": "6.2.0",
+    "java": "openjdk version \"25.0.4.1\" 2026-08-18",
+    "pyoxigraph": "0.5.13",
+    "python": "3.13.16"
+  }
+}
