@@ -54,7 +54,7 @@ benchmark:
 
 slo:
 	$(PY) tools/check_slo.py
-	$(PY) tools/benchmark_e2e.py --check --entities 300 --iterations 5
+	$(PY) tools/benchmark_e2e.py --check --entities 60 --iterations 11
 
 align:
 	$(PY) tools/manage_ontology.py align check

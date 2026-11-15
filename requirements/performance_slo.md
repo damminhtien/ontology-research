@@ -63,10 +63,10 @@ Recovery ở đây là replay vào read model mới; chưa gồm restore snapsho
 ### End-to-end stage gate
 
 `make check` chạy benchmark đầy đủ cho ingestion, Parquet, projector và truy vấn
-lake với 300 entity tổng hợp trong năm iteration độc lập. Gate so sánh throughput
-median của từng stage với ngưỡng tuyệt đối và baseline đã commit. Workload lớn hơn
-giúp một lần runner bị gián đoạn ngắn ít chi phối kết quả ingest. Gate không tự
-ghi lại hoặc hiệu chỉnh baseline.
+lake với 60 entity tổng hợp trong 11 iteration độc lập, giữ cùng quy mô với
+baseline đã commit. Gate so sánh throughput median của từng stage với ngưỡng tuyệt
+đối và baseline. Nhiều iteration giúp một lần runner bị gián đoạn ngắn ít chi
+phối kết quả. Gate không tự ghi lại hoặc hiệu chỉnh baseline.
 
 ## Quy tắc đo
 
