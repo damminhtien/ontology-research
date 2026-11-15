@@ -75,6 +75,9 @@ ex:la-001 a assertion:Assertion ;
     assertion:hasObject ex:loc-da-nang ;
     core:validFrom "2026-07-15T00:00:00Z"^^xsd:dateTime ;
     core:validUntil "2026-08-20T03:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2026-07-15T00:01:00Z"^^xsd:dateTime ;
+    assertion:evidenceQuality "direct"^^xsd:string ;
+    assertion:status "asserted"^^xsd:string ;
     core:hasSource src:open-report .
 
 ex:la-002 a assertion:Assertion ;
@@ -82,4 +85,7 @@ ex:la-002 a assertion:Assertion ;
     assertion:predicate core:locatedAt ;
     assertion:hasObject ex:loc-cam-ranh ;
     core:validFrom "2026-08-20T03:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2026-08-20T03:00:01Z"^^xsd:dateTime ;
+    assertion:evidenceQuality "corroborated"^^xsd:string ;
+    assertion:status "asserted"^^xsd:string ;
     core:hasSource src:sat-pass-0820 , src:ais-feed .

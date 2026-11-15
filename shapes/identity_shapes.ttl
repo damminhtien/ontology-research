@@ -3,6 +3,15 @@
 @prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
 @prefix identity: <https://damminhtien.github.io/ontology-research/ontology/middle/identity#> .
 
+identity:CanonicalEntityWriteShape a sh:NodeShape ;
+    sh:targetClass identity:CanonicalEntityWriteCandidate ;
+    sh:property [
+        sh:path core:name ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "A canonical entity write must include a string name."@en ;
+    ] .
+
 # A noncanonical reference carries exactly one source surface form.
 identity:UnresolvedReferenceShape a sh:NodeShape ;
     sh:targetClass identity:UnresolvedReference ;

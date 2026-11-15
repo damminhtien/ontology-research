@@ -25,7 +25,7 @@ class TestShellAndOverview:
         data = client.get("/api/overview").json()
         assert data["modules"], "expected at least the core module"
         core = next(m for m in data["modules"] if m["name"] == "core")
-        assert core["version"] == "2.0.0"
+        assert core["version"] == "2.1.0"
         assert {"classes", "properties"} <= set(core.keys())
         for key in ("version_check", "stability", "events", "cq"):
             assert key in data
@@ -35,7 +35,7 @@ class TestOntologyEndpoints:
     def test_model_counts_match_kernel(self, client):
         model = client.get("/api/ontology/model").json()
         assert len(model["classes"]) == 31
-        assert len(model["properties"]) == 68
+        assert len(model["properties"]) == 78
 
     def test_tree_roots_at_entity(self, client):
         tree = client.get("/api/ontology/tree").json()["tree"]
@@ -70,12 +70,12 @@ class TestRegistryEndpoints:
         ]
         assert core_entries[0]["version"] == "2.0.0"
 
-    def test_pending_with_no_changes_is_clean(self, client):
+    def test_unreleased_core_changes_remain_pending(self, client):
         data = client.get("/api/releases/core/pending").json()
         assert data["has_baseline"] is True
-        assert data["changes"] == []
-        assert data["severity"] == "NONE"
-        assert data["suggested_version"] is None
+        assert any(change["name"] == "recordedAt" for change in data["changes"])
+        assert data["severity"] == "MINOR"
+        assert data["suggested_version"] == "2.1.0"
 
     def test_diff_between_missing_versions_is_404(self, client):
         response = client.get(
@@ -84,11 +84,11 @@ class TestRegistryEndpoints:
         )
         assert response.status_code == 404
 
-    def test_versions_check_passes_on_clean_tree(self, client):
+    def test_versions_check_accepts_pending_minor_core_version(self, client):
         data = client.get("/api/versions/check").json()
         assert data["passed"] is True
         core = next(m for m in data["modules"] if m["module"] == "core")
-        assert core["declared_version"] == "2.0.0"
+        assert core["declared_version"] == "2.1.0"
         assert core["latest_version"] == "2.0.0"
 
     def test_stability_reports_core_breaking_release(self, client):

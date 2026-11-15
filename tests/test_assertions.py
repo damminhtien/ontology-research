@@ -87,17 +87,68 @@ class TestDocuments:
             uri="https://example.org/report-1",
             title="Weekly report",
             source_system="crawler",
+            content="weekly report body",
         )
         assert event.event_type == "DocumentRegistered"
         assert event.payload["document_id"].startswith("urn:doc:")
         assert len(log.read_all()) == 1
+        assert len(event.payload["content_hash"]) == 64
+        assert event.payload["source_record_key"].startswith("urn:source-record:")
+
+    def test_same_source_record_version_is_idempotent_and_changed_content_is_new_version(self, log):
+        fields = {
+            "uri": "https://example.org/report-versions",
+            "title": "Versioned report",
+            "source_system": "crawler",
+            "record_id": "report-17",
+            "content": "original report body",
+        }
+        first = register_document(log=log, **fields)
+        replayed = register_document(log=log, **fields)
+        updated = register_document(log=log, **{**fields, "content": "corrected report body"})
+
+        assert replayed.event_id == first.event_id
+        assert updated.event_id != first.event_id
+        assert updated.payload["source_record_key"] == first.payload["source_record_key"]
+        assert updated.payload["content_hash"] != first.payload["content_hash"]
+        assert len(log.read_all()) == 2
 
     @pytest.mark.parametrize("field", ["uri", "title", "source_system"])
     def test_register_document_rejects_empty_fields(self, log, field):
         kwargs = {"uri": "https://x", "title": "t", "source_system": "s"}
         kwargs[field] = "  "
         with pytest.raises(ValueError, match="must be non-empty"):
-            register_document(log=log, **kwargs)
+            register_document(log=log, content="body", **kwargs)
+
+    def test_register_document_requires_absolute_uri(self, log):
+        with pytest.raises(ValueError, match="document uri must be an absolute IRI"):
+            register_document(
+                log=log,
+                uri="report-1",
+                title="Report",
+                source_system="crawler",
+                content="body",
+            )
+
+    def test_document_requires_content_or_an_explicit_hash(self, log):
+        with pytest.raises(ValueError, match="content or an explicit content_hash"):
+            register_document(
+                log=log,
+                uri="https://example.org/report-1",
+                title="Report",
+                source_system="crawler",
+            )
+
+    def test_supplied_hash_must_match_document_content(self, log):
+        with pytest.raises(ValueError, match="does not match"):
+            register_document(
+                log=log,
+                uri="https://example.org/report-1",
+                title="Report",
+                source_system="crawler",
+                content="actual body",
+                content_hash="0" * 64,
+            )
 
 
 class TestMakeAssertion:
@@ -118,6 +169,62 @@ class TestMakeAssertion:
         assert event.payload["predicate_iri"] == CORE_LOCATED_AT
         assert event.payload["object"] == {"kind": "location", "value": LOC}
         assert event.payload["valid_until"] is None
+        assert event.payload["recorded_at"] == event.occurred_at
+        assert event.payload["recorded_at"] != event.payload["valid_from"]
+
+    def test_score_and_evidence_quality_are_separate_metadata(self, log, identity):
+        event = make_assertion(
+            log=log,
+            subject_id=E1,
+            predicate_iri=CORE_LOCATED_AT,
+            object_kind="location",
+            object_value=LOC,
+            valid_from="2026-08-01T00:00:00Z",
+            source_ids=["urn:doc:1"],
+            model_score=0.7,
+            evidence_quality="direct",
+            identity=identity,
+        )
+        assert event.payload["model_score"] == 0.7
+        assert event.payload["evidence_quality"] == "direct"
+        assert "confidence" not in event.payload
+
+    def test_idempotency_key_replays_the_original_assertion(self, log, identity):
+        fields = {
+            "log": log,
+            "subject_id": E1,
+            "predicate_iri": CORE_LOCATED_AT,
+            "object_kind": "location",
+            "object_value": LOC,
+            "valid_from": "2026-08-01T00:00:00Z",
+            "source_ids": ["urn:doc:1"],
+            "identity": identity,
+            "idempotency_key": "test:assertion:source-row-1",
+        }
+        original = make_assertion(**fields)
+        replayed = make_assertion(**fields)
+
+        assert replayed.event_id == original.event_id
+        assert len(log.read_all()) == 1
+
+    def test_idempotent_retry_ignores_model_score_drift(self, log, identity):
+        fields = {
+            "log": log,
+            "subject_id": E1,
+            "predicate_iri": CORE_LOCATED_AT,
+            "object_kind": "location",
+            "object_value": LOC,
+            "valid_from": "2026-08-01T00:00:00Z",
+            "source_ids": ["urn:doc:1"],
+            "identity": identity,
+            "idempotency_key": "test:assertion:score-drift",
+        }
+        original = make_assertion(**fields, model_score=0.7)
+        replayed = make_assertion(**fields, model_score=0.63)
+
+        assert replayed.event_id == original.event_id
+        assert replayed.payload["model_score"] == 0.7
+        assert len(log.read_all()) == 1
 
     def test_absolute_predicate_iri_is_recorded_verbatim(self, log, identity):
         event = make_assertion(
@@ -217,13 +324,38 @@ class TestMakeAssertion:
         )
         assert replacement.payload["supersedes"] == assertion_id
 
-        supersede_assertion(log=log, assertion_id=assertion_id, reason="corrected")
         assert is_superseded(log, assertion_id)
 
         with pytest.raises(ValueError, match="already superseded"):
             supersede_assertion(log=log, assertion_id=assertion_id)
         with pytest.raises(ValueError, match="unknown assertion"):
             supersede_assertion(log=log, assertion_id="urn:assert:missing")
+
+        ledger = load_assertions(log)
+        assert ledger[assertion_id]["status"] == "superseded"
+        assert ledger[assertion_id]["superseded_by"] == replacement.payload["assertion_id"]
+
+    def test_retraction_retry_returns_the_committed_event(self, log, identity):
+        claim = make_assertion(
+            log=log,
+            subject_id=E1,
+            predicate_iri=CORE_LOCATED_AT,
+            object_kind="location",
+            object_value=LOC,
+            valid_from="2026-08-01T00:00:00Z",
+            source_ids=["s"],
+            identity=identity,
+        )
+
+        first = supersede_assertion(
+            log=log, assertion_id=claim.payload["assertion_id"], reason="withdrawn"
+        )
+        retried = supersede_assertion(
+            log=log, assertion_id=claim.payload["assertion_id"], reason="withdrawn"
+        )
+
+        assert retried.event_id == first.event_id
+        assert len(log.read_all()) == 2
 
     def test_supersedes_unknown_target_rejected(self, log):
         with pytest.raises(ValueError, match="not a recorded assertion"):
@@ -253,8 +385,8 @@ class TestLedgerReplay:
         )
         supersede_assertion(log=log, assertion_id=first.payload["assertion_id"])
         ledger = load_assertions(log)
-        assert ledger[first.payload["assertion_id"]]["status"] == "superseded"
-        assert "superseded" in dump_assertions(ledger)
+        assert ledger[first.payload["assertion_id"]]["status"] == "retracted"
+        assert '"status": "retracted"' in dump_assertions(ledger)
 
 
 def _entity_event(entity_id: str, name: str):
@@ -288,6 +420,7 @@ class TestPipelineAssertions:
             uri="https://example.org/report-1",
             title="Weekly report",
             source_system="crawler",
+            content="weekly report body",
         )
         result = pipeline.ingest_assertion(
             subject_id=created.canonical_id,
@@ -334,6 +467,7 @@ class TestPipelineAssertions:
             uri="https://example.org/report-1",
             title="Weekly report",
             source_system="crawler",
+            content="weekly report body",
         )
         first = pipeline.ingest_assertion(
             subject_id=created.canonical_id,
@@ -365,6 +499,7 @@ class TestPipelineAssertions:
             uri="https://example.org/report-1",
             title="Weekly report",
             source_system="crawler",
+            content="weekly report body",
         )
         result = pipeline.ingest_assertion(
             subject_id=created.canonical_id,
@@ -404,6 +539,7 @@ class TestPipelineAssertions:
             uri="https://example.org/report-1",
             title="Weekly report",
             source_system="crawler",
+            content="weekly report body",
         )
         result = pipeline.ingest_assertion(
             subject_id=created.canonical_id,
@@ -517,7 +653,7 @@ class TestAssertionProjection:
             )
         )
         model2, _stats2 = replay_log(log)
-        assert model2.get_assertion(aid)["status"] == "superseded"
+        assert model2.get_assertion(aid)["status"] == "retracted"
         assert model2.active_assertions(e_org, CORE_MEMBER_OF) == []
 
     def test_generic_relationship_as_of_honors_half_open_validity(self, tmp_path):

@@ -6,9 +6,10 @@ import pytest
 from conftest import CORE_ONTOLOGY, SHAPES_FILE
 
 from foundry.events import EventLog
-from foundry.identity import IdentityService
+from foundry.identity import IdentityService, SourceRecordIdentity
 from foundry.ingestion import IngestionPipeline
 from foundry.merge import rebuild_identity
+from foundry.provenance import stable_source_record_key
 
 LOCATION_URI = "https://data.example/entity/loc-cam-ranh"
 SOURCE_URI = "https://data.example/source/sat-pass-0820"
@@ -46,6 +47,31 @@ class TestEntityIngestion:
         )
         assert first.canonical_id == second.canonical_id
         assert len(pipeline._log.read_all()) == 1
+
+    def test_changed_source_record_content_is_logged_as_a_new_version(self, pipeline):
+        first = pipeline.ingest_entity(
+            name="Patrol Vessel 01",
+            entity_type="Platform",
+            source_id="fleet-feed",
+            record_id="row-17",
+        )
+        updated = pipeline.ingest_entity(
+            name="Patrol Vessel 01 (updated label)",
+            entity_type="Platform",
+            source_id="fleet-feed",
+            record_id="row-17",
+        )
+
+        assert first.canonical_id == updated.canonical_id
+        assert updated.event.event_type == "SourceRecordMatched"
+        assert len(updated.event.payload["content_hash"]) == 64
+        assert len(pipeline._log.read_all()) == 2
+        assert (
+            pipeline._identity.lookup(
+                name="Patrol Vessel 01 (updated label)", entity_type="Platform"
+            ).canonical_id
+            == first.canonical_id
+        )
 
     def test_aliases_are_persisted_on_entity_created(self, pipeline):
         result = pipeline.ingest_entity(
@@ -85,6 +111,18 @@ class TestEntityIngestion:
         assert result.accepted
         event = pipeline._log.read_all()[0]
         assert event.payload["external_ids"] == [{"source": "wikidata", "external_id": "Q10832632"}]
+        assert event.payload["source_record_key"] == stable_source_record_key("s1", "s1")
+        assert len(event.payload["content_hash"]) == 64
+
+    def test_partial_external_identifier_is_rejected_without_a_write(self, pipeline):
+        with pytest.raises(ValueError, match="must be supplied together"):
+            pipeline.ingest_entity(
+                name="Org A",
+                entity_type="Organization",
+                source_id="catalog",
+                external_source="wikidata",
+            )
+        assert pipeline._log.read_all() == []
 
     def test_entity_without_external_id_persists_empty_bindings(self, pipeline):
         result = pipeline.ingest_entity(
@@ -259,7 +297,7 @@ class TestExternalIdBinding:
             shapes_path=SHAPES_FILE,
         )
 
-    def test_alias_hit_binds_missing_external_id(self, tmp_path):
+    def test_alias_hit_with_untrusted_id_requires_review(self, tmp_path):
         log_path = tmp_path / "events.jsonl"
         pipeline = self._pipeline(log_path)
         created = pipeline.ingest_entity(
@@ -271,28 +309,28 @@ class TestExternalIdBinding:
         )
         assert created.is_new
 
-        # Same surface name, different registry: alias hit, and the trusted
-        # id that missed must be bound and recorded as ExternalIdBound.
-        bound = pipeline.ingest_entity(
+        # Name similarity and a candidate-only namespace do not establish identity.
+        review = pipeline.ingest_entity(
             name="Org A",
             entity_type="Organization",
             source_id="reg:B",
             external_source="reg",
             external_id="B",
         )
-        assert bound.accepted and not bound.is_new
-        assert bound.event is not None
-        assert bound.event.event_type == "ExternalIdBound"
+        assert not review.accepted
+        assert review.event is not None
+        assert review.event.event_type == "ResolutionReviewQueued"
 
         events = EventLog(log_path).read_all()
-        assert [e.event_type for e in events] == ["EntityCreated", "ExternalIdBound"]
-        assert events[1].payload == {
-            "entity_id": created.canonical_id,
-            "source": "reg",
-            "external_id": "B",
-        }
+        assert [e.event_type for e in events] == ["EntityCreated", "ResolutionReviewQueued"]
+        assert (
+            pipeline._identity.lookup(
+                external_source="reg", external_id="B", entity_type="Organization"
+            ).method
+            == "miss"
+        )
 
-    def test_binding_is_idempotent(self, tmp_path):
+    def test_authoritative_match_records_source_record_idempotently(self, tmp_path):
         log_path = tmp_path / "events.jsonl"
         pipeline = self._pipeline(log_path)
         pipeline.ingest_entity(
@@ -303,23 +341,26 @@ class TestExternalIdBinding:
             external_id="Q1",
         )
         pipeline.ingest_entity(
-            name="Org A",
+            name="Alternate Org A label",
             entity_type="Organization",
-            source_id="reg:B",
-            external_source="reg",
-            external_id="B",
+            source_id="catalog",
+            record_id="record-2",
+            external_source="wikidata",
+            external_id="Q1",
         )
         repeat = pipeline.ingest_entity(
-            name="Org A",
+            name="Alternate Org A label",
             entity_type="Organization",
-            source_id="reg:B",
-            external_source="reg",
-            external_id="B",
+            source_id="catalog",
+            record_id="record-2",
+            external_source="wikidata",
+            external_id="Q1",
         )
-        assert repeat.accepted and repeat.event is None  # now an external-id hit
+        assert repeat.accepted and repeat.event is not None
+        assert repeat.event.event_type == "SourceRecordMatched"
         assert len(EventLog(log_path).read_all()) == 2
 
-    def test_rebuild_applies_binding_events(self, tmp_path):
+    def test_rebuild_applies_source_record_matches(self, tmp_path):
         log_path = tmp_path / "events.jsonl"
         pipeline = self._pipeline(log_path)
         created = pipeline.ingest_entity(
@@ -330,16 +371,56 @@ class TestExternalIdBinding:
             external_id="Q1",
         )
         pipeline.ingest_entity(
-            name="Org A",
+            name="Alternate Org A label",
             entity_type="Organization",
-            source_id="reg:B",
-            external_source="reg",
-            external_id="B",
+            source_id="catalog",
+            record_id="record-2",
+            external_source="wikidata",
+            external_id="Q1",
         )
         rebuilt = rebuild_identity(EventLog(log_path))
-        for source, ext in (("wikidata", "Q1"), ("reg", "B")):
-            hit = rebuilt.lookup(
-                external_source=source, external_id=ext, entity_type="Organization"
+        hit = rebuilt.lookup(
+            external_source="wikidata", external_id="Q1", entity_type="Organization"
+        )
+        assert hit.method == "external_id"
+        assert hit.canonical_id == created.canonical_id
+        resolution = rebuilt.resolve(
+            name="alternate",
+            entity_type="Organization",
+            source_record=SourceRecordIdentity("catalog", "record-2"),
+        )
+        assert resolution.decision.value == "MATCH"
+        assert resolution.canonical_id == created.canonical_id
+
+    def test_same_ship_name_with_different_authoritative_ids_stays_distinct(self, pipeline):
+        first = pipeline.ingest_entity(
+            name="INS Same Name",
+            entity_type="Platform",
+            source_id="hull-source",
+            record_id="hull-1",
+            external_source="usn-hull",
+            external_id="DDG-101",
+        )
+        second = pipeline.ingest_entity(
+            name="INS Same Name",
+            entity_type="Platform",
+            source_id="fleet-source",
+            record_id="fleet-2",
+            external_source="usn-hull",
+            external_id="DDG-202",
+        )
+        assert first.accepted and second.accepted
+        assert first.canonical_id != second.canonical_id
+        expected_bindings = (
+            ("DDG-101", first.canonical_id),
+            ("DDG-202", second.canonical_id),
+        )
+        for external_id, expected_id in expected_bindings:
+            assert (
+                pipeline._identity.lookup(
+                    external_source="usn-hull",
+                    external_id=external_id,
+                    entity_type="Platform",
+                ).canonical_id
+                == expected_id
             )
-            assert hit.method == "external_id"
-            assert hit.canonical_id == created.canonical_id

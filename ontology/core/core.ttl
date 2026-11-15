@@ -9,7 +9,7 @@
 <https://damminhtien.github.io/ontology-research/ontology/core> a owl:Ontology ;
     dcterms:title "Semantic Core Kernel"@en ;
     dcterms:description "Semantic kernel: only stable, cross-domain classes and predicates. The hierarchy splits into disjoint branches — an information object (what we know: sources, statements) is never an event (what happened)."@en ;
-    dcterms:version "2.0.0" ;
+    dcterms:version "2.1.0" ;
     vann:preferredNamespacePrefix "core" ;
     vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/core#" .
 
@@ -149,8 +149,11 @@ core:validFrom a owl:DatatypeProperty ; rdfs:domain core:InformationObject ; rdf
     rdfs:label "valid from"@en ; rdfs:comment "Temporal validity start of an asserted fact. Domain is the information object (the statement), not the event that recorded it — an assertion stays valid after the assertion event happened."@en .
 core:validUntil a owl:DatatypeProperty ; rdfs:domain core:InformationObject ; rdfs:range xsd:dateTime ;
     rdfs:label "valid until"@en .
+core:recordedAt a owl:DatatypeProperty ; rdfs:domain core:InformationObject ; rdfs:range xsd:dateTime ;
+    rdfs:label "recorded at"@en ;
+    rdfs:comment "Instant this information object entered the event log. This is recorded time, not world valid time."@en .
 core:hasConfidence a owl:DatatypeProperty ; rdfs:domain core:Entity ; rdfs:range xsd:decimal ;
-    rdfs:label "has confidence"@en ; rdfs:comment "Assessed confidence in [0,1]. Constrained by SHACL. Carried by events (an observation act) and by derived information objects (an assertion), hence the domain-agnostic core:Entity."@en .
+    rdfs:label "has confidence"@en ; rdfs:comment "A domain-specific score in [0,1]. It is not, by itself, a probability that a world fact is true; assertion extraction scores use assertion:modelScore."@en .
 
 core:assertable a owl:AnnotationProperty ;
     rdfs:label "assertable"@en ;

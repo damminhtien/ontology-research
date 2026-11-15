@@ -10,7 +10,7 @@
 
 <https://damminhtien.github.io/ontology-research/ontology/middle/assertion> a owl:Ontology ;
     dcterms:title "Middle Layer: Document/Assertion Model"@en ;
-    dcterms:description "Generic assertion mapping (docs/architecture.md §4.2). An Assertion reifies one statement about the world with provenance and bi-temporal validity; every concrete fact type builds on it. Reuses core properties (core:describes, core:hasSource, core:validFrom, core:validUntil, core:hasConfidence) — this module adds the two classes, the predicate/object properties and the supersedes relation. The event that records a statement is AssertionMade; an Assertion is the statement itself, not an event."@en ;
+    dcterms:description "Generic assertion mapping (docs/architecture.md §4.2). An Assertion reifies one statement about the world with provenance and separate valid and recorded time; every concrete fact type builds on it. Assertion model scores and evidence quality are distinct metadata and do not imply fact probabilities. The event that records a statement is AssertionMade; an Assertion is the statement itself, not an event."@en ;
     dcterms:version "2.0.0" ;
     owl:imports <https://damminhtien.github.io/ontology-research/ontology/core> ;
     owl:imports <https://damminhtien.github.io/ontology-research/ontology/middle/identity> ;
@@ -83,3 +83,27 @@ assertion:spanEnd a owl:DatatypeProperty ; rdfs:domain assertion:EvidenceReferen
     rdfs:label "span end"@en ; core:assertable false .
 assertion:spanUnit a owl:DatatypeProperty ; rdfs:domain assertion:EvidenceReference ; rdfs:range xsd:string ;
     rdfs:label "span unit"@en ; core:assertable false .
+assertion:exactText a owl:DatatypeProperty ; rdfs:domain assertion:EvidenceReference ; rdfs:range xsd:string ;
+    rdfs:label "exact text"@en ; rdfs:comment "Verbatim source text covered by the evidence span, when available."@en ; core:assertable false .
+
+assertion:modelScore a owl:DatatypeProperty ; rdfs:domain assertion:Assertion ; rdfs:range xsd:decimal ;
+    rdfs:label "model score"@en ;
+    rdfs:comment "An extractor or system score in [0,1]. It is not a probability that the asserted fact is true."@en ;
+    core:assertable false .
+assertion:evidenceQuality a owl:DatatypeProperty ; rdfs:domain assertion:Assertion ; rdfs:range xsd:string ;
+    rdfs:label "evidence quality"@en ;
+    rdfs:comment "Categorical evidence assessment, independent of model score."@en ;
+    core:assertable false .
+assertion:status a owl:DatatypeProperty ; rdfs:domain assertion:Assertion ; rdfs:range xsd:string ;
+    rdfs:label "assertion status"@en ; core:assertable false .
+
+assertion:documentUri a owl:DatatypeProperty ; rdfs:domain assertion:Document ; rdfs:range xsd:string ;
+    rdfs:label "document URI"@en ; core:assertable false .
+assertion:sourceSystem a owl:DatatypeProperty ; rdfs:domain assertion:Document ; rdfs:range xsd:string ;
+    rdfs:label "source system"@en ; core:assertable false .
+assertion:sourceRecordId a owl:DatatypeProperty ; rdfs:domain assertion:Document ; rdfs:range xsd:string ;
+    rdfs:label "source record ID"@en ; core:assertable false .
+assertion:sourceRecordKey a owl:DatatypeProperty ; rdfs:domain assertion:Document ; rdfs:range xsd:string ;
+    rdfs:label "source record key"@en ; core:assertable false .
+assertion:contentHash a owl:DatatypeProperty ; rdfs:domain assertion:Document ; rdfs:range xsd:string ;
+    rdfs:label "content hash"@en ; core:assertable false .

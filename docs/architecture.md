@@ -87,7 +87,7 @@ code hiện tại, không phải kế hoạch chuyển đổi còn mở.
 log riêng và **không bao giờ** là default của tool production. Writer an toàn:
 
 ```text
-EventLog (event schema v4; upcaster reads log v1–v3)
+EventLog (event schema v6; upcaster reads log v1–v5)
 ├── writer lock file (flock) — writer thứ hai fail nhanh, không xen kẽ
 ├── fsync mỗi batch (mỗi lần extend) — crash không mất batch đã báo thành công
 ├── segment files: production-000001.jsonl, … (roll khi đạt ngưỡng hoặc trước
@@ -112,16 +112,16 @@ nhất, làm nền cho mọi fact type sau này:
 ```text
 Document                          Assertion
   document_id (urn:doc:)            assertion_id (urn:assert:)
-  uri / title / fetched_at          subject_id   (canonical entity)
-  source_system                     predicate_iri (IRI tuyệt đối: core:locatedAt)
-  content_ref                       object       (location_uri / entity_id / literal)
+  uri / title / content_ref         subject_id   (canonical entity)
+  source_system / source_record_key predicate_iri (IRI tuyệt đối: core:locatedAt)
+  content_hash (SHA-256)            object       (location_uri / entity_id / literal)
                                     ── generic provenance, mọi assertion như nhau:
                                     valid_from / valid_until (valid-time, [from, until))
-                                    occurred_at             (event record-time)
+                                    recorded_at              (event record-time)
                                     source_ids[]            (Source refs)
                                     evidence[]              (source locator/span)
-                                    confidence
-                                    status: asserted | superseded (read model)
+                                    model_score / evidence_quality
+                                    status: asserted | superseded | retracted (read model)
                                     supersedes: assertion_id | null
 ```
 
@@ -131,7 +131,7 @@ Quy tắc hiện hành:
   `AssertionSuperseded` (retract assertion). Correction tạo assertion thay thế
   với `supersedes` trỏ assertion trước đó. `LocationObserved` cũ được upcast
   thành `AssertionMade(predicate_iri=core:locatedAt)` khi đọc; producer mới chỉ
-  dùng assertion lane (event schema v4, `CHANGELOG-DATA.md`).
+  dùng assertion lane (event schema v6, `CHANGELOG-DATA.md`).
 - **Assertion là information object, không phải event**: `assertion:Assertion ⊑
   core:InformationObject`; quan hệ là một node trong graph
   (`assertion:predicate` → IRI của property, vd `core:locatedAt`), nên hai mệnh
@@ -149,8 +149,19 @@ Quy tắc hiện hành:
   measurement predicates là projection/output-only, không được ingest như world
   assertions.
 - Source IDs được chuẩn hóa thành `core:Source`; evidence giữ source-local
-  locator/span. Unresolved subjects dùng `identity:UnresolvedReference`, không
-  được gán kiểu `core:Entity`.
+  locator/span và exact text khi có. `model_score` mô tả điểm của extractor;
+  `evidence_quality` đánh giá chất lượng nguồn độc lập. Không trường nào trong
+  hai trường này biểu thị xác suất fact đúng. Unresolved subjects dùng
+  `identity:UnresolvedReference`, không được gán kiểu `core:Entity`.
+- `recorded_at` luôn tách khỏi valid-time. Cùng source record và cùng SHA-256
+  content hash tạo lại cùng document event; nội dung khác tạo document version
+  mới nhưng giữ nguyên source-record key. Entity/source-record events cũng lưu
+  stable key và hash của payload nguồn đã chuẩn hóa.
+- Replacement assertion phải trỏ tới assertion chưa được thay thế; một khóa
+  trạng thái duy nhất ngăn retry ghi lặp hoặc hai correction cùng thay một
+  claim. Replay giữ predecessor với trạng thái `superseded`; retraction không
+  có replacement có trạng thái `retracted`. Các giá trị valid-time chồng lấn
+  mà không có correction vẫn hiện thành conflict.
 - Entity creation giữ nguyên `EntityCreated` (đã đúng vai trò event).
 
 Location and other facts now share the same assertion lane. The v3→v4 upcaster

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 
 import pytest
@@ -231,6 +232,130 @@ class TestSegmentedTransport:
         log.append(make_event("EntityCreated", {"n": 1}))
         assert len(log.read_all()) == 1
 
+    def test_batch_is_idempotent_and_rejects_key_reuse(self, tmp_path):
+        log = EventLog(tmp_path / "events.jsonl")
+        key = "ingest:registry:record-17:v3"
+        fingerprint = "f" * 64
+        original = log.commit(
+            [
+                make_event("EntityCreated", {"entity_id": "urn:x:one"}),
+                make_event("AssertionMade", {"assertion_id": "urn:assert:one"}),
+            ],
+            idempotency_key=key,
+            request_fingerprint=fingerprint,
+        )
+        retry = log.commit(
+            [
+                make_event("EntityCreated", {"entity_id": "urn:x:one"}),
+                make_event("AssertionMade", {"assertion_id": "urn:assert:one"}),
+            ],
+            idempotency_key=key,
+            request_fingerprint=fingerprint,
+        )
+
+        assert not original.duplicate
+        assert retry.duplicate
+        assert retry.events == original.events
+        assert [event.sequence for event in log.read_all()] == [1, 2]
+        with pytest.raises(ValueError, match="different request"):
+            log.commit(
+                [make_event("EntityCreated", {"entity_id": "urn:x:other"})],
+                idempotency_key=key,
+                request_fingerprint="different",
+            )
+
+    def test_sequence_allocator_does_not_rescan_after_index_initialization(
+        self, tmp_path, monkeypatch
+    ):
+        log = EventLog(tmp_path / "events.jsonl")
+        log.append(make_event("EntityCreated", {"n": 1}))
+
+        def unexpected_scan():
+            raise AssertionError("legacy scan should run only once")
+
+        monkeypatch.setattr(log, "_scan_legacy_segments", unexpected_scan)
+        log.append(make_event("EntityCreated", {"n": 2}))
+        assert [event.sequence for event in log.read_all()] == [1, 2]
+
+    def test_disk_full_does_not_publish_a_partial_batch(self, tmp_path, monkeypatch):
+        log = EventLog(tmp_path / "events.jsonl")
+        log.append(make_event("EntityCreated", {"n": 1}))
+        original_write = log._write_bytes
+        writes = 0
+
+        def fail_on_second_write(handle, data):
+            nonlocal writes
+            writes += 1
+            if writes == 2:
+                raise OSError(errno.ENOSPC, "No space left on device")
+            original_write(handle, data)
+
+        monkeypatch.setattr(log, "_write_bytes", fail_on_second_write)
+        with pytest.raises(OSError) as exc_info:
+            log.extend(
+                [
+                    make_event("EntityCreated", {"n": 2}),
+                    make_event("EntityCreated", {"n": 3}),
+                ]
+            )
+        assert exc_info.value.errno == errno.ENOSPC
+        assert [event.payload["n"] for event in log.read_all()] == [1]
+        monkeypatch.setattr(log, "_write_bytes", original_write)
+        log.append(make_event("EntityCreated", {"n": 4}))
+        assert [event.sequence for event in log.read_all()] == [1, 2]
+
+    def test_fsync_failure_after_write_recovers_previous_commit(self, tmp_path, monkeypatch):
+        log = EventLog(tmp_path / "events.jsonl")
+        log.append(make_event("EntityCreated", {"n": 1}))
+        original_fsync = log._fsync_file
+        calls = 0
+
+        def fail_once(handle):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError(errno.EIO, "simulated crash before fsync")
+            original_fsync(handle)
+
+        monkeypatch.setattr(log, "_fsync_file", fail_once)
+        with pytest.raises(OSError, match="simulated crash"):
+            log.extend(
+                [
+                    make_event("EntityCreated", {"n": 2}),
+                    make_event("EntityCreated", {"n": 3}),
+                ]
+            )
+        assert [event.payload["n"] for event in log.read_all()] == [1]
+        log.append(make_event("EntityCreated", {"n": 4}))
+        assert [event.payload["n"] for event in log.read_all()] == [1, 4]
+        assert [event.sequence for event in log.read_all()] == [1, 2]
+
+    def test_failed_batch_that_rotated_segment_restores_old_active(self, tmp_path, monkeypatch):
+        log = EventLog(tmp_path / "events.jsonl", max_segment_bytes=180)
+        log.append(make_event("EntityCreated", {"n": 1}))
+        before = log.read_all()
+        original_write = log._write_bytes
+        writes = 0
+
+        def fail_on_second_write(handle, data):
+            nonlocal writes
+            writes += 1
+            if writes == 2:
+                raise OSError(errno.ENOSPC, "simulated disk full after rotation")
+            original_write(handle, data)
+
+        monkeypatch.setattr(log, "_write_bytes", fail_on_second_write)
+        with pytest.raises(OSError, match="disk full"):
+            log.extend(
+                [
+                    make_event("EntityCreated", {"n": 2, "long": "x" * 100}),
+                    make_event("EntityCreated", {"n": 3, "long": "y" * 100}),
+                ]
+            )
+        assert log.read_all() == before
+        log.append(make_event("EntityCreated", {"n": 4}))
+        assert [event.sequence for event in log.read_all()] == [1, 2]
+
     def test_max_segment_bytes_must_be_positive(self, tmp_path):
         with pytest.raises(ValueError, match="max_segment_bytes"):
             EventLog(tmp_path / "log.jsonl", max_segment_bytes=0)
@@ -257,7 +382,8 @@ class TestUpcasters:
 
     def test_mixed_legacy_and_current_log_replays_in_order(self, tmp_path):
         path = tmp_path / "events.jsonl"
-        EventLog(path).append(make_event("EntityCreated", {"n": "current-1"}))
+        log = EventLog(path)
+        log.append(make_event("EntityCreated", {"n": "current-1"}))
         legacy = {
             "event_id": "cafebabe" * 4,
             "event_type": "LocationObserved",
@@ -267,6 +393,9 @@ class TestUpcasters:
         }
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(legacy) + "\n")
+        # Simulate an old append-only log that was written without the new
+        # metadata sidecar. The next writer performs the one-time migration.
+        log.index_path.unlink()
         EventLog(path).append(make_event("EntityCreated", {"n": "current-2"}))
         replayed = EventLog(path).read_all()
         assert [e.payload.get("n") for e in replayed] == ["current-1", None, "current-2"]
@@ -357,8 +486,8 @@ class TestUpcasters:
         with pytest.raises(ValueError, match="unknown legacy predicate"):
             event_from_dict(record)
 
-    def test_v2_non_assertion_record_upcasts_untouched(self):
-        """Only AssertionMade payloads change; other types keep their payload."""
+    def test_v2_entity_record_gains_source_record_metadata(self):
+        """Legacy entities gain stable identity metadata during the v6 upcast."""
         record = {
             "event_id": "beef" * 8,
             "event_type": "EntityCreated",
@@ -368,7 +497,12 @@ class TestUpcasters:
         }
         event = event_from_dict(record)
         assert event.schema_version == SCHEMA_VERSION
-        assert event.payload == {"entity_id": "urn:x:1", "predicate": "not-a-relation"}
+        assert event.payload["entity_id"] == "urn:x:1"
+        assert event.payload["predicate"] == "not-a-relation"
+        assert event.payload["source_id"] == "urn:source:legacy"
+        assert event.payload["source_record_id"].startswith("event:")
+        assert event.payload["source_record_key"].startswith("urn:source-record:")
+        assert len(event.payload["content_hash"]) == 64
 
     def test_upcasters_table_covers_all_historical_versions(self):
         from foundry.events import UPCASTERS

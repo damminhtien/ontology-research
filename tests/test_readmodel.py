@@ -130,6 +130,10 @@ class TestReadModelQueries:
         assert model.current_location(E1).location_uri == LOC_B
         assert model.location_as_of(E1, parse_instant("2026-07-15T00:00:00Z")).location_uri == LOC_B
         assert model.get_assertion(original.payload["assertion_id"])["status"] == "superseded"
+        assert (
+            model.get_assertion(original.payload["assertion_id"])["superseded_by"]
+            == corrected.payload["assertion_id"]
+        )
         assert model.entities_at(LOC_A) == set()
         assert model.entities_at(LOC_B) == {E1}
 
@@ -140,10 +144,16 @@ class TestReadModelQueries:
         claim = _location_event(E1, LOC_A, "2026-07-15T00:00:00Z")
         projector.apply(claim)
         projector.apply(
-            make_event("AssertionSuperseded", {"assertion_id": claim.payload["assertion_id"]})
+            make_event(
+                "AssertionSuperseded",
+                {"assertion_id": claim.payload["assertion_id"], "reason": "duplicate"},
+            )
         )
 
-        assert model.get_assertion(claim.payload["assertion_id"])["status"] == "superseded"
+        assert model.get_assertion(claim.payload["assertion_id"])["status"] == "retracted"
+        assert (
+            model.get_assertion(claim.payload["assertion_id"])["superseded_reason"] == "duplicate"
+        )
         assert model.current_location(E1) is None
         assert model.entities_at(LOC_A) == set()
 

@@ -120,6 +120,24 @@ class TestTrackingVertical:
         assert result.event.event_type == "SensorRegistered"
         assert result.event.payload["platform_entity_id"] == platform.canonical_id
 
+    def test_failed_sensor_append_does_not_mutate_identity(self, pipeline, monkeypatch):
+        platform = self._register_platform(pipeline)
+
+        def fail_append(_event):
+            raise OSError("simulated event-log failure")
+
+        monkeypatch.setattr(pipeline._log, "append", fail_append)
+        with pytest.raises(OSError, match="simulated event-log failure"):
+            self._register_sensor(pipeline, platform)
+
+        assert len(pipeline._identity) == 1
+        assert (
+            pipeline._identity.lookup(
+                name="Radar KQ-01", external_source="sensor-registry", external_id="RADAR-KQ-01"
+            ).method
+            == "miss"
+        )
+
     def test_sensor_registration_is_idempotent_by_serial(self, pipeline):
         platform = self._register_platform(pipeline)
         first = self._register_sensor(pipeline, platform)

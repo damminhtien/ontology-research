@@ -6,7 +6,7 @@ pipeline decides. Therefore this module enforces:
 
 - no extractor output ever mints an entity or merges automatically —
   unresolved references route to the durable review queue;
-- extracted facts carry capped confidence and full provenance (the citing
+- extracted facts carry a capped model score and full provenance (the citing
   document id), so they are visibly weaker than structured-source facts;
 - every accepted candidate passes the same SHACL assertion gate as
   structured data.
@@ -20,17 +20,20 @@ the pipeline never changes.
 from __future__ import annotations
 
 import json
+import math
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
 from foundry.namespaces import CORE_LOCATED_AT, CORE_MEMBER_OF
 
-CAP_EXTRACTED_CONFIDENCE = 0.7
+CAP_EXTRACTED_MODEL_SCORE = 0.7
+# Deprecated name retained for downstream callers during migration.
+CAP_EXTRACTED_CONFIDENCE = CAP_EXTRACTED_MODEL_SCORE
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class CandidateFact:
     """One proposed fact from an unstructured document.
 
@@ -44,8 +47,57 @@ class CandidateFact:
     object_kind: str  # entity | location | literal
     object_value: str
     valid_from: str | None
-    confidence: float
+    model_score: float
     snippet: str = ""
+    evidence_span: dict[str, object] | None = None
+
+    def __init__(
+        self,
+        *,
+        subject_name: str,
+        predicate_iri: str,
+        object_kind: str,
+        object_value: str,
+        valid_from: str | None,
+        model_score: float | None = None,
+        confidence: float | None = None,
+        snippet: str = "",
+        evidence_span: Mapping[str, object] | None = None,
+    ) -> None:
+        """Build a proposal with a score, not a claim probability.
+
+        ``confidence`` remains a deprecated constructor alias for older
+        extractor plugins.
+        """
+        if model_score is not None and confidence is not None:
+            raise ValueError("supply model_score; confidence is a deprecated alias")
+        score = model_score if model_score is not None else confidence
+        if score is None:
+            score = 0.0
+        if isinstance(score, bool):
+            raise ValueError("model_score must be numeric, not boolean")
+        score = float(score)
+        if not math.isfinite(score) or not 0.0 <= score <= 1.0:
+            raise ValueError("model_score must be finite and in [0, 1]")
+        if evidence_span is not None and not isinstance(evidence_span, Mapping):
+            raise ValueError("evidence_span must be an object")
+        object.__setattr__(self, "subject_name", subject_name)
+        object.__setattr__(self, "predicate_iri", predicate_iri)
+        object.__setattr__(self, "object_kind", object_kind)
+        object.__setattr__(self, "object_value", object_value)
+        object.__setattr__(self, "valid_from", valid_from)
+        object.__setattr__(self, "model_score", score)
+        object.__setattr__(self, "snippet", snippet)
+        object.__setattr__(
+            self,
+            "evidence_span",
+            dict(evidence_span) if evidence_span is not None else None,
+        )
+
+    @property
+    def confidence(self) -> float:
+        """Deprecated alias; this is an extractor score, not fact probability."""
+        return self.model_score
 
 
 class Extractor(Protocol):
@@ -151,8 +203,14 @@ class PatternExtractor:
                         object_kind=pattern.object_kind,
                         object_value=obj,
                         valid_from=valid_from,
-                        confidence=CAP_EXTRACTED_CONFIDENCE,
+                        model_score=CAP_EXTRACTED_MODEL_SCORE,
                         snippet=sentence,
+                        evidence_span={
+                            "start": match.start(),
+                            "end": match.end(),
+                            "unit": "character",
+                            "exact_text": sentence,
+                        },
                     )
                 )
         return candidates
@@ -197,14 +255,23 @@ class LlmExtractor:
             raise ValueError("LLM completion must be a JSON array of candidate facts")
         candidates: list[CandidateFact] = []
         for item in items:
+            if not isinstance(item, dict):
+                raise ValueError("each LLM candidate must be an object")
+            raw_score = item.get("model_score", item.get("confidence", 0.0))
+            if isinstance(raw_score, bool):
+                raise ValueError("LLM model_score must be numeric, not boolean")
+            score = float(raw_score)
+            if not math.isfinite(score) or score < 0.0:
+                raise ValueError("LLM model_score must be finite and non-negative")
             candidate = CandidateFact(
                 subject_name=str(item.get("subject_name", "")).strip(),
                 predicate_iri=str(item.get("predicate_iri", "")).strip(),
                 object_kind=str(item.get("object_kind", "")).strip(),
                 object_value=str(item.get("object_value", "")).strip(),
                 valid_from=item.get("valid_from"),
-                confidence=min(float(item.get("confidence", 0.0)), CAP_EXTRACTED_CONFIDENCE),
+                model_score=min(score, CAP_EXTRACTED_MODEL_SCORE),
                 snippet=str(item.get("snippet", ""))[:200],
+                evidence_span=item.get("evidence_span"),
             )
             if candidate.subject_name and candidate.predicate_iri and candidate.object_value:
                 candidates.append(candidate)

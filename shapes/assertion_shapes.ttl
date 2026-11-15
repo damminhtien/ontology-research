@@ -6,8 +6,8 @@
 # (assertion:predicate), typed object (assertion:hasObject for entities and
 # locations, assertion:literalValue for literals), valid time (core:validFrom,
 # core:validUntil), provenance (core:hasSource → core:Source) and
-# optional confidence. Corrections are replacement assertions linked by
-# assertion:supersedes; AssertionSuperseded events represent retractions with
+# model-score and evidence-quality metadata. Corrections are replacement
+# assertions linked by assertion:supersedes; AssertionSuperseded events represent retractions with
 # no replacement. Neither operation rewrites history (ADR-0002). Property
 # counts mirror the write-path validation in
 # foundry/assertions.py.
@@ -73,6 +73,12 @@ assertion:AssertionShape a sh:NodeShape ;
         sh:datatype xsd:dateTime ;
         sh:message "Assertion may have at most one validUntil."@en ;
     ] ;
+    sh:property [
+        sh:path core:recordedAt ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:datatype xsd:dateTime ;
+        sh:message "Assertion must preserve recorded time separately from valid time."@en ;
+    ] ;
     sh:sparql [
         sh:message "validUntil is exclusive and must be later than validFrom."@en ;
         sh:select """
@@ -100,14 +106,31 @@ assertion:AssertionShape a sh:NodeShape ;
             sh:property [ sh:path assertion:spanStart ; sh:maxCount 1 ; sh:datatype xsd:integer ] ;
             sh:property [ sh:path assertion:spanEnd ; sh:maxCount 1 ; sh:datatype xsd:integer ] ;
             sh:property [ sh:path assertion:spanUnit ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
+            sh:property [ sh:path assertion:exactText ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
         ] ;
     ] ;
     sh:property [
-        sh:path core:hasConfidence ;
+        sh:path assertion:modelScore ;
         sh:maxCount 1 ;
         sh:datatype xsd:decimal ;
         sh:minInclusive 0 ; sh:maxInclusive 1 ;
-        sh:message "Confidence must be a decimal in [0,1]."@en ;
+        sh:message "Model score must be a decimal in [0,1] and is not fact probability."@en ;
+    ] ;
+    sh:property [
+        sh:path assertion:evidenceQuality ;
+        sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
+        sh:in (
+            "direct"^^xsd:string "corroborated"^^xsd:string "indirect"^^xsd:string
+            "weak"^^xsd:string "unknown"^^xsd:string
+        ) ;
+    ] ;
+    sh:property [
+        sh:path assertion:status ;
+        sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
+        sh:in (
+            "asserted"^^xsd:string "superseded"^^xsd:string
+            "retracted"^^xsd:string "disputed"^^xsd:string
+        ) ;
     ] ;
     sh:property [
         sh:path assertion:supersedes ;
@@ -121,8 +144,19 @@ assertion:AssertionShape a sh:NodeShape ;
 assertion:DocumentShape a sh:NodeShape ;
     sh:targetClass assertion:Document ;
     sh:property [
+        sh:path core:recordedAt ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:dateTime ;
+    ] ;
+    sh:property [
         sh:path core:name ;
         sh:minCount 1 ;
         sh:datatype xsd:string ;
         sh:message "Document needs at least one name."@en ;
+    ] ;
+    sh:property [ sh:path assertion:documentUri ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
+    sh:property [ sh:path assertion:sourceSystem ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
+    sh:property [ sh:path assertion:sourceRecordId ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
+    sh:property [ sh:path assertion:sourceRecordKey ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
+    sh:property [
+        sh:path assertion:contentHash ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
+        sh:pattern "^[0-9a-f]{64}$" ;
     ] .

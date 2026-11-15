@@ -112,11 +112,15 @@ class _AssertionRecord:
     valid_until: str | None
     source_ids: tuple[str, ...]
     evidence: tuple[dict, ...]
-    confidence: float | None
-    status: str  # asserted | superseded
+    recorded_at: str
+    model_score: float | None
+    evidence_quality: str
+    status: str  # asserted | superseded | retracted
     original_subject_id: str
     subject_ref: dict | None = None
     subject_status: str = "resolved"
+    superseded_by: str | None = None
+    superseded_reason: str | None = None
 
 
 class ReadModel:
@@ -546,7 +550,9 @@ class ReadModel:
             valid_until=payload.get("valid_until", payload.get("valid_to")),
             source_ids=tuple(payload.get("source_ids") or ()),
             evidence=tuple(dict(item) for item in (payload.get("evidence") or ())),
-            confidence=payload.get("confidence"),
+            recorded_at=payload.get("recorded_at", ""),
+            model_score=payload.get("model_score", payload.get("confidence")),
+            evidence_quality=payload.get("evidence_quality", "unknown"),
             status="asserted",
             original_subject_id=payload.get("subject_id") or "",
             subject_ref=dict(subject_ref) if subject_ref else None,
@@ -557,6 +563,7 @@ class ReadModel:
         if superseded is not None and superseded in self._assertions:
             previous = self._assertions[superseded]
             previous.status = "superseded"
+            previous.superseded_by = assertion_id
             if previous.subject_id:
                 self._refresh_location_index(previous.subject_id)
         if record.subject_ref:
@@ -566,8 +573,8 @@ class ReadModel:
         else:
             self._attach_location_claim(assertion_id, record)
 
-    def supersede_assertion(self, assertion_id: str) -> None:
-        """Mark one assertion superseded.
+    def supersede_assertion(self, assertion_id: str, reason: str = "") -> None:
+        """Retract one assertion without a replacement.
 
         Raises:
             ValueError: If the assertion is not in the ledger (log corruption).
@@ -575,7 +582,8 @@ class ReadModel:
         record = self._assertions.get(assertion_id)
         if record is None:
             raise ValueError(f"assertion {assertion_id!r} not in ledger; log is corrupt")
-        record.status = "superseded"
+        record.status = "retracted"
+        record.superseded_reason = reason
         if record.subject_id:
             self._refresh_location_index(record.subject_id)
 
@@ -593,10 +601,14 @@ class ReadModel:
             "object": dict(record.object),
             "valid_from": record.valid_from,
             "valid_until": record.valid_until,
+            "recorded_at": record.recorded_at,
             "source_ids": list(record.source_ids),
             "evidence": [dict(item) for item in record.evidence],
-            "confidence": record.confidence,
+            "model_score": record.model_score,
+            "evidence_quality": record.evidence_quality,
             "status": record.status,
+            "superseded_by": record.superseded_by,
+            "superseded_reason": record.superseded_reason,
         }
 
     def active_assertions(self, subject_id: str, predicate_iri: str | None = None) -> list[dict]:

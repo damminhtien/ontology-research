@@ -176,6 +176,12 @@ class TestIngestDocument:
                         object_value="urn:world:location:da-nang",
                         valid_from="2026-05-01T00:00:00Z",
                         confidence=CAP_EXTRACTED_CONFIDENCE,
+                        evidence_span={
+                            "start": 0,
+                            "end": len(_text := "source with a canonical location identifier"),
+                            "unit": "character",
+                            "exact_text": _text,
+                        },
                     )
                 ]
 
@@ -191,3 +197,104 @@ class TestIngestDocument:
         assert len(entries) == 1
         assert entries[0]["source_ids"] == [result.document_id]
         assert entries[0]["status"] == "asserted"
+        span = entries[0]["evidence"][0]["span"]
+        assert span["exact_text"] == "source with a canonical location identifier"
+        assert span["end"] - span["start"] == len(span["exact_text"])
+
+    def test_reingest_same_document_does_not_duplicate_assertion(self, pipeline):
+        text = "Vietnam Coast Guard is part of Bộ Quốc phòng Việt Nam từ 2026-06-01."
+        first = pipeline.ingest_document(
+            uri="https://example.org/replayable-report",
+            title="Replayable report",
+            source_system="crawler",
+            record_id="report-21",
+            text=text,
+        )
+        original_events = pipeline._log.read_all()
+        replayed = pipeline.ingest_document(
+            uri="https://example.org/replayable-report",
+            title="Replayable report",
+            source_system="crawler",
+            record_id="report-21",
+            text=text,
+        )
+        assert replayed.document_event.event_id == first.document_event.event_id
+        assert (
+            replayed.assertion_results[0].event.event_id
+            == first.assertion_results[0].event.event_id
+        )
+        assert len(pipeline._log.read_all()) == len(original_events)
+
+    def test_reingest_same_document_ignores_extractor_score_drift(self, pipeline):
+        class DriftingScoreExtractor:
+            def __init__(self):
+                self.score = 0.7
+
+            def extract(self, _text):
+                fact = CandidateFact(
+                    subject_name="Vietnam Coast Guard",
+                    predicate_iri=CORE_MEMBER_OF,
+                    object_kind="entity",
+                    object_value="Bộ Quốc phòng Việt Nam",
+                    valid_from="2026-06-01T00:00:00Z",
+                    model_score=self.score,
+                    evidence_span={
+                        "start": 0,
+                        "end": len(_text),
+                        "unit": "character",
+                        "exact_text": _text,
+                    },
+                )
+                self.score = 0.63
+                return [fact]
+
+        extractor = DriftingScoreExtractor()
+        text = "Vietnam Coast Guard is part of Bộ Quốc phòng Việt Nam."
+        fields = {
+            "uri": "https://example.org/score-drift-report",
+            "title": "Score drift report",
+            "source_system": "crawler",
+            "record_id": "report-score-drift",
+            "text": text,
+            "extractor": extractor,
+        }
+        first = pipeline.ingest_document(**fields)
+        replayed = pipeline.ingest_document(**fields)
+
+        first_assertion = first.assertion_results[0].event
+        replayed_assertion = replayed.assertion_results[0].event
+        assert first_assertion.event_id == replayed_assertion.event_id
+        assert replayed.assertion_results[0].event.payload["model_score"] == 0.7
+        assert sum(event.event_type == "AssertionMade" for event in pipeline._log.read_all()) == 1
+
+    def test_candidate_exact_text_must_match_the_source_document(self, pipeline):
+        class IncorrectSpanExtractor:
+            def extract(self, _text):
+                return [
+                    CandidateFact(
+                        subject_name="Cảnh sát biển Việt Nam",
+                        predicate_iri=CORE_LOCATED_AT,
+                        object_kind="location",
+                        object_value="urn:world:location:da-nang",
+                        valid_from="2026-05-01T00:00:00Z",
+                        evidence_span={
+                            "start": 0,
+                            "end": 4,
+                            "unit": "character",
+                            "exact_text": "WRNG",
+                        },
+                    )
+                ]
+
+        text = "Cảnh sát biển Việt Nam đặt tại Đà Nẵng."
+        result = pipeline.ingest_document(
+            uri="https://example.org/bad-span",
+            title="Incorrect evidence span",
+            source_system="crawler",
+            text=text,
+            extractor=IncorrectSpanExtractor(),
+        )
+
+        assert result.queued == 1
+        assert result.asserted == 0
+        assert all(event.event_type != "AssertionMade" for event in pipeline._log.read_all())

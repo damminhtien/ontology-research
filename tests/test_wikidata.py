@@ -101,16 +101,15 @@ class TestIngestRecords:
         # external_id stored so a re-run resolves to the same canonical entity
         assert events[0].payload.get("external_id") == "Q9" or "Q9" in str(events[0].payload)
 
-    def test_second_run_merges_instead_of_creating_new(self, tmp_path: Path) -> None:
+    def test_second_run_replays_the_original_entity_event(self, tmp_path: Path) -> None:
         pipeline = make_pipeline(tmp_path)
         records = [wd.WikidataRecord(qid="Q10", name="Tổ chức Y", entity_type="Organization")]
         wd.ingest_records(pipeline, records)
-        stats2, _receipts2, events2 = wd.ingest_records(pipeline, records)
+        stats2, receipts2, events2 = wd.ingest_records(pipeline, records)
         assert stats2.accepted == 1
         assert stats2.new_entities == 0
-        assert stats2.merged == 1
-        # merge only links the external_id to the existing canonical entity:
-        # no new EntityCreated event (dedup event type is future contract work)
+        assert stats2.merged == 0
+        assert receipts2[0].replayed
         assert events2 == []
 
     def test_unknown_type_is_skipped_not_rejected(self, tmp_path: Path) -> None:

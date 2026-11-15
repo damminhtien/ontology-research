@@ -13,8 +13,10 @@ Invariant: once appended, bytes in the log file are never rewritten.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
+import sqlite3
 import uuid
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import asdict, dataclass, replace
@@ -23,13 +25,21 @@ from pathlib import Path
 from typing import Any
 
 from foundry.namespaces import DEFAULT_LITERAL_DATATYPE, resolve_legacy_predicate
-from foundry.provenance import normalize_evidence, normalize_source_id, normalize_source_ids
+from foundry.provenance import (
+    content_sha256,
+    normalize_evidence,
+    normalize_source_id,
+    normalize_source_ids,
+    stable_source_record_key,
+)
 from foundry.versioning import EVENT_SCHEMA_VERSION
 
 EVENT_TYPE_ENTITY_CREATED = "EntityCreated"
 EVENT_TYPE_LOCATION_OBSERVED = "LocationObserved"
 EVENT_TYPE_ENTITY_MERGED = "EntityMerged"
 EVENT_TYPE_EXTERNAL_ID_BOUND = "ExternalIdBound"
+EVENT_TYPE_SOURCE_RECORD_MATCHED = "SourceRecordMatched"
+EVENT_TYPE_ENTITY_CANNOT_LINK = "EntityCannotLinkAsserted"
 EVENT_TYPE_REVIEW_QUEUED = "ResolutionReviewQueued"
 EVENT_TYPE_ENTITY_SPLIT = "EntitySplit"
 EVENT_TYPE_DOCUMENT_REGISTERED = "DocumentRegistered"
@@ -44,6 +54,8 @@ EVENT_TYPES = frozenset(
         EVENT_TYPE_ENTITY_CREATED,
         EVENT_TYPE_ENTITY_MERGED,
         EVENT_TYPE_EXTERNAL_ID_BOUND,
+        EVENT_TYPE_SOURCE_RECORD_MATCHED,
+        EVENT_TYPE_ENTITY_CANNOT_LINK,
         EVENT_TYPE_REVIEW_QUEUED,
         EVENT_TYPE_ENTITY_SPLIT,
         EVENT_TYPE_DOCUMENT_REGISTERED,
@@ -89,6 +101,9 @@ class SemanticEvent:
     payload: dict[str, Any]
     valid_at: str | None = None
     sequence: int | None = None
+    idempotency_key: str | None = None
+    request_fingerprint: str | None = None
+    operation_event_count: int | None = None
 
 
 def make_event(
@@ -267,6 +282,74 @@ def _upcast_v3_to_v4(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def _upcast_v4_to_v5(data: dict[str, Any]) -> dict[str, Any]:
+    """v4 → v5: add optional durable-operation idempotency metadata."""
+    data = dict(data)
+    data["schema_version"] = 5
+    data.setdefault("idempotency_key", None)
+    data.setdefault("request_fingerprint", None)
+    data.setdefault("operation_event_count", None)
+    return data
+
+
+def _upcast_v5_to_v6(data: dict[str, Any]) -> dict[str, Any]:
+    """v5 → v6: make document lineage and assertion time/score semantics explicit."""
+    data = dict(data)
+    data["schema_version"] = 6
+    payload = dict(data.get("payload") or {})
+    event_type = data.get("event_type")
+    if event_type == EVENT_TYPE_ASSERTION_MADE:
+        payload["recorded_at"] = payload.get("recorded_at") or data.get("occurred_at")
+        if "model_score" not in payload:
+            payload["model_score"] = payload.pop("confidence", None)
+        else:
+            payload.pop("confidence", None)
+        payload.setdefault("evidence_quality", "unknown")
+        payload.setdefault("status", "asserted")
+    elif event_type == EVENT_TYPE_DOCUMENT_REGISTERED:
+        source_system = str(payload.get("source_system") or "legacy")
+        source_id = normalize_source_id(str(payload.get("source_id") or source_system))
+        record_id = str(
+            payload.get("source_record_id") or payload.get("uri") or payload["document_id"]
+        )
+        if not payload.get("content_hash"):
+            stable_content = json.dumps(
+                {
+                    "uri": payload.get("uri"),
+                    "title": payload.get("title"),
+                    "content_ref": payload.get("content_ref"),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            payload["content_hash"] = content_sha256(stable_content)
+        payload.setdefault("source_id", source_id)
+        payload.setdefault("source_record_id", record_id)
+        payload.setdefault("source_record_key", stable_source_record_key(source_id, record_id))
+        payload.setdefault("recorded_at", payload.get("registered_at") or data.get("occurred_at"))
+    elif event_type == EVENT_TYPE_ENTITY_CREATED:
+        raw_source_id = payload.get("source_id")
+        source_id = normalize_source_id(str(raw_source_id or "legacy"))
+        record_id = str(payload.get("source_record_id") or f"event:{data.get('event_id', '')}")
+        payload.setdefault("source_id", source_id)
+        payload.setdefault("source_record_id", record_id)
+        payload.setdefault("source_record_key", stable_source_record_key(source_id, record_id))
+        if not payload.get("content_hash"):
+            stable_content = json.dumps(
+                {
+                    key: payload.get(key)
+                    for key in ("entity_type", "name", "name_aliases", "external_ids")
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            payload["content_hash"] = content_sha256(stable_content)
+    data["payload"] = payload
+    return data
+
+
 #: Upcast chain: maps a record's schema version to the function rewriting it
 #: one version forward. Every historical version must stay registered here —
 #: removing one breaks replay of logs written under it.
@@ -274,6 +357,8 @@ UPCASTERS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: _upcast_v1_to_v2,
     2: _upcast_v2_to_v3,
     3: _upcast_v3_to_v4,
+    4: _upcast_v4_to_v5,
+    5: _upcast_v5_to_v6,
 }
 
 
@@ -323,6 +408,13 @@ def event_from_dict(data: dict[str, Any]) -> SemanticEvent:
             payload=dict(data["payload"]),
             valid_at=data.get("valid_at"),
             sequence=int(sequence) if sequence is not None else None,
+            idempotency_key=data.get("idempotency_key"),
+            request_fingerprint=data.get("request_fingerprint"),
+            operation_event_count=(
+                int(data["operation_event_count"])
+                if data.get("operation_event_count") is not None
+                else None
+            ),
         )
     except KeyError as exc:
         raise ValueError(f"event record missing field: {exc}") from exc
@@ -334,6 +426,18 @@ def event_from_dict(data: dict[str, Any]) -> SemanticEvent:
 
 class EventLogLocked(RuntimeError):
     """Raised when another process holds the log's writer lock."""
+
+
+class IdempotencyKeyConflict(ValueError):
+    """Raised when one idempotency key is reused for a different request."""
+
+
+@dataclass(frozen=True)
+class AppendResult:
+    """The events committed by an append operation."""
+
+    events: tuple[SemanticEvent, ...]
+    duplicate: bool
 
 
 class EventLog:
@@ -393,6 +497,11 @@ class EventLog:
         """Writer lock file guarding append batches."""
         return self._path.with_suffix(self._path.suffix + ".lock")
 
+    @property
+    def index_path(self) -> Path:
+        """Sidecar containing durable sequence and commit metadata."""
+        return self._path.with_suffix(self._path.suffix + ".index.sqlite3")
+
     # -- segment layout ------------------------------------------------------
 
     def _archives(self) -> list[Path]:
@@ -416,8 +525,8 @@ class EventLog:
         return segments
 
     def has_data(self) -> bool:
-        """Return whether any active or archived segment exists."""
-        return bool(self._segments())
+        """Return whether any event has crossed the durable commit point."""
+        return bool(self._indexed_segments())
 
     def fingerprint(self) -> tuple[tuple[str, int, int], ...]:
         """Return segment paths, sizes, and mtimes in replay order.
@@ -426,62 +535,205 @@ class EventLog:
         created or the active segment grows.
         """
         fingerprint = []
-        for segment in self._segments():
+        for filename, _size, _first, _last in self._indexed_segments():
+            segment = self._path.parent / filename
             stat = segment.stat()
             fingerprint.append((segment.as_posix(), stat.st_size, stat.st_mtime_ns))
         return tuple(fingerprint)
 
-    def _roll_active_segment(self) -> None:
-        """Rename the active segment to the next archive."""
-        archive = self._path.with_name(
-            f"{self._path.stem}-{len(self._archives()) + 1:0{self.ARCHIVE_DIGITS}d}"
-            f"{self._path.suffix}"
-        )
-        self._path.rename(archive)
+    def _read_lock(self):
+        """Acquire a shared lock so readers cannot race a segment rename."""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        handle = self.lock_path.open("a+")
+        fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
+        return handle
 
-    # -- write path ----------------------------------------------------------
+    def _archive_name(self, number: int) -> str:
+        """Return the filename for an archived segment number."""
+        return f"{self._path.stem}-{number:0{self.ARCHIVE_DIGITS}d}{self._path.suffix}"
 
-    def _next_sequence(self) -> int:
-        """Allocate the next 1-based log sequence (lazily synced with disk)."""
-        if self._next_seq is None:
-            self._next_seq = self._physical_count() + 1
-        seq = self._next_seq
-        self._next_seq += 1
-        return seq
-
-    def _physical_count(self) -> int:
-        """Count physical lines across every segment (0 when the log is empty)."""
-        return sum(self._count_lines(segment) for segment in self._segments())
+    def _connect(self) -> sqlite3.Connection:
+        """Open the metadata index with full SQLite durability."""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        initialize = not self.index_path.exists()
+        connection = sqlite3.connect(self.index_path, timeout=30.0)
+        connection.execute("PRAGMA synchronous=FULL")
+        if initialize:
+            connection.execute("PRAGMA journal_mode=DELETE")
+            connection.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            connection.execute(
+                """CREATE TABLE segments (
+                       order_index INTEGER PRIMARY KEY,
+                       filename TEXT NOT NULL UNIQUE,
+                       committed_bytes INTEGER NOT NULL,
+                       first_sequence INTEGER NOT NULL,
+                       last_sequence INTEGER NOT NULL
+                   )"""
+            )
+            connection.execute(
+                "CREATE TABLE event_ids (event_id TEXT PRIMARY KEY, sequence INTEGER NOT NULL)"
+            )
+            connection.execute(
+                """CREATE TABLE idempotency (
+                       key TEXT PRIMARY KEY,
+                       fingerprint TEXT NOT NULL,
+                       first_sequence INTEGER NOT NULL,
+                       last_sequence INTEGER NOT NULL,
+                       events_json TEXT NOT NULL
+                   )"""
+            )
+        return connection
 
     @staticmethod
-    def _count_lines(segment: Path) -> int:
-        if not segment.exists():
-            return 0
-        with segment.open("rb") as handle:
-            return sum(1 for _ in handle)
+    def _fsync_file(handle) -> None:
+        """Flush a file object to stable storage."""
+        handle.flush()
+        os.fsync(handle.fileno())
 
-    def _recover_tail(self) -> None:
-        """Truncate a trailing unterminated line (crash mid-write artifact).
+    @staticmethod
+    def _write_bytes(handle, data: bytes) -> None:
+        """Write a complete byte sequence or fail on a short write."""
+        written = handle.write(data)
+        if written != len(data):
+            raise OSError(f"short event-log write: {written} of {len(data)} bytes")
 
-        A committed record always ends with a newline; a partial line carries
-        no sequence stamp and no durability guarantee, so dropping it keeps the
-        log appendable without rewriting any committed byte.
-        """
-        if not self._path.exists() or self._path.stat().st_size == 0:
+    def _fsync_directory(self) -> None:
+        """Persist directory entry changes such as segment rotation."""
+        descriptor = os.open(self._path.parent, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def _scan_legacy_segments(self) -> list[tuple[str, int, int, int]]:
+        """One-time scan to initialize metadata for a pre-index event log."""
+        result: list[tuple[str, int, int, int]] = []
+        sequence = 0
+        for segment in self._segments():
+            raw = segment.read_bytes()
+            if not raw.endswith(b"\n"):
+                if segment != self._path:
+                    raise ValueError(f"archived segment has an unterminated tail: {segment}")
+                raw = raw[: raw.rfind(b"\n") + 1]
+                with segment.open("r+b") as handle:
+                    handle.truncate(len(raw))
+                    self._fsync_file(handle)
+            first_sequence = sequence + 1
+            for line_number, raw_line in enumerate(raw.splitlines(keepends=True), start=1):
+                sequence += 1
+                try:
+                    event = event_from_dict(json.loads(raw_line))
+                except (ValueError, json.JSONDecodeError) as exc:
+                    raise ValueError(f"{segment}:{line_number}: {exc}") from exc
+                if event.sequence is not None and event.sequence != sequence:
+                    raise ValueError(
+                        f"{segment}:{line_number}: sequence discontinuity: "
+                        f"record claims {event.sequence}, physical position is {sequence}"
+                    )
+            if raw:
+                result.append((segment.name, len(raw), first_sequence, sequence))
+        return result
+
+    @staticmethod
+    def _segment_events(
+        path: Path, segments: Iterable[tuple[str, int, int, int]]
+    ) -> list[SemanticEvent]:
+        """Read only the committed byte ranges during metadata migration."""
+        events = []
+        for filename, size, _first, _last in segments:
+            with (path.parent / filename).open("rb") as handle:
+                remaining = size
+                while remaining:
+                    raw = handle.readline(remaining)
+                    if not raw.endswith(b"\n"):
+                        raise ValueError(f"committed event record is truncated in {filename}")
+                    events.append(event_from_dict(json.loads(raw)))
+                    remaining -= len(raw)
+        return events
+
+    def _initialize_index(self, connection: sqlite3.Connection) -> None:
+        """Migrate a legacy log once or initialize an empty one."""
+        if connection.execute("SELECT 1 FROM metadata WHERE key='last_sequence'").fetchone():
             return
-        with self._path.open("rb") as handle:
-            handle.seek(0, os.SEEK_END)
-            size = handle.tell()
-            handle.seek(size - 1)
-            if handle.read(1) == b"\n":
-                return
-            window_start = max(0, size - 65536)
-            handle.seek(window_start)
-            tail = handle.read()
-        cut = tail.rfind(b"\n")
-        good_size = window_start + cut + 1 if cut != -1 else 0
-        with self._path.open("r+b") as handle:
-            handle.truncate(good_size)
+        segments = self._scan_legacy_segments() if self._segments() else []
+        last_sequence = segments[-1][3] if segments else 0
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            for order_index, row in enumerate(segments):
+                connection.execute(
+                    "INSERT INTO segments VALUES (?, ?, ?, ?, ?)",
+                    (order_index, *row),
+                )
+            connection.execute(
+                "INSERT INTO metadata(key, value) VALUES ('last_sequence', ?)",
+                (str(last_sequence),),
+            )
+            events = self._segment_events(self._path, segments)
+            for event in events:
+                connection.execute(
+                    "INSERT INTO event_ids(event_id, sequence) VALUES (?, ?)",
+                    (event.event_id, event.sequence or 0),
+                )
+            batches: dict[str, list[SemanticEvent]] = {}
+            for event in events:
+                if event.idempotency_key:
+                    batches.setdefault(event.idempotency_key, []).append(event)
+            for key, group in batches.items():
+                expected_count = group[0].operation_event_count or len(group)
+                fingerprint = group[0].request_fingerprint
+                if len(group) != expected_count or not fingerprint:
+                    raise ValueError(f"incomplete idempotency metadata for operation {key!r}")
+                encoded = json.dumps(
+                    [event_to_dict(item) for item in group], ensure_ascii=False, sort_keys=True
+                )
+                connection.execute(
+                    "INSERT INTO idempotency VALUES (?, ?, ?, ?, ?)",
+                    (key, fingerprint, group[0].sequence or 0, group[-1].sequence or 0, encoded),
+                )
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        self._fsync_directory()
+
+    @staticmethod
+    def _segment_rows(connection: sqlite3.Connection) -> list[tuple[str, int, int, int]]:
+        return connection.execute(
+            "SELECT filename, committed_bytes, first_sequence, last_sequence "
+            "FROM segments ORDER BY order_index"
+        ).fetchall()
+
+    def _recover_files(self, connection: sqlite3.Connection) -> None:
+        """Restore files to the byte offsets published by the last commit."""
+        rows = self._segment_rows(connection)
+        expected = {row[0]: row for row in rows}
+        base_name = self._path.name
+        archive_count = sum(filename != base_name for filename in expected)
+        if base_name in expected and not self._path.exists():
+            moved_active = self._path.with_name(self._archive_name(archive_count + 1))
+            if moved_active.exists():
+                moved_active.rename(self._path)
+        changed_directory = False
+        for segment in self._segments():
+            if segment.name not in expected:
+                segment.unlink()
+                changed_directory = True
+        for filename, committed_bytes, _first, _last in rows:
+            segment = self._path.parent / filename
+            if not segment.exists():
+                raise ValueError(f"committed event-log segment is missing: {segment}")
+            actual_size = segment.stat().st_size
+            if actual_size < committed_bytes:
+                raise ValueError(
+                    f"committed event-log segment is truncated: {segment} "
+                    f"({actual_size} < {committed_bytes})"
+                )
+            if actual_size > committed_bytes:
+                with segment.open("r+b") as handle:
+                    handle.truncate(committed_bytes)
+                    self._fsync_file(handle)
+        if changed_directory:
+            self._fsync_directory()
 
     def _writer_lock(self):
         """Acquire the exclusive writer lock; returns the open lock handle."""
@@ -499,107 +751,336 @@ class EventLog:
     def append(self, event: SemanticEvent) -> None:
         """Append one event durably to the end of the log.
 
-        The event is stamped with the next log sequence before writing; the
-        batch is flushed and fsync-ed before returning.
+        Segment bytes are durable before the sidecar publishes their sequence.
 
         Raises:
             EventLogLocked: If another writer holds the log lock.
         """
-        self.extend([event])
+        self.commit([event])
 
     def extend(self, events: Iterable[SemanticEvent]) -> int:
         """Append many events in one locked, fsync-ed batch.
 
-        Returns the count written. A trailing partial line from a previous
-        crash is truncated first so new records never concatenate onto it.
+        Returns the number of events in the durable batch. The entire iterable
+        is materialized before writing, and readers never observe a partial
+        batch.
 
         Raises:
             EventLogLocked: If another writer holds the log lock.
         """
-        count = 0
-        lock = self._writer_lock()
+        return len(self.commit(events).events)
+
+    def find_idempotency(
+        self, key: str, *, request_fingerprint: str | None = None
+    ) -> AppendResult | None:
+        """Find a committed operation and verify that the key is not reused."""
+        if not key.strip():
+            raise ValueError("idempotency key must be non-empty")
+        if not self.index_path.exists():
+            self._ensure_index()
+        lock = self._read_lock()
         try:
-            self._recover_tail()
-            # Another EventLog instance may have appended since this instance
-            # last wrote. Refresh under the lock so sequence remains a global
-            # physical offset across all writers.
-            self._next_seq = self._physical_count() + 1
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.touch(exist_ok=True)
-            handle = None
-            active_size = self._path.stat().st_size
+            connection = self._connect()
             try:
-                for event in events:
-                    stamped = replace(event, sequence=self._next_sequence())
-                    line = (
-                        json.dumps(event_to_dict(stamped), ensure_ascii=False, sort_keys=True)
-                        + "\n"
-                    ).encode("utf-8")
-                    if active_size and active_size + len(line) > self._max_segment_bytes:
-                        if handle is not None:
-                            handle.flush()
-                            os.fsync(handle.fileno())
-                            handle.close()
-                        self._roll_active_segment()
-                        handle = None
-                        active_size = 0
-                    if handle is None:
-                        handle = self._path.open("ab")
-                    handle.write(line)
-                    active_size += len(line)
-                    count += 1
-                    if active_size >= self._max_segment_bytes:
-                        handle.flush()
-                        os.fsync(handle.fileno())
-                        handle.close()
-                        self._roll_active_segment()
-                        handle = None
-                        active_size = 0
-                if handle is not None:
-                    handle.flush()
-                    os.fsync(handle.fileno())
+                row = connection.execute(
+                    "SELECT fingerprint, events_json FROM idempotency WHERE key=?", (key,)
+                ).fetchone()
             finally:
-                if handle is not None and not handle.closed:
-                    handle.close()
+                connection.close()
+            if row is None:
+                return None
+            fingerprint, encoded = row
+            if request_fingerprint is not None and request_fingerprint != fingerprint:
+                raise IdempotencyKeyConflict(
+                    f"idempotency key {key!r} was already committed for a different request"
+                )
+            committed = tuple(event_from_dict(item) for item in json.loads(encoded))
+            return AppendResult(committed, True)
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
             lock.close()
-        return count
+
+    def commit(
+        self,
+        events: Iterable[SemanticEvent],
+        *,
+        idempotency_key: str | None = None,
+        request_fingerprint: str | None = None,
+    ) -> AppendResult:
+        """Commit one logical event batch atomically and return stamped events.
+
+        Data files are fsync-ed before the SQLite transaction publishes their
+        committed byte offsets, the sequence allocator, event ids, and the
+        idempotency result. SQLite's transaction commit is the batch boundary.
+        A crash before it commits leaves bytes beyond the prior offsets, which
+        readers ignore and the next writer truncates.
+        """
+        batch = tuple(events)
+        if idempotency_key is not None and not idempotency_key.strip():
+            raise ValueError("idempotency key must be non-empty")
+        if idempotency_key is not None and not batch:
+            raise ValueError("idempotent operation batch must contain at least one event")
+        if not batch:
+            return AppendResult((), False)
+        if request_fingerprint is None:
+            stable_request = [
+                {
+                    "event_type": event.event_type,
+                    "payload": event.payload,
+                    "valid_at": event.valid_at,
+                }
+                for event in batch
+            ]
+            request_fingerprint = hashlib.sha256(
+                json.dumps(stable_request, sort_keys=True, ensure_ascii=False).encode("utf-8")
+            ).hexdigest()
+
+        lock = self._writer_lock()
+        connection = None
+        active_handle = None
+        try:
+            connection = self._connect()
+            self._initialize_index(connection)
+            self._recover_files(connection)
+            old_rows = self._segment_rows(connection)
+
+            if idempotency_key is not None:
+                prior = connection.execute(
+                    "SELECT fingerprint, events_json FROM idempotency WHERE key=?",
+                    (idempotency_key,),
+                ).fetchone()
+                if prior is not None:
+                    if prior[0] != request_fingerprint:
+                        raise IdempotencyKeyConflict(
+                            f"idempotency key {idempotency_key!r} was already committed "
+                            "for a different request"
+                        )
+                    committed = tuple(event_from_dict(item) for item in json.loads(prior[1]))
+                    return AppendResult(committed, True)
+
+            last_sequence_row = connection.execute(
+                "SELECT value FROM metadata WHERE key='last_sequence'"
+            ).fetchone()
+            sequence = int(last_sequence_row[0]) if last_sequence_row else 0
+            stamped_events = []
+            for event in batch:
+                sequence += 1
+                stamped_events.append(
+                    replace(
+                        event,
+                        sequence=sequence,
+                        idempotency_key=idempotency_key,
+                        request_fingerprint=(request_fingerprint if idempotency_key else None),
+                        operation_event_count=(len(batch) if idempotency_key else None),
+                    )
+                )
+
+            for event in stamped_events:
+                try:
+                    event_from_dict(event_to_dict(event))
+                except ValueError as exc:
+                    raise ValueError(f"invalid event {event.event_id!r}: {exc}") from exc
+                if connection.execute(
+                    "SELECT 1 FROM event_ids WHERE event_id=?", (event.event_id,)
+                ).fetchone():
+                    raise ValueError(f"event id {event.event_id!r} is already committed")
+
+            connection.execute("BEGIN IMMEDIATE")
+            planned = [list(row) for row in old_rows]
+            active_size = planned[-1][1] if planned and planned[-1][0] == self._path.name else 0
+            changed_directory = False
+
+            def sync_and_close() -> None:
+                nonlocal active_handle
+                if active_handle is not None:
+                    self._fsync_file(active_handle)
+                    active_handle.close()
+                    active_handle = None
+
+            def rotate_active() -> None:
+                nonlocal active_size, changed_directory, planned
+                sync_and_close()
+                if active_size:
+                    archive_numbers = [
+                        int(Path(row[0]).stem[len(self._path.stem) + 1 :])
+                        for row in planned
+                        if row[0] != self._path.name
+                        and Path(row[0]).stem[len(self._path.stem) + 1 :].isdigit()
+                    ]
+                    archive_name = self._archive_name(max(archive_numbers, default=0) + 1)
+                    self._path.rename(self._path.with_name(archive_name))
+                    for row in planned:
+                        if row[0] == self._path.name:
+                            row[0] = archive_name
+                            break
+                    changed_directory = True
+                planned = [row for row in planned if row[0] != self._path.name]
+                active_size = 0
+
+            try:
+                for event in stamped_events:
+                    line = (
+                        json.dumps(event_to_dict(event), ensure_ascii=False, sort_keys=True) + "\n"
+                    ).encode("utf-8")
+                    if active_size and active_size + len(line) > self._max_segment_bytes:
+                        rotate_active()
+                    if active_handle is None:
+                        if not self._path.exists():
+                            changed_directory = True
+                        active_handle = self._path.open("ab")
+                    self._write_bytes(active_handle, line)
+                    if not planned or planned[-1][0] != self._path.name:
+                        planned.append([self._path.name, 0, event.sequence, event.sequence])
+                    active_row = planned[-1]
+                    active_size += len(line)
+                    active_row[1] = active_size
+                    active_row[3] = event.sequence
+                    if active_size >= self._max_segment_bytes:
+                        sync_and_close()
+                        rotate_active()
+                sync_and_close()
+                if changed_directory or any(
+                    row[0] == self._path.name and not self._path.exists() for row in planned
+                ):
+                    self._fsync_directory()
+
+                connection.execute("DELETE FROM segments")
+                for order_index, row in enumerate(planned):
+                    connection.execute(
+                        "INSERT INTO segments VALUES (?, ?, ?, ?, ?)",
+                        (order_index, row[0], row[1], row[2], row[3]),
+                    )
+                connection.execute(
+                    "INSERT OR REPLACE INTO metadata(key, value) VALUES ('last_sequence', ?)",
+                    (str(sequence),),
+                )
+                for event in stamped_events:
+                    connection.execute(
+                        "INSERT INTO event_ids(event_id, sequence) VALUES (?, ?)",
+                        (event.event_id, event.sequence),
+                    )
+                if idempotency_key is not None:
+                    encoded = json.dumps(
+                        [event_to_dict(event) for event in stamped_events],
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    connection.execute(
+                        "INSERT INTO idempotency VALUES (?, ?, ?, ?, ?)",
+                        (
+                            idempotency_key,
+                            request_fingerprint,
+                            stamped_events[0].sequence,
+                            stamped_events[-1].sequence,
+                            encoded,
+                        ),
+                    )
+                connection.commit()
+            except BaseException:
+                if active_handle is not None:
+                    active_handle.close()
+                    active_handle = None
+                connection.rollback()
+                self._recover_files_from_rows(old_rows)
+                raise
+            return AppendResult(tuple(stamped_events), False)
+        finally:
+            if connection is not None:
+                connection.close()
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            lock.close()
+
+    def _recover_files_from_rows(self, rows: list[tuple]) -> None:
+        """Undo bytes and rotations that were not published by SQLite."""
+        expected = {row[0]: row for row in rows}
+        base_name = self._path.name
+        archive_count = sum(filename != base_name for filename in expected)
+        if base_name in expected and not self._path.exists():
+            moved_active = self._path.with_name(self._archive_name(archive_count + 1))
+            if moved_active.exists():
+                moved_active.rename(self._path)
+        changed_directory = False
+        for segment in self._segments():
+            if segment.name not in expected:
+                segment.unlink()
+                changed_directory = True
+        for filename, committed_bytes, _first, _last in rows:
+            segment = self._path.parent / filename
+            if not segment.exists():
+                raise ValueError(f"committed event-log segment is missing: {segment}")
+            if segment.stat().st_size > committed_bytes:
+                with segment.open("r+b") as handle:
+                    handle.truncate(committed_bytes)
+                    self._fsync_file(handle)
+        if changed_directory:
+            self._fsync_directory()
+
+    def _ensure_index(self) -> None:
+        """Initialize or migrate the sidecar under the writer lock."""
+        lock = self._writer_lock()
+        try:
+            connection = self._connect()
+            try:
+                self._initialize_index(connection)
+                self._recover_files(connection)
+            finally:
+                connection.close()
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            lock.close()
+
+    def _indexed_segments(self) -> list[tuple[str, int, int, int]]:
+        """Return only segment ranges published by a successful commit."""
+        if not self.index_path.exists():
+            self._ensure_index()
+        lock = self._read_lock()
+        try:
+            connection = self._connect()
+            try:
+                self._initialize_index(connection)
+                return self._segment_rows(connection)
+            finally:
+                connection.close()
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            lock.close()
 
     def iter_all(self) -> Iterator[SemanticEvent]:
-        """Yield validated events in log order without loading the log in RAM.
-
-        Every stamped record must sit exactly at its global sequence position;
-        legacy unstamped records (schema v1 logs) are accepted at any position.
-        A trailing unterminated line in the active segment is an uncommitted
-        crash artifact and is skipped.
-
-        Raises:
-            ValueError: If any line is not a valid event record or a stamped
-                sequence is out of position (log corruption or truncation).
-        """
-        position = 0
-        segments = self._segments()
-        for segment in segments:
-            is_active = segment == self._path
-            with segment.open("rb") as handle:
-                for raw in handle:
-                    if not raw.endswith(b"\n") and is_active:
-                        break  # uncommitted partial tail
-                    position += 1
-                    line = raw.rstrip(b"\r\n").decode("utf-8", errors="replace").strip()
-                    if not line:
-                        continue
-                    try:
-                        event = event_from_dict(json.loads(line))
-                        if event.sequence is not None and event.sequence != position:
-                            raise ValueError(
-                                f"sequence discontinuity: record claims {event.sequence}, "
-                                f"physical position is {position}"
-                            )
-                    except ValueError as exc:
-                        raise ValueError(f"{segment}:{position}: {exc}") from exc
-                    yield event
+        """Yield events inside the durable byte ranges, in sequence order."""
+        if not self.index_path.exists():
+            self._ensure_index()
+        lock = self._read_lock()
+        try:
+            connection = self._connect()
+            try:
+                self._initialize_index(connection)
+                segments = self._segment_rows(connection)
+            finally:
+                connection.close()
+            position = 0
+            for filename, committed_bytes, _first, _last in segments:
+                segment = self._path.parent / filename
+                with segment.open("rb") as handle:
+                    remaining = committed_bytes
+                    while remaining:
+                        raw = handle.readline(remaining)
+                        if not raw.endswith(b"\n"):
+                            raise ValueError(f"committed event record is truncated in {segment}")
+                        position += 1
+                        try:
+                            event = event_from_dict(json.loads(raw))
+                            if event.sequence is not None and event.sequence != position:
+                                raise ValueError(
+                                    f"sequence discontinuity: record claims {event.sequence}, "
+                                    f"physical position is {position}"
+                                )
+                        except (ValueError, json.JSONDecodeError) as exc:
+                            raise ValueError(f"{segment}:{position}: {exc}") from exc
+                        remaining -= len(raw)
+                        yield event
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            lock.close()
 
     def read_all(self) -> list[SemanticEvent]:
         """Replay the full log into a list for callers that need materialization."""

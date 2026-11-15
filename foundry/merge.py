@@ -12,20 +12,24 @@ and idempotent under projection.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
 from foundry.events import (
+    EVENT_TYPE_ENTITY_CANNOT_LINK,
     EVENT_TYPE_ENTITY_CREATED,
     EVENT_TYPE_ENTITY_MERGED,
     EVENT_TYPE_ENTITY_SPLIT,
     EVENT_TYPE_EXTERNAL_ID_BOUND,
     EVENT_TYPE_SENSOR_REGISTERED,
+    EVENT_TYPE_SOURCE_RECORD_MATCHED,
     EventLog,
     SemanticEvent,
     make_event,
 )
-from foundry.identity import IdentityService
+from foundry.identity import IdentityEvidence, IdentityService, SourceRecordIdentity
+from foundry.provenance import content_sha256
 
 
 @dataclass(frozen=True)
@@ -45,40 +49,99 @@ def merge_entities(
     log: EventLog,
     survivor_id: str,
     duplicate_id: str,
+    same_entity_evidence: IdentityEvidence,
     reason: str = "",
     actor: str = "",
 ) -> MergeResult:
     """Merge two canonical entities and append the ``EntityMerged`` event.
 
-    The identity registry is mutated first and the event appended second,
-    matching the ingestion pipeline's ordering (identity registration precedes
-    the log append). ``ValueError`` from the registry propagates unchanged so
-    callers can route rejections to review.
+    The event is committed before the identity projection is changed. A retry
+    with the same evidence and command returns the original committed event.
 
     Raises:
         ValueError: On self-merge, unknown ids, an already-merged duplicate,
             or an entity-type conflict.
     """
-    outcome = identity.merge_entities(survivor_id, duplicate_id)
     payload: dict[str, Any] = {
         "survivor_id": survivor_id,
         "duplicate_id": duplicate_id,
-        "moved_aliases": list(outcome.moved_aliases),
-        "moved_external_ids": [
-            {"source": source, "external_id": ext} for source, ext in outcome.moved_external_ids
-        ],
         "reason": reason,
         "actor": actor,
+        "same_entity_evidence": same_entity_evidence.to_dict(),
     }
+    idempotency_key = (
+        f"entity-merge:{survivor_id}:{duplicate_id}:{same_entity_evidence.evidence_id}"
+    )
+    fingerprint = content_sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    )
+    prior = log.find_idempotency(idempotency_key, request_fingerprint=fingerprint)
+    if prior is not None:
+        event = prior.events[0]
+        if not identity.merged_into(duplicate_id):
+            identity.merge_entities(
+                survivor_id, duplicate_id, same_entity_evidence=same_entity_evidence
+            )
+        moved_aliases = tuple(event.payload.get("moved_aliases") or ())
+        moved_external_ids = tuple(
+            (binding["source"], binding["external_id"])
+            for binding in event.payload.get("moved_external_ids") or ()
+        )
+        return MergeResult(survivor_id, duplicate_id, moved_aliases, moved_external_ids, event)
+
+    outcome = identity.preview_merge(
+        survivor_id,
+        duplicate_id,
+        same_entity_evidence=same_entity_evidence,
+    )
+    payload.update(
+        moved_aliases=list(outcome.moved_aliases),
+        moved_external_ids=[
+            {"source": source, "external_id": ext} for source, ext in outcome.moved_external_ids
+        ],
+    )
     event = make_event(EVENT_TYPE_ENTITY_MERGED, payload)
-    log.append(event)
+    committed = log.commit(
+        [event], idempotency_key=idempotency_key, request_fingerprint=fingerprint
+    ).events[0]
+    applied = identity.merge_entities(
+        survivor_id,
+        duplicate_id,
+        same_entity_evidence=same_entity_evidence,
+    )
     return MergeResult(
         survivor_id=survivor_id,
         duplicate_id=duplicate_id,
-        moved_aliases=outcome.moved_aliases,
-        moved_external_ids=outcome.moved_external_ids,
-        event=event,
+        moved_aliases=applied.moved_aliases,
+        moved_external_ids=applied.moved_external_ids,
+        event=committed,
     )
+
+
+def assert_cannot_link(
+    *,
+    identity: IdentityService,
+    log: EventLog,
+    left_id: str,
+    right_id: str,
+    evidence: IdentityEvidence,
+) -> SemanticEvent:
+    """Durably record a cannot-link before applying it to the identity store."""
+    identity.validate_cannot_link(left_id, right_id)
+    left, right = sorted((left_id, right_id))
+    payload = {"left_id": left, "right_id": right, "evidence": evidence.to_dict()}
+    key = f"entity-cannot-link:{left}:{right}:{evidence.evidence_id}"
+    fingerprint = content_sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    )
+    prior = log.find_idempotency(key, request_fingerprint=fingerprint)
+    if prior is not None:
+        identity.add_cannot_link(left, right, evidence)
+        return prior.events[0]
+    event = make_event(EVENT_TYPE_ENTITY_CANNOT_LINK, payload)
+    committed = log.commit([event], idempotency_key=key, request_fingerprint=fingerprint).events[0]
+    identity.add_cannot_link(left, right, evidence)
+    return committed
 
 
 def rebuild_identity(log: EventLog) -> IdentityService:
@@ -112,8 +175,45 @@ def rebuild_identity(log: EventLog) -> IdentityService:
                     binding["source"],
                     binding["external_id"],
                 )
+            if payload.get("source_id") and payload.get("source_record_id"):
+                identity.store.bind_source_record(
+                    SourceRecordIdentity(
+                        payload["source_id"],
+                        payload["source_record_id"],
+                    ),
+                    payload["entity_id"],
+                )
+        elif event.event_type == EVENT_TYPE_SOURCE_RECORD_MATCHED:
+            identity.replay_source_record_match(
+                source_record=SourceRecordIdentity(payload["source_id"], payload["record_id"]),
+                entity_id=payload["entity_id"],
+                aliases=[payload.get("name", ""), *(payload.get("name_aliases") or [])],
+                external_ids=(
+                    (binding["source"], binding["external_id"])
+                    for binding in payload.get("external_ids") or []
+                ),
+            )
+        elif event.event_type == EVENT_TYPE_ENTITY_CANNOT_LINK:
+            identity.add_cannot_link(
+                payload["left_id"],
+                payload["right_id"],
+                IdentityEvidence.from_dict(payload["evidence"]),
+            )
         elif event.event_type == EVENT_TYPE_ENTITY_MERGED:
-            identity.merge_entities(payload["survivor_id"], payload["duplicate_id"])
+            evidence = payload.get("same_entity_evidence")
+            if evidence is None:
+                evidence = {
+                    "evidence_id": f"legacy-merge:{event.event_id}",
+                    "source": "legacy-event-log",
+                    "basis": "historical-merge-event",
+                    "recorded_by": payload.get("actor") or "legacy-replay",
+                    "description": payload.get("reason", ""),
+                }
+            identity.merge_entities(
+                payload["survivor_id"],
+                payload["duplicate_id"],
+                same_entity_evidence=IdentityEvidence.from_dict(evidence),
+            )
         elif event.event_type == EVENT_TYPE_EXTERNAL_ID_BOUND:
             identity.add_external_id(
                 payload["entity_id"], payload["source"], payload["external_id"]
@@ -197,11 +297,54 @@ def split_entities(
             f"no EntityMerged event recorded for {duplicate_id} -> {survivor_id}; nothing to split"
         )
     moved = merge_event.payload
+    idempotency_key = f"entity-split:{merge_event.event_id}:{actor}:{reason}"
+    command = {
+        "survivor_id": survivor_id,
+        "duplicate_id": duplicate_id,
+        "reason": reason,
+        "actor": actor,
+    }
+    fingerprint = content_sha256(
+        json.dumps(command, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    )
+    prior = log.find_idempotency(idempotency_key, request_fingerprint=fingerprint)
+    if prior is not None:
+        event = prior.events[0]
+        if identity.merged_into(duplicate_id) == survivor_id:
+            identity.split_entity(
+                survivor_id,
+                duplicate_id,
+                tuple(moved.get("moved_aliases") or []),
+                tuple(
+                    (b["source"], b["external_id"]) for b in moved.get("moved_external_ids") or []
+                ),
+            )
+        return SplitResult(
+            survivor_id,
+            duplicate_id,
+            tuple(event.payload.get("restored_aliases") or ()),
+            tuple(
+                (binding["source"], binding["external_id"])
+                for binding in event.payload.get("restored_external_ids") or ()
+            ),
+            tuple(event.payload.get("retained_aliases") or ()),
+            tuple(
+                (binding["source"], binding["external_id"])
+                for binding in event.payload.get("retained_external_ids") or ()
+            ),
+            event,
+        )
+
+    restore_aliases = tuple(moved.get("moved_aliases") or [])
+    restore_external = tuple(
+        (b["source"], b["external_id"]) for b in moved.get("moved_external_ids") or []
+    )
     outcome = identity.split_entity(
         survivor_id,
         duplicate_id,
-        tuple(moved.get("moved_aliases") or []),
-        tuple((b["source"], b["external_id"]) for b in moved.get("moved_external_ids") or []),
+        restore_aliases,
+        restore_external,
+        prepare_only=True,
     )
     event = make_event(
         EVENT_TYPE_ENTITY_SPLIT,
@@ -222,13 +365,23 @@ def split_entities(
             "actor": actor,
         },
     )
-    log.append(event)
+    committed = log.commit(
+        [event],
+        idempotency_key=idempotency_key,
+        request_fingerprint=fingerprint,
+    ).events[0]
+    applied = identity.split_entity(
+        survivor_id,
+        duplicate_id,
+        restore_aliases,
+        restore_external,
+    )
     return SplitResult(
         survivor_id=survivor_id,
         duplicate_id=duplicate_id,
-        restored_aliases=outcome.restored_aliases,
-        restored_external_ids=outcome.restored_external_ids,
-        retained_aliases=outcome.retained_aliases,
-        retained_external_ids=outcome.retained_external_ids,
-        event=event,
+        restored_aliases=applied.restored_aliases,
+        restored_external_ids=applied.restored_external_ids,
+        retained_aliases=applied.retained_aliases,
+        retained_external_ids=applied.retained_external_ids,
+        event=committed,
     )

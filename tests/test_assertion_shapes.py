@@ -26,7 +26,6 @@ from foundry.assertions import (
     document_to_rdf,
     make_assertion,
     register_document,
-    supersede_assertion,
 )
 from foundry.events import EventLog, make_event
 from foundry.namespaces import ASSERTION_MIDDLE_NS, CORE_ONTOLOGY_NS
@@ -80,6 +79,15 @@ def _add_document(g: Graph) -> URIRef:
     node = URIRef(DOC)
     g.add((node, RDF.type, URIRef(ASSERTION + "Document")))
     g.add((node, URIRef(CORE + "name"), Literal("Weekly report", datatype=XSD.string)))
+    g.add((node, URIRef(CORE + "recordedAt"), Literal(INSTANT, datatype=XSD.dateTime)))
+    for predicate, value in (
+        ("documentUri", "https://example.org/report-1"),
+        ("sourceSystem", "test"),
+        ("sourceRecordId", "record-1"),
+        ("sourceRecordKey", "urn:source-record:test"),
+        ("contentHash", "a" * 64),
+    ):
+        g.add((node, URIRef(ASSERTION + predicate), Literal(value, datatype=XSD.string)))
     return node
 
 
@@ -88,6 +96,9 @@ def _add_assertion_skeleton(g: Graph, node: URIRef) -> URIRef:
     g.add((node, RDF.type, URIRef(ASSERTION + "Assertion")))
     g.add((node, URIRef(CORE + "describes"), URIRef(ENTITY)))
     g.add((node, URIRef(CORE + "validFrom"), Literal(INSTANT, datatype=XSD.dateTime)))
+    g.add((node, URIRef(CORE + "recordedAt"), Literal(INSTANT, datatype=XSD.dateTime)))
+    g.add((node, URIRef(ASSERTION + "status"), Literal("asserted", datatype=XSD.string)))
+    g.add((node, URIRef(ASSERTION + "evidenceQuality"), Literal("unknown", datatype=XSD.string)))
     g.add((node, URIRef(CORE + "hasSource"), _add_document(g)))
     return node
 
@@ -100,6 +111,7 @@ def _mapped_log(tmp_path):
         uri="https://example.org/report-1",
         title="Weekly report",
         source_system="crawler",
+        content="weekly report body",
     )
     made = make_assertion(
         log=log,
@@ -268,10 +280,9 @@ class TestShaclConformance:
             source_ids=[doc.payload["document_id"]],
             supersedes=made.payload["assertion_id"],
         )
-        supersede_assertion(log=_log, assertion_id=made.payload["assertion_id"])
         g = _seed_graph()
         document_to_rdf(g, doc)
-        assertion_to_rdf(g, made)
+        assertion_to_rdf(g, made, status_override="superseded")
         assertion_to_rdf(g, second)
         conforms, report = _run_shacl(g)
         assert conforms, f"supersede chain must conform:\n{report}"
@@ -306,14 +317,14 @@ class TestShaclConformance:
         assert (source, RDF.type, URIRef(CORE + "Source")) in g
         assert (source, RDF.type, URIRef(ASSERTION + "Document")) not in g
 
-    def test_confidence_outside_range_rejected(self):
+    def test_model_score_outside_range_rejected(self):
         g = _seed_graph()
         node = _add_assertion_skeleton(g, URIRef("urn:assert:bad"))
         g.add((node, URIRef(ASSERTION + "predicate"), URIRef(CORE + "locatedAt")))
         g.add((node, URIRef(ASSERTION + "hasObject"), URIRef(LOCATION)))
-        g.add((node, URIRef(CORE + "hasConfidence"), Literal("1.50", datatype=XSD.decimal)))
+        g.add((node, URIRef(ASSERTION + "modelScore"), Literal("1.50", datatype=XSD.decimal)))
         conforms, _report = _run_shacl(g)
-        assert not conforms, "confidence outside [0,1] must be rejected"
+        assert not conforms, "model score outside [0,1] must be rejected"
 
     def test_missing_subject_and_validfrom_rejected(self):
         g = _seed_graph()

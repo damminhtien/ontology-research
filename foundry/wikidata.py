@@ -371,11 +371,12 @@ def ingest_records(
         receipts.append(result)
         if result.accepted:
             stats.accepted += 1
-            if result.is_new:
-                stats.new_entities += 1
-            else:
-                stats.merged += 1
-            if result.event is not None:
+            if not result.replayed:
+                if result.is_new:
+                    stats.new_entities += 1
+                else:
+                    stats.merged += 1
+            if result.event is not None and not result.replayed:
                 events.append(result.event)
         else:
             stats.rejected += 1

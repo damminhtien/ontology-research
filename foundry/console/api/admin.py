@@ -33,6 +33,7 @@ for _path in (REPO_ROOT / "tools", REPO_ROOT):
         sys.path.insert(0, _path.as_posix())
 
 from foundry.events import EVENT_TYPE_REVIEW_QUEUED, EventLog  # noqa: E402
+from foundry.identity import IdentityEvidence  # noqa: E402
 from foundry.lake import default_lake_root, persist_events  # noqa: E402
 from foundry.merge import merge_entities, rebuild_identity, split_entities  # noqa: E402
 
@@ -69,6 +70,7 @@ class CorrectionRequest(BaseModel):
     duplicate_id: str
     reason: str = ""
     actor: str = "console"
+    same_entity_evidence: dict[str, str] | None = None
 
 
 def _persist_to_lake(events: list) -> int:
@@ -105,12 +107,16 @@ def admin_merge(
     _check_token(authorization)
     log = EventLog(_admin_log_path())
     identity = rebuild_identity(log)
+    if request.same_entity_evidence is None:
+        raise HTTPException(status_code=422, detail="same-entity evidence is required")
     try:
+        evidence = IdentityEvidence.from_dict(request.same_entity_evidence)
         result = merge_entities(
             identity=identity,
             log=log,
             survivor_id=request.survivor_id,
             duplicate_id=request.duplicate_id,
+            same_entity_evidence=evidence,
             reason=request.reason,
             actor=request.actor,
         )

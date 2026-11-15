@@ -88,6 +88,12 @@ class TestAdminMergeAudit:
                 "duplicate_id": duplicate,
                 "reason": "dup qid",
                 "actor": "tien",
+                "same_entity_evidence": {
+                    "evidence_id": "test:reviewed-merge",
+                    "source": "fixture",
+                    "basis": "explicit-human-review",
+                    "recorded_by": "pytest",
+                },
             },
         )
         assert res.status_code == 200
@@ -126,6 +132,12 @@ class TestAdminSplitAndReview:
                 "duplicate_id": duplicate,
                 "reason": "r",
                 "actor": "tien",
+                "same_entity_evidence": {
+                    "evidence_id": "test:reviewed-merge",
+                    "source": "fixture",
+                    "basis": "explicit-human-review",
+                    "recorded_by": "pytest",
+                },
             },
         )
         res = c.post(

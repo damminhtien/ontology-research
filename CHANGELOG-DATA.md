@@ -7,6 +7,38 @@ hành nằm trong file `VERSION` ở gốc repo; source code đọc qua
 
 ## event_schema
 
+### 6 — 2026-11-15
+
+- Assertions record `recorded_at` separately from valid-time bounds, use
+  `model_score` and categorical `evidence_quality` instead of treating a
+  generic confidence value as fact probability, and carry status metadata.
+- Document records carry a stable source-record key and SHA-256 content hash.
+  New registrations require source bytes or a caller-supplied SHA-256 that can
+  be checked against the bytes. Registering the same record version is
+  idempotent; changed content creates a new document version while preserving
+  the source-record lineage. Legacy records receive a deterministic metadata
+  fingerprint because their original bytes are unavailable; that value is not
+  evidence of the historical content bytes.
+- Evidence spans may preserve exact source text. The v5→v6 upcaster maps
+  historical confidence values to model scores, supplies recorded time and
+  status, and derives source-record metadata for historical documents. Legacy
+  entity records also receive stable source-record metadata and a deterministic
+  hash of their stored structured fields.
+
+### 5 — 2026-11-15
+
+- Event headers may carry an idempotency key, request fingerprint and batch
+  size. These fields identify retries of a logical command without changing
+  the event payload; the v4→v5 upcaster supplies empty values for old records.
+- EventLog sequence allocation and committed segment byte lengths live in a
+  durable SQLite sidecar. Segment bytes are fsync-ed before one metadata
+  transaction publishes the batch. Recovery truncates uncommitted tails and
+  restores an interrupted active-segment rotation. A missing sidecar is
+  rebuilt by scanning legacy segments once.
+- EventLog idempotency results are committed with the sequence metadata. A
+  repeated key with the same request fingerprint returns the original events;
+  reuse with a different fingerprint fails.
+
 ### 4 — 2026-11-12
 
 - Location is now recorded through the generic `AssertionMade` contract. The

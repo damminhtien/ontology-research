@@ -9,6 +9,8 @@ appended to the log and written to the lake for OLAP.
 Usage:
     .venv/bin/python tools/merge_entities.py \
         --survivor urn:world:entity:<hex> --duplicate urn:world:entity:<hex> \
+        --evidence-id EVIDENCE-1 --evidence-source reviewed-record \
+        --evidence-basis authoritative-crosswalk --recorded-by analyst \
         [--reason "duplicate QID pair confirmed"] [--log data/events.jsonl] \
         [--lake /path/to/lake | --no-lake]
 
@@ -27,6 +29,7 @@ if REPO_ROOT.as_posix() not in sys.path:
     sys.path.insert(0, REPO_ROOT.as_posix())
 
 from foundry.events import EventLog
+from foundry.identity import IdentityEvidence
 from foundry.lake import default_lake_root, persist_events
 from foundry.merge import merge_entities, rebuild_identity
 
@@ -36,6 +39,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--survivor", required=True, help="canonical id to keep")
     parser.add_argument("--duplicate", required=True, help="canonical id to fold away")
+    parser.add_argument("--evidence-id", required=True, help="stable identity evidence id")
+    parser.add_argument("--evidence-source", required=True, help="source supporting identity")
+    parser.add_argument("--evidence-basis", required=True, help="why the source proves identity")
+    parser.add_argument("--recorded-by", required=True, help="reviewer or system actor")
+    parser.add_argument("--evidence-description", default="", help="optional evidence detail")
     parser.add_argument("--reason", default="", help="why the merge was confirmed")
     parser.add_argument("--log", default="data/production.jsonl", help="event log path")
     parser.add_argument(
@@ -52,6 +60,13 @@ def main() -> int:
             log=log,
             survivor_id=args.survivor,
             duplicate_id=args.duplicate,
+            same_entity_evidence=IdentityEvidence(
+                evidence_id=args.evidence_id,
+                source=args.evidence_source,
+                basis=args.evidence_basis,
+                recorded_by=args.recorded_by,
+                description=args.evidence_description,
+            ),
             reason=args.reason,
         )
     except ValueError as exc:

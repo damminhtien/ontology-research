@@ -545,7 +545,11 @@ def iter_projected_quads(
         canonical = Graph()
         interop = Graph() if profile == "interop-v1" else None
         entity: URIRef | None = None
-        if event.event_type == "EntityCreated" or event.event_type == "ExternalIdBound":
+        if event.event_type in {
+            "EntityCreated",
+            "ExternalIdBound",
+            "SourceRecordMatched",
+        }:
             entity_identity_to_rdf(canonical, event)
         elif event.event_type == "DocumentRegistered":
             entity = document_to_rdf(canonical, event)
