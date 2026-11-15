@@ -60,6 +60,14 @@ entity để giảm nhiễu timer ở query dưới microsecond. Report
 log, số segment, thời gian build read-model index và thời gian full-replay.
 Recovery ở đây là replay vào read model mới; chưa gồm restore snapshot.
 
+### End-to-end stage gate
+
+`make check` chạy benchmark đầy đủ cho ingestion, Parquet, projector và truy vấn
+lake với 300 entity tổng hợp trong năm iteration độc lập. Gate so sánh throughput
+median của từng stage với ngưỡng tuyệt đối và baseline đã commit. Workload lớn hơn
+giúp một lần runner bị gián đoạn ngắn ít chi phối kết quả ingest. Gate không tự
+ghi lại hoặc hiệu chỉnh baseline.
+
 ## Quy tắc đo
 
 - Đo trên dataset có kích thước khai báo rõ (hiện tại: seed dataset nhỏ cho correctness;
