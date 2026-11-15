@@ -11,7 +11,8 @@ Usage:
         --survivor urn:world:entity:<hex> --duplicate urn:world:entity:<hex> \
         --evidence-id EVIDENCE-1 --evidence-source reviewed-record \
         --evidence-basis authoritative-crosswalk --recorded-by analyst \
-        [--reason "duplicate QID pair confirmed"] [--log data/events.jsonl] \
+        [--reason "duplicate QID pair confirmed"] \
+        [--log ~/Data/ontology-research/data/production.jsonl] \
         [--lake /path/to/lake | --no-lake]
 
 Exits 1 without writing anything when the merge is rejected (unknown id,
@@ -31,7 +32,9 @@ if REPO_ROOT.as_posix() not in sys.path:
 from foundry.events import EventLog
 from foundry.identity import IdentityEvidence
 from foundry.lake import default_lake_root, persist_events
-from foundry.merge import merge_entities, rebuild_identity
+from foundry.merge import merge_entities
+from foundry.paths import production_event_log_path
+from foundry.storage import identity_service_for_log
 
 
 def main() -> int:
@@ -45,15 +48,15 @@ def main() -> int:
     parser.add_argument("--recorded-by", required=True, help="reviewer or system actor")
     parser.add_argument("--evidence-description", default="", help="optional evidence detail")
     parser.add_argument("--reason", default="", help="why the merge was confirmed")
-    parser.add_argument("--log", default="data/production.jsonl", help="event log path")
+    parser.add_argument("--log", default=production_event_log_path(), help="event log path")
     parser.add_argument(
-        "--lake", default=None, help="lake root (default $FOUNDRY_LAKE_ROOT or repo)"
+        "--lake", default=None, help="lake root (default $FOUNDRY_LAKE_ROOT or external Data root)"
     )
     parser.add_argument("--no-lake", action="store_true", help="skip the lake write")
     args = parser.parse_args()
 
     log = EventLog(Path(args.log))
-    identity = rebuild_identity(log)
+    identity, apply_projection = identity_service_for_log(log)
     try:
         result = merge_entities(
             identity=identity,
@@ -68,6 +71,7 @@ def main() -> int:
                 description=args.evidence_description,
             ),
             reason=args.reason,
+            apply_projection=apply_projection,
         )
     except ValueError as exc:
         print(f"merge rejected: {exc}", file=sys.stderr)

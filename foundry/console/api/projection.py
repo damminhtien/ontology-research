@@ -8,6 +8,7 @@ does not need; this router is the live demonstration of that rule.
 from __future__ import annotations
 
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Annotated
@@ -21,8 +22,10 @@ from foundry.console.api.provenance_access import (
     visible_source_ids,
 )
 from foundry.events import EventLog
+from foundry.postgres import PostgresDatabase
+from foundry.postgres_readmodel import PostgresReadModelStore
 from foundry.projector import Projector, replay_log
-from foundry.readmodel import ReadModel, format_instant, parse_instant
+from foundry.readmodel import ReadModel, ReadModelStore, format_instant, parse_instant
 
 BENCHMARK_REPORT = Path(__file__).resolve().parents[3] / "build" / "benchmark-report.json"
 
@@ -56,10 +59,14 @@ def _snapshot_paths(log_path: Path) -> tuple[Path, Path]:
     )
 
 
-def _read_model() -> ReadModel:
+def _read_model() -> ReadModelStore:
     """Read model cached in-process and on disk, resumed incrementally.
 
-    Layers:
+    With ``FOUNDRY_DATABASE_URL``, reads use the PostgreSQL projection directly;
+    the independent projector worker owns replay and checkpoint updates. Without
+    it, local development retains the pickle-backed in-memory scaffold.
+
+    In-memory layers:
     1. in-process cache keyed by log mtime — the common hit;
     2. persisted snapshot + checkpoint (B2/B6): a log change applies only the
        suffix after the recorded sequence, and a server restart loads the
@@ -68,6 +75,9 @@ def _read_model() -> ReadModel:
        a cache, never a source of truth (ADR-0002/0004).
     """
     global _model_cache, _model_log_fingerprint
+    dsn = os.environ.get("FOUNDRY_DATABASE_URL")
+    if dsn:
+        return PostgresReadModelStore(PostgresDatabase(dsn))
     with _model_lock:
         path = event_log_path()
         log = EventLog(path)

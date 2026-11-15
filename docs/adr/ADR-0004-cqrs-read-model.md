@@ -21,12 +21,18 @@ Adopt CQRS:
 - **Write model**: immutable `SemanticEvent` stream in `foundry/events.py`.
   Every change is an event; corrections are new events that supersede old ones.
 - **Projector** (`foundry/projector.py`): folds the event stream into a
-  `ReadModel`. Replay is deterministic: events are sorted by `(occurred_at,
-  event_id)` and each `apply()` is idempotent. Replaying the same log twice must
-  produce structurally identical output.
-- **ReadModel** (`foundry/readmodel.py`): in-memory indexes that answer the hot
-  operational queries directly: entity lookup, current location, temporal
-  `as-of`, reverse `entities_at`, and projection stats. No ontology, no SPARQL.
+  `ReadModelStore`. Events are applied in log sequence order, each event is
+  idempotent, and checkpoint advancement shares a transaction with projection
+  writes.
+- **ReadModelStore** (`foundry/readmodel.py`): query/write contract for entity
+  lookup, current location, temporal `as-of`, reverse `entities_at`, assertions,
+  tracks, and projection stats.
+- **Operational backend** (`foundry/postgres_readmodel.py`): indexed PostgreSQL
+  tables for entities, assertions/relations, tracks, event idempotency, and the
+  transactional checkpoint. `foundry/postgres.py` stores identity aliases,
+  external identifiers, source records, cannot-links, and merge redirects.
+- **In-memory ReadModel**: retained for unit tests, offline demos, and local
+  projection experiments.
 
 Forward-compatibility rules (so newer writers do not break older projections):
 
@@ -38,9 +44,11 @@ Forward-compatibility rules (so newer writers do not break older projections):
 4. Renaming or removing a field that the projector consumes is a breaking
    change and requires a major-version bump + migration.
 
-Phase 3 uses in-memory structures; the `ReadModel` interface is stable so a
-real store (graph DB, relational projection tables, search index) can replace
-it in Phase 6 without changing callers.
+The API reads PostgreSQL directly when `FOUNDRY_DATABASE_URL` is configured.
+The independent `tools/project_events.py` worker streams only events after the
+stored sequence, and `--rebuild` recreates these disposable projections from the
+canonical event log. Oxigraph remains an evaluation backend until benchmark
+evidence supports a change.
 
 ## Consequences
 

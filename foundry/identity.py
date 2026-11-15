@@ -32,9 +32,12 @@ from __future__ import annotations
 
 import abc
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from enum import StrEnum
+from functools import wraps
+from typing import Concatenate
 
 from foundry.namespaces import new_entity_id
 from foundry.provenance import normalize_source_id
@@ -44,6 +47,19 @@ CONFIDENCE_ALIAS = 0.40
 REVIEW_THRESHOLD = 0.50
 
 _NON_WORD = re.compile(r"[^\w\s]", re.UNICODE)
+
+
+def _atomic_identity_mutation[**P, R](
+    method: Callable[Concatenate[IdentityService, P], R],
+) -> Callable[Concatenate[IdentityService, P], R]:
+    """Run one policy mutation under the backing store's transaction."""
+
+    @wraps(method)
+    def wrapped(self: IdentityService, *args: P.args, **kwargs: P.kwargs) -> R:
+        with self._store.transaction():
+            return method(self, *args, **kwargs)
+
+    return wrapped
 
 
 def normalize_name(text: str) -> str:
@@ -228,9 +244,16 @@ class IdentityStore(abc.ABC):
     Owns canonical-entity records, the alias/external-id multimaps, the
     token blocking index and merge redirects. :class:`IdentityService`
     keeps every policy decision (lookup order, ambiguity and review
-    routing, merge/split validation) so a SQLite or graph backend can be
+    routing, merge/split validation) so a persistent backend can be
     substituted without touching resolution logic.
+
+    ``transaction`` lets compound identity operations update durable indexes
+    atomically. The in-memory implementation needs no transaction.
     """
+
+    def transaction(self) -> AbstractContextManager[object]:
+        """Return a transaction scope for compound writes."""
+        return nullcontext()
 
     @abc.abstractmethod
     def upsert(self, entity_id: str, entity_type: str) -> None:
@@ -243,6 +266,11 @@ class IdentityStore(abc.ABC):
     @abc.abstractmethod
     def entity_ids(self) -> Iterable[str]:
         """All recorded canonical ids (including merged-away ones)."""
+
+    def live_entity_count(self) -> int:
+        """Count active canonical entities without requiring service policy."""
+        redirects = self.merge_redirects()
+        return sum(1 for entity_id in self.entity_ids() if entity_id not in redirects)
 
     @abc.abstractmethod
     def bind_alias(self, entity_id: str, alias: str) -> None:
@@ -479,7 +507,7 @@ class IdentityService:
     routing, merge/split validation); registry *state* lives behind the
     :class:`IdentityStore` boundary. The default backend is in-memory,
     rebuilt from the log via ``foundry.merge.rebuild_identity``; a
-    SQLite/graph backend swaps in without changing this class
+    PostgreSQL backend swaps in without changing this class
     (docs/architecture.md §4.5).
     """
 
@@ -504,8 +532,9 @@ class IdentityService:
 
     def __len__(self) -> int:
         """Number of live canonical entities (merged-away ids excluded)."""
-        return len(set(self._store.entity_ids()) - set(self._store.merge_redirects()))
+        return self._store.live_entity_count()
 
+    @_atomic_identity_mutation
     def register(
         self,
         *,
@@ -583,6 +612,7 @@ class IdentityService:
 
         return LookupResult("", "miss")
 
+    @_atomic_identity_mutation
     def resolve(
         self,
         *,
@@ -780,6 +810,7 @@ class IdentityService:
         """Collapse merged ids before comparing identifier owners."""
         return {self.merged_into(owner) or owner for owner in owners}
 
+    @_atomic_identity_mutation
     def add_cannot_link(self, left_id: str, right_id: str, evidence: IdentityEvidence) -> bool:
         """Persist a symmetric cannot-link constraint; return whether it is new."""
         self.validate_cannot_link(left_id, right_id)
@@ -800,6 +831,7 @@ class IdentityService:
         if left == right:
             raise ValueError("cannot-link pair already resolves to the same canonical entity")
 
+    @_atomic_identity_mutation
     def replay_source_record_match(
         self,
         *,
@@ -843,12 +875,14 @@ class IdentityService:
             ],
         }
 
+    @_atomic_identity_mutation
     def add_external_id(self, entity_id: str, source: str, external_id: str) -> None:
         """Attach an external identifier to a known canonical entity."""
         if self._store.get(entity_id) is None:
             raise ValueError(f"unknown canonical id {entity_id}")
         self._store.bind_external(entity_id, source, external_id)
 
+    @_atomic_identity_mutation
     def merge_entities(
         self,
         survivor_id: str,
@@ -942,6 +976,7 @@ class IdentityService:
             seen.add(current)
         return current if current != entity_id else ""
 
+    @_atomic_identity_mutation
     def split_entity(
         self,
         survivor_id: str,

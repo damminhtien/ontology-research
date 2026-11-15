@@ -7,8 +7,8 @@ lake (Parquet + zstd) for OLAP querying.
 
 Usage:
     .venv/bin/python tools/ingest_wikidata.py [--limit 500] [--class Q43229]
-                                              [--log data/events.jsonl]
-                                              [--lake /data/lake] [--no-lake]
+                                              [--log ~/Data/ontology-research/data/production.jsonl]
+                                              [--lake /path/to/lake] [--no-lake]
 
 Rates to watch (roadmap KPIs):
     unresolved_rate  — fraction sent to review (precision-first, ADR-0003;
@@ -30,11 +30,12 @@ from foundry import wikidata as wd
 from foundry.events import EventLog
 from foundry.ingestion import IngestionPipeline
 from foundry.lake import default_lake_root, persist_events
-from foundry.merge import rebuild_identity
+from foundry.paths import production_event_log_path
 from foundry.reference import (
     default_reference_root,
     read_snapshot,
 )
+from foundry.storage import identity_service_for_log
 
 
 def main() -> int:
@@ -43,9 +44,9 @@ def main() -> int:
     parser.add_argument("--class", dest="class_qid", default="Q43229", help="root Wikidata class")
     parser.add_argument("--limit", type=int, default=500, help="max distinct entities to fetch")
     parser.add_argument("--timeout", type=float, default=60.0, help="SPARQL request timeout (s)")
-    parser.add_argument("--log", default="data/production.jsonl", help="event log path")
+    parser.add_argument("--log", default=production_event_log_path(), help="event log path")
     parser.add_argument(
-        "--lake", default=None, help="lake root (default $FOUNDRY_LAKE_ROOT or repo)"
+        "--lake", default=None, help="lake root (default $FOUNDRY_LAKE_ROOT or external Data root)"
     )
     parser.add_argument("--no-lake", action="store_true", help="skip the lake write")
     parser.add_argument(
@@ -56,7 +57,11 @@ def main() -> int:
     parser.add_argument(
         "--snapshot", default=None, help="lane snapshot id (default: latest published)"
     )
-    parser.add_argument("--reference-root", default=None, help="lane root (default data/reference)")
+    parser.add_argument(
+        "--reference-root",
+        default=None,
+        help="lane root (default external Data root)",
+    )
     args = parser.parse_args()
 
     if args.from_lane:
@@ -78,7 +83,7 @@ def main() -> int:
     log_path = Path(args.log)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = EventLog(log_path)
-    identity = rebuild_identity(log)  # dedupe against everything already ingested
+    identity, _apply_projection = identity_service_for_log(log)
     print(f"registry: {len(identity)} known canonical entit(ies) from {log_path}")
     pipeline = IngestionPipeline(
         identity=identity,

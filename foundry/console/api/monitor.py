@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+from collections import deque
 from pathlib import Path
 from typing import Annotated
 
@@ -19,18 +19,16 @@ from foundry.console.api.provenance_access import (
     visible_source_ids,
 )
 from foundry.events import EventLog
+from foundry.paths import demo_event_log_path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-
-EVENT_LOG_ENV = "FOUNDRY_EVENT_LOG"
 
 router = APIRouter(prefix="/monitor", tags=["monitoring"])
 
 
 def event_log_path() -> Path:
-    """Resolve the event log path (FOUNDRY_EVENT_LOG or data/events.jsonl)."""
-    configured = os.environ.get(EVENT_LOG_ENV)
-    return Path(configured) if configured else REPO_ROOT / "data" / "events.jsonl"
+    """Resolve FOUNDRY_EVENT_LOG or the external demo-log location."""
+    return demo_event_log_path()
 
 
 def _validation_graphs() -> tuple[Graph, Graph, list[str], list[str]]:
@@ -65,25 +63,31 @@ def event_stats() -> dict:
             "by_type": {},
             "message": "no event log yet; run tools/seed_console_data.py",
         }
-    events = log.read_all()
     by_type: dict[str, int] = {}
-    for event in events:
+    total = 0
+    for event in log.iter_all():
+        total += 1
         by_type[event.event_type] = by_type.get(event.event_type, 0) + 1
-    return {"exists": True, "path": str(path), "total": len(events), "by_type": by_type}
+    return {"exists": True, "path": str(path), "total": total, "by_type": by_type}
 
 
 @router.get("/events/recent")
 def recent_events(
-    limit: Annotated[int, Query(le=500)],
+    limit: Annotated[int, Query(ge=1, le=500)],
     scope: Annotated[ProvenanceScope, Depends(provenance_scope)],
 ) -> dict:
     """Return recent events with provenance limited to the caller's scope."""
     limit_value = min(limit, 500)
     path = event_log_path()
     log = EventLog(path)
-    events = log.read_all() if log.has_data() else []
+    event_window = deque(maxlen=limit_value)
+    total = 0
+    if log.has_data():
+        for event in log.iter_all():
+            total += 1
+            event_window.append(event)
     recent = []
-    for event in reversed(events[-limit_value:]):
+    for event in reversed(event_window):
         payload = dict(event.payload)
         if event.event_type == "DocumentRegistered" and not scope.allows(
             payload.get("document_id")
@@ -103,7 +107,7 @@ def recent_events(
                 "payload": payload,
             }
         )
-    return {"total": len(events), "returned": len(recent), "events": recent}
+    return {"total": total, "returned": len(recent), "events": recent}
 
 
 @router.get("/validation")

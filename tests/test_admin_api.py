@@ -46,7 +46,7 @@ def client(tmp_path, monkeypatch):
     survivor, duplicate = _seed_log(log_path)
     monkeypatch.setenv("FOUNDRY_CONSOLE_TOKEN", TOKEN)
     monkeypatch.setenv("FOUNDRY_ADMIN_LOG", str(log_path))
-    monkeypatch.delenv("FOUNDRY_LAKE_ROOT", raising=False)
+    monkeypatch.setenv("FOUNDRY_LAKE_ROOT", str(tmp_path / "lake"))
     from fastapi.testclient import TestClient
 
     return TestClient(create_app()), tmp_path, survivor, duplicate
@@ -179,6 +179,11 @@ class TestAdminSplitAndReview:
             location_uri="urn:world:location:x",
             valid_from="2026-09-01T00:00:00Z",
             source_ids=["s"],
+        )
+        monkeypatch.setattr(
+            EventLog,
+            "read_all",
+            lambda _log: pytest.fail("review queue must stream the event log"),
         )
         res = client_under.post("/api/admin/review", headers=_auth())
         body = res.json()

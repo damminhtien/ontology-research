@@ -8,7 +8,8 @@ as an append-only ``ExternalIdBound`` fact so future restarts recover the
 full registry from the log alone (ADR-0002: the log is never rewritten).
 
 Usage:
-    .venv/bin/python tools/backfill_external_ids.py [--log data/production.jsonl]
+    .venv/bin/python tools/backfill_external_ids.py \
+        [--log ~/Data/ontology-research/data/production.jsonl]
                                                     [--lake /path/to/lake | --no-lake]
 
 Idempotent: a second run finds every binding already present and appends
@@ -27,22 +28,28 @@ if REPO_ROOT.as_posix() not in sys.path:
     sys.path.insert(0, REPO_ROOT.as_posix())
 
 from foundry.events import EventLog, SemanticEvent, make_event
+from foundry.identity import IdentityService
 from foundry.lake import default_lake_root, persist_events
-from foundry.merge import rebuild_identity
+from foundry.paths import production_event_log_path
+from foundry.storage import identity_service_for_log
 
 # source_id convention written by tools/ingest_wikidata.py.
 _WIKIDATA_SOURCE = re.compile(r"^wikidata:(Q\d+)$")
 
 
-def collect_missing_binding_events(log: EventLog) -> list[SemanticEvent]:
+def collect_missing_binding_events(
+    log: EventLog, *, identity: IdentityService | None = None
+) -> list[SemanticEvent]:
     """Return one ExternalIdBound event per unrecorded ``wikidata:<QID>`` source.
 
     The registry is rebuilt from the log first so already-recorded bindings
     (explicit payloads or earlier backfills) are excluded.
     """
-    identity = rebuild_identity(log)
+    if identity is None:
+        identity, _apply_projection = identity_service_for_log(log)
     events: list[SemanticEvent] = []
-    for event in log.read_all():
+    pending: set[tuple[str, str]] = set()
+    for event in log.iter_all():
         if event.event_type != "EntityCreated":
             continue
         match = _WIKIDATA_SOURCE.match(event.payload.get("source_id") or "")
@@ -50,10 +57,10 @@ def collect_missing_binding_events(log: EventLog) -> list[SemanticEvent]:
             continue
         entity_id = event.payload["entity_id"]
         qid = match.group(1)
-        _, _, bound = identity.identity(entity_id)
-        if qid in bound.get("wikidata", frozenset()):
+        key = (entity_id, qid)
+        if key in pending or entity_id in identity.store.external_owners("wikidata", qid):
             continue
-        identity.add_external_id(entity_id, "wikidata", qid)
+        pending.add(key)
         events.append(
             make_event(
                 "ExternalIdBound",
@@ -66,9 +73,9 @@ def collect_missing_binding_events(log: EventLog) -> list[SemanticEvent]:
 def main() -> int:
     """Append one ExternalIdBound fact per missing Wikidata source binding."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--log", default="data/production.jsonl", help="event log path")
+    parser.add_argument("--log", default=production_event_log_path(), help="event log path")
     parser.add_argument(
-        "--lake", default=None, help="lake root (default $FOUNDRY_LAKE_ROOT or repo)"
+        "--lake", default=None, help="lake root (default $FOUNDRY_LAKE_ROOT or external Data root)"
     )
     parser.add_argument("--no-lake", action="store_true", help="skip the lake write")
     args = parser.parse_args()

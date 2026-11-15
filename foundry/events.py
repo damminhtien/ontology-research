@@ -1082,6 +1082,62 @@ class EventLog:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
             lock.close()
 
+    @property
+    def last_sequence(self) -> int:
+        """Highest committed global sequence, or zero for an empty log."""
+        segments = self._indexed_segments()
+        return segments[-1][3] if segments else 0
+
+    def iter_after_sequence(self, sequence: int) -> Iterator[SemanticEvent]:
+        """Stream only committed events after a projection checkpoint.
+
+        Segment metadata lets the reader skip complete segments without
+        opening them. It validates sequence continuity in the first relevant
+        segment onward; earlier segments were validated when their metadata
+        was published or during full replay.
+        """
+        if sequence < 0:
+            raise ValueError("sequence must be non-negative")
+        if not self.index_path.exists():
+            self._ensure_index()
+        lock = self._read_lock()
+        try:
+            connection = self._connect()
+            try:
+                self._initialize_index(connection)
+                segments = self._segment_rows(connection)
+            finally:
+                connection.close()
+            for filename, committed_bytes, first, last in segments:
+                if last <= sequence:
+                    continue
+                path = self._path.parent / filename
+                position = first - 1
+                with path.open("rb") as handle:
+                    remaining = committed_bytes
+                    while remaining:
+                        raw = handle.readline(remaining)
+                        if not raw.endswith(b"\n"):
+                            raise ValueError(f"committed event record is truncated in {path}")
+                        position += 1
+                        try:
+                            event = event_from_dict(json.loads(raw))
+                            if event.sequence is not None and event.sequence != position:
+                                raise ValueError(
+                                    f"sequence discontinuity: record claims {event.sequence}, "
+                                    f"physical position is {position}"
+                                )
+                        except (ValueError, json.JSONDecodeError) as exc:
+                            raise ValueError(f"{path}:{position}: {exc}") from exc
+                        remaining -= len(raw)
+                        if position > sequence:
+                            if event.sequence is None:
+                                event = replace(event, sequence=position)
+                            yield event
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            lock.close()
+
     def read_all(self) -> list[SemanticEvent]:
         """Replay the full log into a list for callers that need materialization."""
         return list(self.iter_all())

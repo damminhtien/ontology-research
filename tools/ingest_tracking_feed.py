@@ -8,7 +8,8 @@ domain SHACL contracts before entering the log.
 
 Usage:
     .venv/bin/python tools/ingest_tracking_feed.py --feed feed.jsonl \
-        [--log data/production.jsonl] [--lake /path | --no-lake]
+        [--log ~/Data/ontology-research/data/production.jsonl]
+        [--lake /path | --no-lake]
 
 Exit 0 with a per-stage summary; rejections (SHACL) are reported, never dropped.
 """
@@ -26,7 +27,8 @@ if REPO_ROOT.as_posix() not in sys.path:
 from foundry.events import EventLog  # noqa: E402
 from foundry.ingestion import IngestionPipeline  # noqa: E402
 from foundry.lake import default_lake_root, persist_events  # noqa: E402
-from foundry.merge import rebuild_identity  # noqa: E402
+from foundry.paths import production_event_log_path  # noqa: E402
+from foundry.storage import identity_service_for_log  # noqa: E402
 from foundry.tracking import parse_feed  # noqa: E402
 
 
@@ -34,7 +36,7 @@ def main() -> int:
     """Run one tracking-feed ingestion pass."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--feed", required=True, help="JSONL feed file")
-    parser.add_argument("--log", default="data/production.jsonl", help="event log path")
+    parser.add_argument("--log", default=production_event_log_path(), help="event log path")
     parser.add_argument("--lake", default=None, help="lake root")
     parser.add_argument("--no-lake", action="store_true", help="skip the lake write")
     args = parser.parse_args()
@@ -44,7 +46,7 @@ def main() -> int:
 
     log_path = Path(args.log)
     log = EventLog(log_path)
-    identity = rebuild_identity(log)
+    identity, _apply_projection = identity_service_for_log(log)
     print(f"registry: {len(identity)} known canonical entit(ies)")
     pipeline = IngestionPipeline(
         identity=identity,

@@ -61,7 +61,10 @@ chưa có token thì admin API trả `503`. Merge và split ghi actor trong even
 backfill ghi `ExternalIdBound` events.
 
 Các thao tác Admin mặc định đọc và ghi `$FOUNDRY_ADMIN_LOG`, mặc định là
-`data/production.jsonl`. Chúng không dùng event log demo `data/events.jsonl`.
+`~/Data/ontology-research/data/production.jsonl`. Chúng không dùng event log
+demo `~/Data/ontology-research/data/events.jsonl`. `data/` trong repo chỉ là
+symlink tương thích ở local setup. Cấu hình PostgreSQL projector trong
+[hướng dẫn vận hành](../guides/postgres-readmodel.md).
 Chỉ dùng Console write operations khi đã trỏ tới log phù hợp.
 
 ## Projection — read model

@@ -11,9 +11,9 @@ Every mutation is **gated and audited**:
   event log. Merge and split events record the requested actor in their
   payload; the append-only log *is* the audit trail (ADR-0002).
 - **Log discipline**: admin operates on the production log
-  (``$FOUNDRY_ADMIN_LOG``, default ``data/production.jsonl``) — never the
-  seed demo log — and the identity registry is rebuilt from that log before
-  any mutation, so corrections validate against real canonical state.
+  (``$FOUNDRY_ADMIN_LOG``, default ``~/Data/ontology-research/data/production.jsonl``) — never the
+  seed demo log — and identity commands require a projection caught up with the
+  log, so corrections validate against real canonical state.
 """
 
 from __future__ import annotations
@@ -33,19 +33,26 @@ for _path in (REPO_ROOT / "tools", REPO_ROOT):
         sys.path.insert(0, _path.as_posix())
 
 from foundry.events import EVENT_TYPE_REVIEW_QUEUED, EventLog  # noqa: E402
-from foundry.identity import IdentityEvidence  # noqa: E402
+from foundry.identity import IdentityEvidence, IdentityService  # noqa: E402
 from foundry.lake import default_lake_root, persist_events  # noqa: E402
-from foundry.merge import merge_entities, rebuild_identity, split_entities  # noqa: E402
+from foundry.merge import merge_entities, split_entities  # noqa: E402
+from foundry.paths import production_event_log_path  # noqa: E402
+from foundry.storage import identity_service_for_log  # noqa: E402
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 TOKEN_ENV = "FOUNDRY_CONSOLE_TOKEN"
 LOG_ENV = "FOUNDRY_ADMIN_LOG"
-DEFAULT_LOG = "data/production.jsonl"
+DEFAULT_LOG = production_event_log_path()
 
 
 def _admin_log_path() -> Path:
-    return Path(os.environ.get(LOG_ENV, DEFAULT_LOG))
+    return Path(os.environ.get(LOG_ENV, str(DEFAULT_LOG)))
+
+
+def _admin_identity(log: EventLog) -> tuple[IdentityService, bool]:
+    """Use persistent identity indexes when configured; worker applies events."""
+    return identity_service_for_log(log)
 
 
 def _check_token(authorization: str | None) -> str:
@@ -90,11 +97,12 @@ def list_review_queue(authorization: Annotated[str | None, Header()] = None) -> 
     """
     _check_token(authorization)
     log = EventLog(_admin_log_path())
-    queued = [
-        {"event_id": event.event_id, "occurred_at": event.occurred_at, **event.payload}
-        for event in log.read_all()
-        if event.event_type == EVENT_TYPE_REVIEW_QUEUED
-    ]
+    queued = []
+    for event in log.iter_all():
+        if event.event_type == EVENT_TYPE_REVIEW_QUEUED:
+            queued.append(
+                {"event_id": event.event_id, "occurred_at": event.occurred_at, **event.payload}
+            )
     return {"count": len(queued), "items": queued}
 
 
@@ -106,7 +114,7 @@ def admin_merge(
     """Merge a duplicate entity into its survivor (audited on the log)."""
     _check_token(authorization)
     log = EventLog(_admin_log_path())
-    identity = rebuild_identity(log)
+    identity, apply_projection = _admin_identity(log)
     if request.same_entity_evidence is None:
         raise HTTPException(status_code=422, detail="same-entity evidence is required")
     try:
@@ -119,6 +127,7 @@ def admin_merge(
             same_entity_evidence=evidence,
             reason=request.reason,
             actor=request.actor,
+            apply_projection=apply_projection,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -143,7 +152,7 @@ def admin_split(
     """Undo a previously recorded merge (audited on the log)."""
     _check_token(authorization)
     log = EventLog(_admin_log_path())
-    identity = rebuild_identity(log)
+    identity, apply_projection = _admin_identity(log)
     try:
         result = split_entities(
             identity=identity,
@@ -152,6 +161,7 @@ def admin_split(
             duplicate_id=request.duplicate_id,
             reason=request.reason,
             actor=request.actor,
+            apply_projection=apply_projection,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

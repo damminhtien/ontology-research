@@ -1,25 +1,25 @@
 """Materialized read model for operational queries.
 
 Write model = append-only event log (correctness / provenance / history).
-This module is the read side: plain in-memory indexes that answer the hot
-operational queries in O(1)-ish without touching ontology or SPARQL - the
-live embodiment of the rule "never make the operational query path pay for
-semantic complexity it does not need".
+This module defines the operational read-store contract and its in-memory
+implementation. PostgreSQL lives in ``foundry.postgres_readmodel`` and answers
+the same hot queries without loading the full projection into process memory.
 
 Design contract (ADR-0004):
 - Projector owns write semantics; ReadModel only exposes reads.
-- In-memory scaffold: interfaces are stable so a real store (graph db /
-  relational projection table) can replace internals in Phase 6 without
-  changing call sites.
-- Nothing is persisted here; rebuild = replay the log through the projector.
+- ``ReadModelStore`` is the projector-facing contract.
+- ``ReadModel`` is a test and offline implementation; operational data is
+  persisted by ``PostgresReadModelStore``.
 """
 
 from __future__ import annotations
 
 import pickle
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 
 from foundry.namespaces import CORE_LOCATED_AT, normalize_surface, require_absolute_iri
 
@@ -123,8 +123,138 @@ class _AssertionRecord:
     superseded_reason: str | None = None
 
 
+class ReadModelStore(Protocol):
+    """Storage contract consumed by the event projector and operational API."""
+
+    def transaction(self) -> AbstractContextManager[object]:
+        """Scope one event application and its checkpoint atomically."""
+        ...
+
+    def is_applied(self, event_id: str) -> bool:
+        """Check whether an event was already processed."""
+        ...
+
+    def mark_applied(self, event_id: str, sequence: int | None) -> None:
+        """Record a projected event and advance the checkpoint."""
+        ...
+
+    def mark_skipped(self, event_id: str, sequence: int | None) -> None:
+        """Record an unsupported event as processed."""
+        ...
+
+    def touch(self, event_time: datetime) -> None:
+        """Advance projection freshness metadata."""
+        ...
+
+    def upsert_entity(
+        self,
+        entity_id: str,
+        entity_type: str,
+        name: str,
+        event_time: datetime,
+        aliases: tuple[str, ...] | list[str] = (),
+    ) -> None:
+        """Apply an entity creation or enrichment event."""
+        ...
+
+    def merge_entities(self, survivor_id: str, duplicate_id: str, event_time: datetime) -> None:
+        """Apply an entity merge event."""
+        ...
+
+    def unmerge_entities(self, survivor_id: str, duplicate_id: str, event_time: datetime) -> None:
+        """Apply an entity split event."""
+        ...
+
+    def add_assertion(self, payload: dict) -> None:
+        """Apply an assertion creation event."""
+        ...
+
+    def supersede_assertion(self, assertion_id: str, reason: str = "") -> None:
+        """Retract an assertion in the read projection."""
+        ...
+
+    def add_track(self, payload: dict) -> None:
+        """Apply a track observation event."""
+        ...
+
+    @property
+    def checkpoint_sequence(self) -> int | None:
+        """Return the last log sequence committed to this projection."""
+        ...
+
+    @property
+    def applied_event_count(self) -> int:
+        """Return the number of projected events."""
+        ...
+
+    @property
+    def pending_count(self) -> int:
+        """Count assertions whose subject reference is unresolved."""
+        ...
+
+    def get_entity(self, entity_id: str) -> EntityView | None:
+        """Look up one canonical entity."""
+        ...
+
+    def merged_into(self, entity_id: str) -> str | None:
+        """Return the current survivor for a merged entity."""
+        ...
+
+    def find_by_name(self, name: str) -> list[EntityView]:
+        """Find exact primary-name matches."""
+        ...
+
+    def current_location(self, entity_id: str) -> LocationFact | None:
+        """Return a unique location active now."""
+        ...
+
+    def location_as_of(self, entity_id: str, instant: datetime) -> LocationFact | None:
+        """Return a unique location active at a valid-time instant."""
+        ...
+
+    def location_resolution(self, entity_id: str, instant: datetime) -> LocationResolution:
+        """Return none, one location, or all conflicting locations."""
+        ...
+
+    def location_conflicts(
+        self, entity_id: str, instant: datetime | None = None
+    ) -> tuple[LocationFact, ...]:
+        """List active conflicting locations."""
+        ...
+
+    def entities_at(self, location_uri: str, instant: datetime | None = None) -> set[str]:
+        """Find entities uniquely at one location and instant."""
+        ...
+
+    def get_assertion(self, assertion_id: str) -> dict | None:
+        """Return one assertion with provenance and temporal values."""
+        ...
+
+    def active_assertions(self, subject_id: str, predicate_iri: str | None = None) -> list[dict]:
+        """List current assertions for one subject."""
+        ...
+
+    def assertions_as_of(
+        self, subject_id: str, instant: datetime, predicate_iri: str | None = None
+    ) -> list[dict]:
+        """List assertions active at a valid-time instant."""
+        ...
+
+    def get_track(self, track_id: str) -> dict | None:
+        """Return one track and its observation references."""
+        ...
+
+    def tracks_of(self, entity_id: str) -> list[dict]:
+        """List tracks assigned to one entity."""
+        ...
+
+    def stats(self, now: datetime | None = None) -> dict:
+        """Return operational counts and projection lag."""
+        ...
+
+
 class ReadModel:
-    """In-memory read model over the canonical event stream.
+    """In-memory read model over the canonical event stream for tests/offline use.
 
     Thread safety is deliberately out of scope for the in-memory scaffold;
     a future store-backed implementation owns concurrency.
@@ -144,6 +274,7 @@ class ReadModel:
         self._assertions: dict[str, _AssertionRecord] = {}
         self._tracks: dict[str, _TrackRecord] = {}
         self._applied_event_ids: set[str] = set()
+        self._processed_event_ids: set[str] = set()
         self._checkpoint_sequence: int | None = None
         self._last_event_time: datetime | None = None
 
@@ -352,11 +483,20 @@ class ReadModel:
 
     def is_applied(self, event_id: str) -> bool:
         """True when this exact event was already folded into the model."""
-        return event_id in self._applied_event_ids
+        return event_id in self._processed_event_ids
 
     def mark_applied(self, event_id: str, sequence: int | None) -> None:
         """Record one applied event and advance the checkpoint watermark."""
         self._applied_event_ids.add(event_id)
+        self._processed_event_ids.add(event_id)
+        if sequence is not None and (
+            self._checkpoint_sequence is None or sequence > self._checkpoint_sequence
+        ):
+            self._checkpoint_sequence = sequence
+
+    def mark_skipped(self, event_id: str, sequence: int | None) -> None:
+        """Record an unknown event as processed so future replay can resume."""
+        self._processed_event_ids.add(event_id)
         if sequence is not None and (
             self._checkpoint_sequence is None or sequence > self._checkpoint_sequence
         ):
@@ -376,6 +516,10 @@ class ReadModel:
         """Track the newest event time seen for lag calculation."""
         if self._last_event_time is None or event_time > self._last_event_time:
             self._last_event_time = event_time
+
+    def transaction(self) -> AbstractContextManager[object]:
+        """Provide interface parity; in-memory writes are not transactional."""
+        return nullcontext()
 
     # -- read surface ---------------------------------------------------------
 

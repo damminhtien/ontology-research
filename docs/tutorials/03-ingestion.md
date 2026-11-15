@@ -52,7 +52,8 @@ fixed UUIDs or a copied count.
 ## Bước 3 — Xem event log
 
 ```bash
-cat data/events.jsonl | .venv/bin/python -m json.tool --json-lines | head -20
+EVENT_DATA_ROOT="${FOUNDRY_DATA_ROOT:-$HOME/Data/ontology-research}/data"
+cat "$EVENT_DATA_ROOT/events.jsonl" | .venv/bin/python -m json.tool --json-lines | head -20
 ```
 
 Mỗi dòng là một JSON object: `event_id`, `event_type` (ví dụ `EntityCreated`,
@@ -71,7 +72,11 @@ persist cùng event nên read model/lake đều phục vụ được dữ liệu
 ## Bước 4 — Nạp dữ liệu thật từ Wikidata
 
 Nguồn production chính hiện nay là Wikidata SPARQL (song ngữ Việt–Anh), ghi vào
-log riêng `data/production.jsonl`:
+log riêng `~/Data/ontology-research/data/production.jsonl`:
+
+Trong local operational setup, `data/` là symlink tới
+`~/Data/ontology-research/data`; xem [hướng dẫn PostgreSQL](../guides/postgres-readmodel.md)
+để cấu hình identity store và projector worker.
 
 ```bash
 # nạp tổ chức (mặc định Q43229); các lớp khác: Q3918 university,
@@ -81,9 +86,10 @@ log riêng `data/production.jsonl`:
 
 Điểm chính của luồng này:
 
-- **Registry derive từ log**: CLI rebuild toàn bộ identity registry từ event log
-  trước khi nạp, nên chạy tiếp bao nhiêu lần cũng dedupe với dữ liệu đã có —
-  re-fetch là external-id hit, không tạo entity mới
+- **Registry lấy từ persistent identity index**: khi dùng PostgreSQL, CLI yêu
+  cầu projector đã theo kịp event log; nếu chưa, hãy chạy projector trước.
+  Ingestion dùng index để dedupe theo source record và external ID — re-fetch
+  không tạo entity mới
   ([ADR-0010](../adr/ADR-0010-registry-as-log-projection.md)).
 - **QID là external id đáng tin** (ADR-0006): fuzzy match không ép review khi
   nguồn đã xác nhận định danh; rejection và unresolved rate vẫn phụ thuộc dữ liệu
@@ -164,7 +170,8 @@ make console
 
 Mở tab **Data Monitor** tại <http://127.0.0.1:8787/#/monitor>:
 
-- Event log stats: số lượng và event types được seed vào `data/events.jsonl`
+- Event log stats: số lượng và event types được seed vào
+  `~/Data/ontology-research/data/events.jsonl`
 - SHACL validation gate: kết quả trên các ontology modules và benchmark datasets
   so với toàn bộ shape files
 - Competency queries: 41 executable queries, trạng thái pass/fail từng câu

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from foundry.events import EventLog, SemanticEvent
-from foundry.readmodel import ReadModel, parse_instant
+from foundry.readmodel import ReadModel, ReadModelStore, parse_instant
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,7 @@ class ProjectStats:
 class Projector:
     """Applies domain events onto a ReadModel."""
 
-    def __init__(self, model: ReadModel) -> None:
+    def __init__(self, model: ReadModelStore) -> None:
         """Bind the projector to a target read model."""
         self._model = model
 
@@ -51,6 +51,11 @@ class Projector:
         Re-applying an event that was already folded into the model is a
         no-op (reported as handled, counted as a duplicate by :meth:`replay`).
         """
+        with self._model.transaction():
+            return self._apply(event)
+
+    def _apply(self, event: SemanticEvent) -> bool:
+        """Apply one event inside the store transaction scope."""
         if self._model.is_applied(event.event_id):
             return True
         occurred = parse_instant(event.occurred_at)
@@ -156,6 +161,7 @@ class Projector:
             if self.apply(event):
                 applied += 1
             else:
+                self._model.mark_skipped(event.event_id, event.sequence)
                 skipped += 1
         return ProjectStats(
             applied=applied, skipped=skipped, by_type=by_type, duplicates=duplicates

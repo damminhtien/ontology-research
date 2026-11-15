@@ -112,6 +112,16 @@ class TestAppendOnlyLog:
         assert [e.event_id for e in replayed] == [e.event_id for e in events]
         assert list(log.iter_all()) == replayed
 
+    def test_iter_after_sequence_skips_completed_segments(self, tmp_path):
+        log = EventLog(tmp_path / "events.jsonl", max_segment_bytes=1)
+        log.extend(make_event("EntityCreated", {"n": i}) for i in range(5))
+
+        remaining = list(log.iter_after_sequence(3))
+
+        assert [event.sequence for event in remaining] == [4, 5]
+        assert [event.payload["n"] for event in remaining] == [3, 4]
+        assert log.last_sequence == 5
+
     def test_read_all_empty_when_no_file(self, tmp_path):
         assert EventLog(tmp_path / "missing.jsonl").read_all() == []
 

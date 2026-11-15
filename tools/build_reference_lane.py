@@ -9,7 +9,7 @@ source of truth; ingestion reads it via ``tools/ingest_wikidata.py
 Usage:
     .venv/bin/python tools/build_reference_lane.py [--class Q43229]
         [--page-size 2000] [--max-records 20000] [--timeout 60]
-        [--root data/reference]
+        [--root ~/Data/ontology-research/data/reference]
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def main() -> int:
     parser.add_argument("--page-size", type=int, default=2000, help="rows per cursor page")
     parser.add_argument("--max-records", type=int, default=None, help="stop after N rows")
     parser.add_argument("--timeout", type=float, default=60.0, help="SPARQL request timeout (s)")
-    parser.add_argument("--root", default=None, help="lane root (default data/reference)")
+    parser.add_argument("--root", default=None, help="lane root (default external Data root)")
     args = parser.parse_args()
 
     root = Path(args.root) if args.root else default_reference_root()

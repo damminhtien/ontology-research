@@ -352,6 +352,13 @@ class IngestionPipeline:
         self, event: SemanticEvent, source_record: SourceRecordIdentity
     ) -> None:
         """Apply a committed entity/source-record event to the identity projection."""
+        with self._identity.store.transaction():
+            self._apply_entity_event_transactional(event, source_record)
+
+    def _apply_entity_event_transactional(
+        self, event: SemanticEvent, source_record: SourceRecordIdentity
+    ) -> None:
+        """Perform the binding writes inside the caller's store transaction."""
         payload = event.payload
         entity_id = payload["entity_id"]
         if event.event_type == EVENT_TYPE_ENTITY_CREATED:

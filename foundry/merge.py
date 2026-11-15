@@ -28,7 +28,7 @@ from foundry.events import (
     SemanticEvent,
     make_event,
 )
-from foundry.identity import IdentityEvidence, IdentityService, SourceRecordIdentity
+from foundry.identity import IdentityEvidence, IdentityService, IdentityStore, SourceRecordIdentity
 from foundry.provenance import content_sha256
 
 
@@ -52,6 +52,7 @@ def merge_entities(
     same_entity_evidence: IdentityEvidence,
     reason: str = "",
     actor: str = "",
+    apply_projection: bool = True,
 ) -> MergeResult:
     """Merge two canonical entities and append the ``EntityMerged`` event.
 
@@ -78,7 +79,7 @@ def merge_entities(
     prior = log.find_idempotency(idempotency_key, request_fingerprint=fingerprint)
     if prior is not None:
         event = prior.events[0]
-        if not identity.merged_into(duplicate_id):
+        if apply_projection and not identity.merged_into(duplicate_id):
             identity.merge_entities(
                 survivor_id, duplicate_id, same_entity_evidence=same_entity_evidence
             )
@@ -104,10 +105,14 @@ def merge_entities(
     committed = log.commit(
         [event], idempotency_key=idempotency_key, request_fingerprint=fingerprint
     ).events[0]
-    applied = identity.merge_entities(
-        survivor_id,
-        duplicate_id,
-        same_entity_evidence=same_entity_evidence,
+    applied = (
+        identity.merge_entities(
+            survivor_id,
+            duplicate_id,
+            same_entity_evidence=same_entity_evidence,
+        )
+        if apply_projection
+        else outcome
     )
     return MergeResult(
         survivor_id=survivor_id,
@@ -144,25 +149,10 @@ def assert_cannot_link(
     return committed
 
 
-def rebuild_identity(log: EventLog) -> IdentityService:
-    """Rebuild the in-memory identity registry from an event log.
-
-    Restores entity types, names, aliases and external-id bindings from
-    ``EntityCreated`` events, replays ``ExternalIdBound`` binding facts and
-    ``EntityMerged`` corrections so offline tools (merge CLI, ingestion
-    restarts, review queue) validate against real canonical state. Logs
-    written before external ids were persisted carry an empty or absent
-    ``external_ids`` payload; those bindings stay unrecovered unless a
-    backfill recorded them as ``ExternalIdBound`` events.
-
-    Raises:
-        ValueError: If the log contains records that violate the registry
-            contract (type conflicts across events, unknown merge or
-            binding ids).
-    """
-    identity = IdentityService()
-    for event in log.read_all():
-        payload = event.payload
+def apply_identity_event(identity: IdentityService, event: SemanticEvent) -> bool:
+    """Apply one identity event atomically; return False for unrelated events."""
+    payload = event.payload
+    with identity.store.transaction():
         if event.event_type == EVENT_TYPE_ENTITY_CREATED:
             identity.register(
                 entity_id=payload["entity_id"],
@@ -171,16 +161,11 @@ def rebuild_identity(log: EventLog) -> IdentityService:
             )
             for binding in payload.get("external_ids") or []:
                 identity.add_external_id(
-                    payload["entity_id"],
-                    binding["source"],
-                    binding["external_id"],
+                    payload["entity_id"], binding["source"], binding["external_id"]
                 )
             if payload.get("source_id") and payload.get("source_record_id"):
                 identity.store.bind_source_record(
-                    SourceRecordIdentity(
-                        payload["source_id"],
-                        payload["source_record_id"],
-                    ),
+                    SourceRecordIdentity(payload["source_id"], payload["source_record_id"]),
                     payload["entity_id"],
                 )
         elif event.event_type == EVENT_TYPE_SOURCE_RECORD_MATCHED:
@@ -236,12 +221,34 @@ def rebuild_identity(log: EventLog) -> IdentityService:
                 payload["duplicate_id"],
                 tuple(payload.get("restored_aliases") or []),
                 tuple(
-                    (b["source"], b["external_id"])
-                    for b in payload.get("restored_external_ids") or []
+                    (binding["source"], binding["external_id"])
+                    for binding in payload.get("restored_external_ids") or []
                 ),
             )
-            # bindings a third party claimed between merge and split stay put;
-            # the split outcome is already recorded in the event payload
+        else:
+            return False
+    return True
+
+
+def rebuild_identity(log: EventLog, *, store: IdentityStore | None = None) -> IdentityService:
+    """Rebuild identity indexes from an event log without materializing it.
+
+    Restores entity types, names, aliases and external-id bindings from
+    ``EntityCreated`` events, replays ``ExternalIdBound`` binding facts and
+    ``EntityMerged`` corrections so offline tools (merge CLI, ingestion
+    restarts, review queue) validate against real canonical state. Logs
+    written before external ids were persisted carry an empty or absent
+    ``external_ids`` payload; those bindings stay unrecovered unless a
+    backfill recorded them as ``ExternalIdBound`` events.
+
+    Raises:
+        ValueError: If the log contains records that violate the registry
+            contract (type conflicts across events, unknown merge or
+            binding ids).
+    """
+    identity = IdentityService(store=store)
+    for event in log.iter_all():
+        apply_identity_event(identity, event)
     return identity
 
 
@@ -260,7 +267,8 @@ class SplitResult:
 
 def find_merge_event(log: EventLog, survivor_id: str, duplicate_id: str) -> SemanticEvent | None:
     """Latest ``EntityMerged`` event for this pair, if the log records one."""
-    for event in reversed(log.read_all()):
+    latest = None
+    for event in log.iter_all():
         if event.event_type != EVENT_TYPE_ENTITY_MERGED:
             continue
         payload = event.payload
@@ -268,8 +276,8 @@ def find_merge_event(log: EventLog, survivor_id: str, duplicate_id: str) -> Sema
             payload.get("survivor_id") == survivor_id
             and payload.get("duplicate_id") == duplicate_id
         ):
-            return event
-    return None
+            latest = event
+    return latest
 
 
 def split_entities(
@@ -280,6 +288,7 @@ def split_entities(
     duplicate_id: str,
     reason: str = "",
     actor: str = "",
+    apply_projection: bool = True,
 ) -> SplitResult:
     """Undo a previously recorded merge and append the ``EntitySplit`` event.
 
@@ -310,7 +319,7 @@ def split_entities(
     prior = log.find_idempotency(idempotency_key, request_fingerprint=fingerprint)
     if prior is not None:
         event = prior.events[0]
-        if identity.merged_into(duplicate_id) == survivor_id:
+        if apply_projection and identity.merged_into(duplicate_id) == survivor_id:
             identity.split_entity(
                 survivor_id,
                 duplicate_id,
@@ -370,11 +379,10 @@ def split_entities(
         idempotency_key=idempotency_key,
         request_fingerprint=fingerprint,
     ).events[0]
-    applied = identity.split_entity(
-        survivor_id,
-        duplicate_id,
-        restore_aliases,
-        restore_external,
+    applied = (
+        identity.split_entity(survivor_id, duplicate_id, restore_aliases, restore_external)
+        if apply_projection
+        else outcome
     )
     return SplitResult(
         survivor_id=survivor_id,
