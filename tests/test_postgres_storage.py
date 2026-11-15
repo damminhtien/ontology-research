@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 
 import pytest
@@ -13,6 +14,7 @@ from foundry.namespaces import CORE_LOCATED_AT
 from foundry.postgres import PostgresDatabase, PostgresIdentityStore
 from foundry.postgres_readmodel import PostgresReadModelStore
 from foundry.projector import Projector, replay_log
+from foundry.query_service import QueryService, QueryTimeoutError
 from foundry.readmodel import parse_instant
 from tools.project_events import project_once
 
@@ -37,6 +39,136 @@ def test_migrations_are_applied_once(postgres_database):
             "SELECT version FROM foundry_schema_migrations ORDER BY version"
         ).fetchall()
     assert rows == [("001_operational_store.sql",)]
+
+
+def test_query_service_uses_postgres_indexes_and_bounded_contract(postgres_database, tmp_path):
+    log = EventLog(tmp_path / "query-service.jsonl")
+    entity_a = "urn:entity:query-a"
+    entity_b = "urn:entity:query-b"
+    entity_c = "urn:entity:query-c"
+    relation = "https://example.test/ontology#connectedTo"
+    events = [
+        make_event(
+            "EntityCreated",
+            {
+                "entity_id": entity_a,
+                "entity_type": "Platform",
+                "name": "Query Alpha",
+                "name_aliases": ["Alpha Alias"],
+            },
+        ),
+        make_event(
+            "EntityCreated",
+            {"entity_id": entity_b, "entity_type": "Platform", "name": "Query Bravo"},
+        ),
+        make_event(
+            "EntityCreated",
+            {"entity_id": entity_c, "entity_type": "Platform", "name": "Query Charlie"},
+        ),
+    ]
+    for assertion_id, subject, object_id in (
+        ("urn:assert:query-a-b", entity_a, entity_b),
+        ("urn:assert:query-b-c", entity_b, entity_c),
+    ):
+        events.append(
+            make_event(
+                "AssertionMade",
+                {
+                    "assertion_id": assertion_id,
+                    "subject_id": subject,
+                    "predicate_iri": relation,
+                    "object": {"kind": "entity", "value": object_id},
+                    "valid_from": "2026-08-01T00:00:00Z",
+                    "valid_until": None,
+                    "recorded_at": "2026-08-02T00:00:00Z",
+                    "source_ids": ["https://example.test/source/query"],
+                    "evidence": [
+                        {
+                            "source_id": "https://example.test/source/query",
+                            "locator": "p. 2",
+                            "span": None,
+                        }
+                    ],
+                    "evidence_quality": "primary",
+                },
+            )
+        )
+    log.extend(events)
+
+    store = PostgresReadModelStore(postgres_database)
+    Projector(store).replay_in_order(log.iter_all())
+    queries = QueryService(store)
+    at = parse_instant("2026-08-10T00:00:00Z")
+
+    candidates = queries.entity_search("alpha alias")
+    assert [entity.entity_id for entity in candidates.items] == [entity_a]
+    direct = queries.relationships_as_of(entity_a, at, predicate_iri=relation)
+    assert [row["object"]["value"] for row in direct.items] == [entity_b]
+    paths = queries.traverse_relationships(entity_a, at, max_hops=2, predicate_iri=relation)
+    assert any(path.nodes == (entity_a, entity_b, entity_c) for path in paths.items)
+    provenance = queries.assertion_provenance("urn:assert:query-a-b")
+    assert provenance["source_ids"] == ["https://example.test/source/query"]
+    assert provenance["evidence"][0]["locator"] == "p. 2"
+
+    with (
+        pytest.raises(QueryTimeoutError),
+        store.query_timeout(10),
+        postgres_database.connection() as connection,
+    ):
+        connection.execute("SELECT pg_sleep(0.05)")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("pyoxigraph") is None, reason="optional Oxigraph")
+def test_query_adapter_evaluation_matches_postgres_and_oxigraph(postgres_database, tmp_path):
+    """Run the same lookup, temporal and provenance probes on both stores."""
+    from tools.compare_query_adapters import compare
+
+    log = EventLog(tmp_path / "query-adapter-eval.jsonl")
+    subject_id = "urn:entity:adapter-eval-subject"
+    object_id = "urn:entity:adapter-eval-object"
+    log.extend(
+        [
+            make_event(
+                "EntityCreated",
+                {"entity_id": subject_id, "entity_type": "Platform", "name": "Probe Subject"},
+            ),
+            make_event(
+                "EntityCreated",
+                {"entity_id": object_id, "entity_type": "Organization", "name": "Probe Object"},
+            ),
+            make_event(
+                "AssertionMade",
+                {
+                    "assertion_id": "urn:assert:adapter-eval",
+                    "subject_id": subject_id,
+                    "predicate_iri": "https://example.test/ontology#connectedTo",
+                    "object": {"kind": "entity", "value": object_id},
+                    "valid_from": "2026-08-01T00:00:00Z",
+                    "valid_until": None,
+                    "recorded_at": "2026-08-02T00:00:00Z",
+                    "source_ids": ["https://example.test/source/adapter-eval"],
+                    "evidence": [
+                        {
+                            "source_id": "https://example.test/source/adapter-eval",
+                            "locator": "p. 1",
+                            "span": None,
+                        }
+                    ],
+                    "evidence_quality": "primary",
+                },
+            ),
+        ]
+    )
+    Projector(PostgresReadModelStore(postgres_database)).replay_in_order(log.iter_all())
+
+    result = compare(
+        tmp_path / "query-adapter-eval.jsonl",
+        tmp_path / "oxigraph-snapshots",
+        postgres_database.dsn,
+        runs=1,
+    )
+    assert result["equivalent"] is True
+    assert result["results"]["as_of_assertions"] == 1
 
 
 def test_identity_bindings_survive_adapter_restart_and_split(postgres_database):

@@ -260,6 +260,23 @@ class TestProjectionEndpoints:
         )
         assert other.json()["current_location"]["source_ids"] == ["urn:source:s2"]
 
+    def test_assertion_endpoint_scopes_sources_and_evidence(self, seeded_client, monkeypatch):
+        monkeypatch.setenv(
+            "FOUNDRY_PROVENANCE_TOKENS",
+            json.dumps({"reader-token": ["urn:source:s1"]}),
+        )
+        anonymous = seeded_client.get("/api/projection/assertions/urn:assert:test:console-location")
+        assert anonymous.status_code == 200
+        assert anonymous.json()["source_ids"] == []
+        assert anonymous.json()["evidence"] == []
+
+        authorized = seeded_client.get(
+            "/api/projection/assertions/urn:assert:test:console-location",
+            headers={"Authorization": "Bearer reader-token"},
+        )
+        assert authorized.json()["source_ids"] == ["urn:source:s1"]
+        assert authorized.json()["evidence"][0]["source_id"] == "urn:source:s1"
+
     def test_wildcard_provenance_token_sees_all_sources(self, seeded_client, monkeypatch):
         monkeypatch.setenv("FOUNDRY_PROVENANCE_TOKENS", json.dumps({"reader-token": ["*"]}))
         response = seeded_client.get(
@@ -292,6 +309,25 @@ class TestProjectionEndpoints:
             headers={"Authorization": "Bearer invalid-token"},
         )
         assert response.status_code == 401
+
+    def test_operational_query_timeout_maps_to_gateway_timeout(self, seeded_client, monkeypatch):
+        from contextlib import nullcontext
+
+        from foundry.console.api import projection
+        from foundry.query_service import QueryTimeoutError
+
+        class TimedOutAdapter:
+            def query_timeout(self, _timeout_ms):
+                return nullcontext()
+
+            def get_entity(self, _entity_id):
+                raise QueryTimeoutError("query timed out")
+
+        monkeypatch.setattr(projection, "_read_model", lambda: TimedOutAdapter())
+        response = seeded_client.get("/api/projection/entities/urn:x:patrol-01")
+
+        assert response.status_code == 504
+        assert response.json()["detail"] == "operational query timed out"
 
     def test_projection_resumes_incrementally_from_snapshot(self, seeded_client, tmp_path):
         """B6 follow-up: log growth folds in the suffix, never a full re-replay."""

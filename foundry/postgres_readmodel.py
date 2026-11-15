@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from foundry.namespaces import CORE_LOCATED_AT, normalize_surface, require_absolute_iri
 from foundry.postgres import PostgresDatabase
+from foundry.query_service import QueryPage, QueryTimeoutError
 from foundry.readmodel import (
     EntityView,
     LocationFact,
@@ -36,6 +37,22 @@ class PostgresReadModelStore:
         with self.database.transaction() as connection:
             connection.execute("SELECT pg_advisory_xact_lock(628041902117)")
             yield connection
+
+    @contextmanager
+    def query_timeout(self, timeout_ms: int) -> Iterator[object]:
+        """Apply a transaction-local PostgreSQL statement timeout."""
+        try:
+            import psycopg
+        except ImportError as exc:
+            raise RuntimeError("PostgreSQL storage requires psycopg") from exc
+        with self.database.transaction() as connection:
+            connection.execute(
+                "SELECT set_config('statement_timeout', %s, true)", (f"{timeout_ms}ms",)
+            )
+            try:
+                yield connection
+            except psycopg.errors.QueryCanceled as exc:
+                raise QueryTimeoutError(f"PostgreSQL query exceeded {timeout_ms} ms") from exc
 
     def is_applied(self, event_id: str) -> bool:
         """Check the durable processed-event ledger."""
@@ -394,6 +411,51 @@ class PostgresReadModelStore:
             rows = connection.execute(sql, args).fetchall()
         return [self._assertion(row) for row in rows]
 
+    def assertions_as_of_page(
+        self,
+        subject_id: str,
+        instant: datetime,
+        *,
+        predicate_iri: str | None = None,
+        object_kind: str | None = None,
+        limit: int,
+        offset: int = 0,
+    ) -> QueryPage[dict]:
+        """Page active assertions using subject, predicate and time indexes."""
+        if instant.tzinfo is None:
+            raise ValueError("instant must be timezone-aware")
+        canonical_subject = self._canonical_id(subject_id)
+        wanted = require_absolute_iri(predicate_iri, "predicate_iri") if predicate_iri else None
+        where = (
+            "subject_id = %s AND status = 'asserted' AND subject_status = 'resolved' "
+            "AND valid_from <= %s AND (valid_until IS NULL OR %s < valid_until)"
+        )
+        args: tuple = (canonical_subject, instant, instant)
+        if wanted:
+            where += " AND predicate_iri = %s"
+            args += (wanted,)
+        if object_kind:
+            where += " AND object->>'kind' = %s"
+            args += (object_kind,)
+        with self.database.connection() as connection:
+            count_row = connection.execute(
+                f"SELECT count(*) FROM read_assertions WHERE {where}", args
+            ).fetchone()
+            rows = connection.execute(
+                self._assertion_select()
+                + f" WHERE {where} ORDER BY valid_from, assertion_id LIMIT %s OFFSET %s",
+                (*args, limit, offset),
+            ).fetchall()
+        total = count_row[0] if count_row else 0
+        items = tuple(self._assertion(row) for row in rows)
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
+
     def assertions_as_of(
         self, subject_id: str, instant: datetime, predicate_iri: str | None = None
     ) -> list[dict]:
@@ -444,6 +506,54 @@ class PostgresReadModelStore:
                 (name.casefold(),),
             ).fetchall()
         return [EntityView(*row) for row in rows]
+
+    def find_entities_page(
+        self,
+        name: str,
+        *,
+        limit: int,
+        offset: int,
+        sort_by: str,
+        descending: bool,
+    ) -> QueryPage[EntityView]:
+        """Page exact normalized name and alias matches through the name index."""
+        normalized = normalize_surface(name)
+        sort_columns = {
+            "entity_id": "e.entity_id",
+            "name": "e.name",
+            "entity_type": "e.entity_type",
+            "first_seen": "e.first_seen",
+            "last_event_time": "e.last_event_time",
+        }
+        order = "DESC" if descending else "ASC"
+        sort_column = sort_columns[sort_by]
+        with self.database.connection() as connection:
+            total_row = connection.execute(
+                """SELECT count(DISTINCT e.entity_id)
+                   FROM read_entity_names n
+                   JOIN read_entities e ON e.entity_id = n.entity_id
+                   WHERE n.normalized_name = %s AND e.merged_into IS NULL""",
+                (normalized,),
+            ).fetchone()
+            rows = connection.execute(
+                f"""SELECT DISTINCT e.entity_id, e.entity_type, e.name,
+                          e.first_seen, e.last_event_time
+                   FROM read_entity_names n
+                   JOIN read_entities e ON e.entity_id = n.entity_id
+                   WHERE n.normalized_name = %s AND e.merged_into IS NULL
+                   ORDER BY {sort_column} {order}, e.entity_id ASC
+                   LIMIT %s OFFSET %s""",
+                (normalized, limit, offset),
+            ).fetchall()
+        total = total_row[0] if total_row else 0
+        items = tuple(EntityView(*row) for row in rows)
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
 
     def location_resolution(self, entity_id: str, instant: datetime) -> LocationResolution:
         """Resolve location claims without hiding concurrent conflicts."""
@@ -510,6 +620,43 @@ class PostgresReadModelStore:
             ).fetchall()
         return {row[0] for row in rows}
 
+    def entities_at_page(
+        self, location_uri: str, instant: datetime, *, limit: int, offset: int
+    ) -> QueryPage[str]:
+        """Page entities uniquely at a location, ordered by canonical id."""
+        if instant.tzinfo is None:
+            raise ValueError("instant must be timezone-aware")
+        match_cte = """WITH matches AS (
+               SELECT subject_id
+               FROM read_assertions
+               WHERE predicate_iri = %s AND status = 'asserted'
+                 AND subject_status = 'resolved' AND object->>'kind' = 'location'
+                 AND object->>'value' IS NOT NULL
+                 AND valid_from <= %s AND (valid_until IS NULL OR %s < valid_until)
+               GROUP BY subject_id
+               HAVING count(DISTINCT object->>'value') = 1
+                  AND min(object->>'value') = %s
+           )"""
+        with self.database.connection() as connection:
+            count_row = connection.execute(
+                match_cte + " SELECT count(*) FROM matches",
+                (CORE_LOCATED_AT, instant, instant, location_uri),
+            ).fetchone()
+            rows = connection.execute(
+                match_cte
+                + " SELECT subject_id FROM matches ORDER BY subject_id LIMIT %s OFFSET %s",
+                (CORE_LOCATED_AT, instant, instant, location_uri, limit, offset),
+            ).fetchall()
+        total = count_row[0] if count_row else 0
+        items = tuple(row[0] for row in rows)
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
+
     def add_track(self, payload: dict) -> None:
         """Upsert the track record and its observation/source links."""
         with self.database.connection() as connection:
@@ -558,6 +705,36 @@ class PostgresReadModelStore:
             ).fetchall()
         tracks = [self.get_track(row[0]) for row in rows]
         return [track for track in tracks if track is not None]
+
+    def tracks_page(self, entity_id: str, *, limit: int, offset: int) -> QueryPage[dict]:
+        """Page tracks using the entity index and stable track id ordering."""
+        with self.database.connection() as connection:
+            total_row = connection.execute(
+                "SELECT count(*) FROM read_tracks WHERE entity_id = %s", (entity_id,)
+            ).fetchone()
+            rows = connection.execute(
+                "SELECT track_id, entity_id, subject_name, observation_ids, source_ids "
+                "FROM read_tracks WHERE entity_id = %s ORDER BY track_id LIMIT %s OFFSET %s",
+                (entity_id, limit, offset),
+            ).fetchall()
+        total = total_row[0] if total_row else 0
+        items = tuple(
+            {
+                "track_id": row[0],
+                "entity_id": row[1],
+                "subject_name": row[2],
+                "observation_ids": row[3],
+                "source_ids": row[4],
+            }
+            for row in rows
+        )
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
 
     def stats(self, now: datetime | None = None) -> dict:
         """Summarize entity, assertion, location, and freshness metrics."""

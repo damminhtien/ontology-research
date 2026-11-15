@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Protocol
 
 from foundry.namespaces import CORE_LOCATED_AT, normalize_surface, require_absolute_iri
+from foundry.query_service import QueryPage
 
 
 def parse_instant(text: str) -> datetime:
@@ -194,6 +195,45 @@ class ReadModelStore(Protocol):
 
     def get_entity(self, entity_id: str) -> EntityView | None:
         """Look up one canonical entity."""
+        ...
+
+    def query_timeout(self, timeout_ms: int) -> AbstractContextManager[object]:
+        """Apply a backend query timeout for one service operation."""
+        ...
+
+    def find_entities_page(
+        self,
+        name: str,
+        *,
+        limit: int,
+        offset: int,
+        sort_by: str,
+        descending: bool,
+    ) -> QueryPage[EntityView]:
+        """Find normalized primary-name and alias matches in stable order."""
+        ...
+
+    def assertions_as_of_page(
+        self,
+        subject_id: str,
+        instant: datetime,
+        *,
+        predicate_iri: str | None,
+        object_kind: str | None,
+        limit: int,
+        offset: int = 0,
+    ) -> QueryPage[dict]:
+        """Return a bounded page of assertions valid at the requested instant."""
+        ...
+
+    def entities_at_page(
+        self, location_uri: str, instant: datetime, *, limit: int, offset: int
+    ) -> QueryPage[str]:
+        """Return a bounded page of uniquely located entities."""
+        ...
+
+    def tracks_page(self, entity_id: str, *, limit: int, offset: int) -> QueryPage[dict]:
+        """Return a bounded page of tracks for an entity."""
         ...
 
     def merged_into(self, entity_id: str) -> str | None:
@@ -521,6 +561,11 @@ class ReadModel:
         """Provide interface parity; in-memory writes are not transactional."""
         return nullcontext()
 
+    def query_timeout(self, timeout_ms: int) -> AbstractContextManager[object]:
+        """Keep interface parity; Python memory calls cannot be interrupted."""
+        del timeout_ms
+        return nullcontext()
+
     # -- read surface ---------------------------------------------------------
 
     def get_entity(self, entity_id: str) -> EntityView | None:
@@ -548,6 +593,37 @@ class ReadModel:
             for entity_id, record in self._entities.items()
             if record.name.casefold() == needle
         ]
+
+    def find_entities_page(
+        self,
+        name: str,
+        *,
+        limit: int,
+        offset: int,
+        sort_by: str,
+        descending: bool,
+    ) -> QueryPage[EntityView]:
+        """Find exact normalized primary-name and alias candidates."""
+        normalized = normalize_surface(name)
+        entity_ids = {
+            self._canonical_id(entity_id)
+            for entity_id in self._name_owners.get(normalized, set())
+            if normalized
+        }
+        views = [
+            view for entity_id in entity_ids if (view := self.get_entity(entity_id)) is not None
+        ]
+        views.sort(key=lambda view: view.entity_id)
+        views.sort(key=lambda view: getattr(view, sort_by), reverse=descending)
+        total = len(views)
+        items = tuple(views[offset : offset + limit])
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
 
     def current_location(self, entity_id: str) -> LocationFact | None:
         """Return the unique location active now, or ``None`` for none/conflict."""
@@ -676,6 +752,20 @@ class ReadModel:
             for track_id, record in self._tracks.items()
             if record.entity_id == entity_id
         ]
+
+    def tracks_page(self, entity_id: str, *, limit: int, offset: int) -> QueryPage[dict]:
+        """Page tracks in stable track identifier order."""
+        tracks = self.tracks_of(entity_id)
+        tracks.sort(key=lambda track: track["track_id"])
+        total = len(tracks)
+        items = tuple(tracks[offset : offset + limit])
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
 
     # -- assertion ledger (docs/architecture.md §4.2) -------------------------
 
@@ -819,6 +909,46 @@ class ReadModel:
                 if entry is not None:
                     matches.append(entry)
         return matches
+
+    def assertions_as_of_page(
+        self,
+        subject_id: str,
+        instant: datetime,
+        *,
+        predicate_iri: str | None = None,
+        object_kind: str | None = None,
+        limit: int,
+        offset: int = 0,
+    ) -> QueryPage[dict]:
+        """Return an ordered bounded page of active assertions."""
+        matches = self.assertions_as_of(subject_id, instant, predicate_iri)
+        if object_kind is not None:
+            matches = [item for item in matches if item["object"].get("kind") == object_kind]
+        matches.sort(key=lambda item: (item["valid_from"], item["assertion_id"]))
+        total = len(matches)
+        items = tuple(matches[offset : offset + limit])
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
+
+    def entities_at_page(
+        self, location_uri: str, instant: datetime, *, limit: int, offset: int
+    ) -> QueryPage[str]:
+        """Page unique-location matches in canonical identifier order."""
+        entities = sorted(self.entities_at(location_uri, instant))
+        total = len(entities)
+        items = tuple(entities[offset : offset + limit])
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
 
     # -- internal maintenance (projector-only, keeps indexes consistent) -------
 
