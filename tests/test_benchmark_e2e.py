@@ -35,6 +35,10 @@ class TestRunE2E:
         assert stages["ingest"]["accepted"] > 0
         assert stages["ingest"]["pending"] > 0  # pending observations exercised
         assert stages["projector"]["entities"] > 0
+        assert stages["projector"]["replay_passes"] == e2e.PROJECTOR_REPLAY_PASSES
+        assert stages["projector"]["count"] == (
+            stages["projector"]["events_per_pass"] * stages["projector"]["replay_passes"]
+        )
         assert 0 < stages["lake_query"]["p95_ms"] < e2e.STAGE_SLOS["lake_query"]["max_p95_ms"] * 5
         # the report also landed at the committed path
         assert e2e.REPORT_PATH.exists()
@@ -79,3 +83,26 @@ class TestGate:
         failures = e2e._evaluate(report, baseline=baseline)
         assert len(failures) == 1
         assert "ingest" in failures[0]
+
+    def test_median_report_keeps_rate_and_seconds_consistent(self, monkeypatch):
+        durations = iter((0.01, 0.02, 0.03))
+
+        def fake_run_e2e(_n_entities, _tmp):
+            seconds = next(durations)
+            stages = {
+                name: {
+                    "count": 10,
+                    "seconds": seconds,
+                    "events_per_second": 10 / seconds,
+                    "p95_ms": 5.0,
+                }
+                for name in ("ingest", "lake_persist", "projector", "lake_query")
+            }
+            return {"stages": stages}
+
+        monkeypatch.setattr(e2e, "run_e2e", fake_run_e2e)
+        report = e2e._median_report(1, 3)
+
+        projector = report["stages"]["projector"]
+        assert projector["events_per_second"] == 500.0
+        assert projector["seconds"] == 0.02
