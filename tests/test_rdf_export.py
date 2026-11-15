@@ -4,19 +4,29 @@ from __future__ import annotations
 
 import csv
 import json
+import sqlite3
 import subprocess
 import sys
+import tracemalloc
 from pathlib import Path
 
 import pytest
 from pyshacl import validate
 from rdflib import Dataset, Graph, Literal, URIRef
+from rdflib.compare import isomorphic
 from rdflib.namespace import DCTERMS, XSD
 
 from foundry.assertions import make_assertion, register_document
-from foundry.events import EventLog
+from foundry.events import EVENT_SCHEMA_VERSION, EventLog, SemanticEvent
 from foundry.namespaces import CORE_ONTOLOGY_NS
-from foundry.rdf_export import GEO, INTEROP_GRAPH_IRI, PROV, SOSA, project_event_log
+from foundry.rdf_export import (
+    GEO,
+    INTEROP_GRAPH_IRI,
+    PROV,
+    SOSA,
+    iter_projected_quads,
+    project_event_log,
+)
 from foundry.tracking import observation_event, sensor_event, track_event
 
 CORE = CORE_ONTOLOGY_NS
@@ -112,6 +122,29 @@ def _geometry_csv(path, rows):
         writer.writerow(["location_iri", "longitude", "latitude", "source_iri"])
         writer.writerows(rows)
     return path
+
+
+def _run_stream_export(log_path, output, *, geometry_path=None, context_index=None):
+    command = [
+        sys.executable,
+        str(Path(__file__).parents[1] / "tools" / "export_rdf.py"),
+        "--event-log",
+        str(log_path),
+        "--profile",
+        "interop-v1",
+        "--output",
+        str(output),
+    ]
+    if geometry_path is not None:
+        command.extend(("--geometry", str(geometry_path)))
+    if context_index is not None:
+        command.extend(("--context-index", str(context_index)))
+    return subprocess.run(command, capture_output=True, text=True, check=False)
+
+
+def _assert_datasets_isomorphic(actual: Dataset, expected: Dataset) -> None:
+    assert isomorphic(actual.default_graph, expected.default_graph)
+    assert isomorphic(actual.graph(INTEROP_GRAPH_IRI), expected.graph(INTEROP_GRAPH_IRI))
 
 
 def test_trig_round_trip_preserves_assertion_and_sosa_contract(tmp_path):
@@ -361,20 +394,148 @@ def test_canonical_profile_has_only_the_repository_default_graph(tmp_path):
 def test_export_cli_writes_trig_atomically(tmp_path):
     log_path, *_ = _write_export_log(tmp_path)
     output = tmp_path / "out" / "projection.trig"
-    command = [
-        sys.executable,
-        str(Path(__file__).parents[1] / "tools" / "export_rdf.py"),
-        "--event-log",
-        str(log_path),
-        "--profile",
-        "interop-v1",
-        "--output",
-        str(output),
-    ]
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    expected = project_event_log(log_path, profile="interop-v1").dataset
+    result = _run_stream_export(log_path, output)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "Exported" in result.stdout
-    assert Dataset().parse(output.as_posix(), format="trig")
+    assert "RDF triple lines" in result.stdout
+    actual = Dataset().parse(output.as_posix(), format="trig")
+    _assert_datasets_isomorphic(actual, expected)
+
+
+def test_streaming_geometry_and_reusable_index_match_materialized_export(tmp_path):
+    log_path, document_id, *_ = _write_export_log(tmp_path)
+    log = EventLog(log_path)
+    make_assertion(
+        log=log,
+        subject_id=ENTITY,
+        predicate_iri=f"{CORE}locatedAt",
+        object_kind="location",
+        object_value="urn:world:location:without-geometry",
+        valid_from="2026-09-03T00:00:00Z",
+        source_ids=[document_id],
+    )
+    geometry_path = _geometry_csv(
+        tmp_path / "geometry.csv",
+        [(LOCATION, "144.5", "-37.25", document_id)],
+    )
+    index_path = tmp_path / "cache" / "projection-context.sqlite"
+    first_output = tmp_path / "first.trig"
+    expected = project_event_log(
+        log_path,
+        profile="interop-v1",
+        geometry_path=geometry_path,
+    ).dataset
+
+    first = _run_stream_export(
+        log_path,
+        first_output,
+        geometry_path=geometry_path,
+        context_index=index_path,
+    )
+    assert first.returncode == 0, first.stdout + first.stderr
+    _assert_datasets_isomorphic(Dataset().parse(first_output.as_posix(), format="trig"), expected)
+    index_mtime_ns = index_path.stat().st_mtime_ns
+
+    second_output = tmp_path / "second.trig"
+    second = _run_stream_export(
+        log_path,
+        second_output,
+        geometry_path=geometry_path,
+        context_index=index_path,
+    )
+    assert second.returncode == 0, second.stdout + second.stderr
+    assert index_path.stat().st_mtime_ns == index_mtime_ns
+
+    new_document = register_document(
+        log=log,
+        uri="https://data.example/report/later",
+        title="Later source",
+        source_system="research-feed",
+    )
+    third_output = tmp_path / "third.trig"
+    third = _run_stream_export(
+        log_path,
+        third_output,
+        geometry_path=geometry_path,
+        context_index=index_path,
+    )
+    assert third.returncode == 0, third.stdout + third.stderr
+    updated = Dataset().parse(third_output.as_posix(), format="trig")
+    updated_expected = project_event_log(
+        log_path,
+        profile="interop-v1",
+        geometry_path=geometry_path,
+    ).dataset
+    _assert_datasets_isomorphic(updated, updated_expected)
+    with sqlite3.connect(index_path) as connection:
+        metadata = dict(connection.execute("SELECT key, value FROM metadata"))
+        indexed_document = connection.execute(
+            "SELECT 1 FROM projection_references WHERE kind = 'document' AND iri = ?",
+            (new_document.payload["document_id"],),
+        ).fetchone()
+    assert int(metadata["event_count"]) == 8
+    assert indexed_document is not None
+
+
+def test_streaming_cli_keeps_previous_output_when_geometry_is_invalid(tmp_path):
+    log_path, *_ = _write_export_log(tmp_path)
+    output = tmp_path / "published.trig"
+    output.write_bytes(b"previous RDF export")
+    geometry_path = _geometry_csv(
+        tmp_path / "bad-geometry.csv",
+        [(LOCATION, "181", "-37", "urn:source:bad")],
+    )
+
+    result = _run_stream_export(log_path, output, geometry_path=geometry_path)
+
+    assert result.returncode == 2
+    assert "longitude must be within" in result.stderr
+    assert output.read_bytes() == b"previous RDF export"
+
+
+def test_streaming_cli_rebuilds_corrupt_context_index(tmp_path):
+    log_path, *_ = _write_export_log(tmp_path)
+    output = tmp_path / "projection.trig"
+    index_path = tmp_path / "corrupt-index.sqlite"
+    index_path.write_bytes(b"not a SQLite database")
+
+    result = _run_stream_export(log_path, output, context_index=index_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    actual = Dataset().parse(output.as_posix(), format="trig")
+    expected = project_event_log(log_path, profile="interop-v1").dataset
+    _assert_datasets_isomorphic(actual, expected)
+    with sqlite3.connect(index_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM projection_references").fetchone()[0] > 0
+
+
+def test_streaming_projection_traced_memory_stays_bounded(tmp_path):
+    log_path = tmp_path / "many-events.jsonl"
+    log = EventLog(log_path)
+    log.extend(
+        SemanticEvent(
+            event_id=f"memory-check-{index}",
+            event_type="EntityCreated",
+            schema_version=EVENT_SCHEMA_VERSION,
+            occurred_at=AT_TIME,
+            payload={
+                "entity_id": f"urn:world:entity:memory-check-{index}",
+                "entity_type": "Platform",
+                "name": f"Memory check {index}",
+            },
+        )
+        for index in range(10_000)
+    )
+
+    tracemalloc.start()
+    try:
+        quad_count = sum(1 for _ in iter_projected_quads(log_path))
+        _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert quad_count == 20_000
+    assert peak_bytes < 5 * 1024 * 1024
 
 
 def test_crosswalk_file_is_versioned_and_each_mapping_has_a_condition():

@@ -4,6 +4,17 @@ The event log remains the authoritative source. `tools/export_rdf.py` reads it
 offline with `EventLog.iter_all()` and writes a TriG dataset using the existing
 RDF mappers. The command does not add an export endpoint to FastAPI.
 
+The CLI streams one event's RDF at a time. It first builds a SQLite index for
+cross-event document, observation, and location references, then scans the
+unchanged event log again while writing TriG. SQLite keeps an 8 MiB page cache;
+the reference IDs stay on disk. By default the index is temporary and removed
+after export. `--context-index PATH` retains it and reuses it while the event
+log segment fingerprint matches. If a segment changes, the index is rebuilt
+beside the old one and replaced atomically. `project_event_log()` remains the
+separate full-materialization API for callers that need an RDFLib `Dataset`.
+Each event is mapped in a fresh RDFLib graph and that graph is discarded after
+its quads are written, avoiding retained empty store indexes as the log grows.
+
 ## Profiles
 
 `canonical-v1` writes the repository's current RDF mappings to the default
@@ -43,12 +54,15 @@ without an existing RDF mapper are skipped and listed by the CLI.
   --event-log data/events.jsonl \
   --profile interop-v1 \
   --output build/events.trig \
-  --geometry data/location-geometry.csv
+  --geometry data/location-geometry.csv \
+  --context-index build/events-rdf-index.sqlite
 ```
 
 Use `--profile canonical-v1` and omit `--geometry` for only the repository
-default graph. The output file is replaced only after projection and
-serialization succeed.
+default graph. `--context-index` is optional. The output file is replaced only
+after projection succeeds and the event-log fingerprint is unchanged across
+both scans. Output triple lines are emitted by graph blocks; repeated graph
+blocks merge when parsed as an RDF dataset.
 
 ## Verify
 
@@ -61,3 +75,25 @@ The tests parse the TriG again and check resolved and pending subjects,
 predicates, IRI and literal objects, datatype and language tags, half-open
 validity timestamps, sources, evidence locators/spans, observation-result
 links, the interop SHACL shapes, geometry source checks, and CRS84 axis order.
+
+## Scale evaluation
+
+`make rdf-export-eval` builds deterministic logs with 1M and 10M events. Each
+group contains one registered document, observation, location assertion, and
+track that references the observation. Every group has a distinct document,
+observation, and location ID, plus one matching geometry CSV row. This forces
+the export through all three cross-event index lookups while writing the
+`interop-v1` profile.
+
+The command stores generated logs, the reusable SQLite index, geometry CSV,
+TriG output, and a raw report under a new ignored `build/rdf-export-evaluation-*`
+directory. It also writes the compact, versioned report to
+`benchmarks/evaluations/reports/rdf-export-v1.json`. Run a smaller smoke scale
+with `.venv/bin/python tools/benchmark_rdf_export.py --scales 1000`.
+
+Log generation, index building, and export run in fresh processes. The report
+records input and output SHA-256 hashes, bytes, index size, phase times, peak
+RSS, event throughput, runtime versions, and host details. Hashing is outside
+the measured phases. The full RDF graph is not parsed at scale because doing so
+would construct another in-memory dataset; RDF dataset isomorphism is checked
+by the small fixture tests in `tests/test_rdf_export.py`.

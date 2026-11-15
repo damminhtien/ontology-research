@@ -1,0 +1,124 @@
+{
+  "report_version": "rdf-export-benchmark-v1",
+  "started_at_utc": "2026-11-15T08:45:19.832215+00:00",
+  "generated_at_utc": "2026-11-15T09:15:00.012394+00:00",
+  "source_commit": "c6440d3bc8779f6c96be4a827870cbd20d7c1011",
+  "source_commit_scope": "source_sha256 records the measured working-tree file contents",
+  "source_sha256": {
+    "tools/benchmark_rdf_export.py": "f055ce22746d4c70b0f34e1218bb9bb2de00b0eb4273cb2fb361417af37a7c19",
+    "tools/export_rdf.py": "beddf68959233ab3b382a3dc15f8b7eafd64304c5ad1847207f8b6feec40e3a9",
+    "foundry/rdf_export.py": "46ab103a0aef2eadee1bc36c351e4bb8af07955af43c06bc8819ca8e440cc021",
+    "foundry/events.py": "9f4b7811c4417831f8f8eb0690020713e93cc437fb4f8dee14563e20e2edd685"
+  },
+  "source_tree_sha256": "f46c9ed0b58593824845dde2c8a3646fa3a50fae01e188f545b38fd1d33fa6e4",
+  "command": "make rdf-export-eval",
+  "machine": {
+    "system": "macOS-27.2.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "model": "Mac14,6",
+    "processor": "Apple M2 Max",
+    "logical_cpu_count": 12,
+    "physical_memory_bytes": 68719476736,
+    "python": "3.13.16",
+    "rdflib": "7.6.0",
+    "sqlite": "3.53.1"
+  },
+  "method": {
+    "event_mix": {
+      "DocumentRegistered": 0.25,
+      "ObservationRecorded": 0.25,
+      "AssertionMade": 0.25,
+      "TrackObserved": 0.25
+    },
+    "sqlite_page_cache_bytes": 8388608,
+    "geometry_csv": "one validated CRS84 point for every distinct projected location",
+    "export_process": "fresh process per scale; --context-index reuses the measured index",
+    "rdf_semantics": "Small-fixture RDF dataset isomorphism is tested separately; large outputs are hashed without materializing them for parsing.",
+    "timing_scope": "Index build and TriG export are separate. Export includes Python startup, event parsing, RDF mapping, cross-reference lookups and serialization; output and input hashing are outside the timed export.",
+    "repetitions": 1
+  },
+  "results": [
+    {
+      "events": 1000000,
+      "identifier_cardinality": {
+        "documents": 250000,
+        "observations": 250000,
+        "locations": 250000
+      },
+      "source_log": {
+        "bytes": 550388896,
+        "segments": 3,
+        "content_sha256": "e574f629a8d75e7ea7f5b9ebf790eacde6bf57e32fa225f67431d99614fed96f",
+        "segment_manifest_sha256": "c72c3ca2ebd3637bf84360f18d236dc5b06314bff698b4f4e0407eb7a0da26e7",
+        "generation": {
+          "events_written": 1000000,
+          "event_log_seconds": 9.522,
+          "geometry_rows": 250000,
+          "geometry_seconds": 0.276,
+          "peak_rss_bytes": 38584320
+        }
+      },
+      "geometry_csv": {
+        "bytes": 24000043,
+        "sha256": "3a3fcc02825377500aa55651accca310ea01dd5a13b2a6df4b7c9500ec185ad2"
+      },
+      "projection_index": {
+        "bytes": 50020352,
+        "sha256": "c25205b82b60922210dff74fbfe0e62b203e040cca8bd9b70c286e2e6ae566c4",
+        "build_seconds": 4.536,
+        "build_peak_rss_bytes": 49922048
+      },
+      "export": {
+        "profile": "interop-v1",
+        "seconds": 145.26,
+        "events_per_second": 6884.21,
+        "peak_rss_bytes": 52903936,
+        "triple_lines": 16250000,
+        "bytes": 2952500000,
+        "sha256": "29cc366bc8216f7bb46080b11f295b961265e2a22bb5b5efafa53b4d0b5155cf"
+      }
+    },
+    {
+      "events": 10000000,
+      "identifier_cardinality": {
+        "documents": 2500000,
+        "observations": 2500000,
+        "locations": 2500000
+      },
+      "source_log": {
+        "bytes": 5513888897,
+        "segments": 21,
+        "content_sha256": "5def75ccc713cf1c0043f8a66739d30d87a1ac0a71e262922db9722721afb13a",
+        "segment_manifest_sha256": "1b1d57f0ce4c8dd7f7371c090023c731a518a5941c0900d3faca8bcd437b6df2",
+        "generation": {
+          "events_written": 10000000,
+          "event_log_seconds": 98.493,
+          "geometry_rows": 2500000,
+          "geometry_seconds": 2.84,
+          "peak_rss_bytes": 38764544
+        }
+      },
+      "geometry_csv": {
+        "bytes": 240000043,
+        "sha256": "7c770db03093bf4759cf39ec72f7d2b4fbcf1b2038845e4ed7e30fed9717b896"
+      },
+      "projection_index": {
+        "bytes": 499908608,
+        "sha256": "e9d2b77a27073dc7b0e625d36707c20113193775b66760df3994684e9450a199",
+        "build_seconds": 47.349,
+        "build_peak_rss_bytes": 49807360
+      },
+      "export": {
+        "profile": "interop-v1",
+        "seconds": 1452.509,
+        "events_per_second": 6884.64,
+        "peak_rss_bytes": 53133312,
+        "triple_lines": 162500000,
+        "bytes": 29525000000,
+        "sha256": "1e7524ec5c7c19a8d72a166f1e0536af5db405e0115151dbd40861684cf2aa7a"
+      }
+    }
+  ],
+  "artifacts_directory": "build/rdf-export-evaluation-20261115T084519Z",
+  "summary_path": "benchmarks/evaluations/reports/rdf-export-v1.json"
+}
