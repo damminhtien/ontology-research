@@ -43,16 +43,35 @@ uv run --no-project --python 3.13 \
 
 ## Measurements
 
-The runner performs a full snapshot rebuild twice per scale and confirms a
-sample query returns the same rows before and after `CURRENT` changes. It also
-loads the same N-Quads snapshot into TDB2, starts a query-only Fuseki service
-bound to loopback, verifies that its update endpoint is unavailable, and
-compares point lookup, temporal, and provenance output before timing calls.
+The runner performs a full snapshot rebuild twice per scale and verifies that
+the first query after reopening returns the same rows as the first published
+snapshot. Both stores execute the same SPARQL strings for point lookup, temporal
+lookup, and provenance.
 
-Oxigraph timings are direct in-process `Store.query` calls. Jena timings are
-Fuseki loopback HTTP calls and include HTTP overhead. The report gives per-call
-p50/p95/p99 after warm-up, sample counts, build/rebuild and reopen time, peak
-RSS by process, store size, software versions, and machine metadata. These
-percentiles are not directly comparable with historical batch-average
-measurements. Reports and generated logs are written beneath
-`build/oxigraph-evaluation/` and are not committed.
+Engine-level timing is measured separately: Oxigraph uses direct
+`Store.query` calls, while a persistent Java harness runs `QueryExecution`
+directly against TDB2 and measures transaction start, execution, and result
+materialization inside the JVM. Both interfaces receive the same query text and
+include parsing and result materialization in the timed section. A separate
+service-level section reports Fuseki loopback HTTP latency;
+those values include HTTP and SPARQL JSON overhead and must not be compared with
+engine-level percentiles. Fuseki rejects updates. Cold latency means the first
+workload query after opening each store; Fuseki readiness and read-only checks
+run before its first measured workload query. The operating-system page cache is
+not cleared. Warm p50/p95/p99 use 100 calls per query after five warmups by default.
+
+The report records first-query and warm latency, sample counts, Oxigraph/TDB2
+build and reopen time, peak RSS by process, disk footprint, software versions,
+hardware, event-log manifest and source hash, generator/harness hashes, and the
+reproduction command. The measured reference is
+`benchmarks/evaluations/reports/oxigraph-v2.json`; generated datasets, stores,
+logs and the full machine-specific report stay under ignored
+`build/oxigraph-evaluation/`. These percentiles are not directly comparable
+with historical batch-average measurements.
+
+On the machine recorded in that report, the 100K scale produced 1.1M events
+and 10.2M triples. A full Oxigraph rebuild took 525 seconds and peaked at 23.1
+GB process RSS; TDB2 loaded the same projection in 29.9 seconds and occupied
+1.71 GB. These figures describe this implementation and host. They show that
+snapshot construction and storage need improvement before considering a larger
+read-model trial; the query timings alone do not justify selecting a backend.

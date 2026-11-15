@@ -57,11 +57,11 @@ STAGE_SLOS = {
     "lake_query": {"max_p95_ms": 100.0},
 }
 
-# Each individual projector pass has only about 127 events at the CI scale.
-# Replaying the same deterministic batch several times makes the timed window
-# long enough to resist sub-millisecond scheduler noise while preserving the
-# input size and the existing per-event baseline.
-PROJECTOR_REPLAY_PASSES = 25
+# Each projector pass has only about 127 events at CI scale. Warm it once, then
+# time at least half a second so scheduling noise cannot dominate the rate.
+# The gate still measures the same full replay and keeps the existing baseline.
+PROJECTOR_WARMUP_PASSES = 1
+PROJECTOR_MIN_MEASURE_SECONDS = 0.5
 
 
 @dataclass(frozen=True)
@@ -191,26 +191,33 @@ def run_lake_persist(log_path: Path, lake_root: Path) -> StageResult:
 
 
 def run_projector(log_path: Path) -> StageResult:
-    """Stage 3 — replay a fixed event batch repeatedly for stable timing."""
+    """Stage 3 — replay a fixed batch over a stable minimum timing window."""
     from foundry.projector import Projector
     from foundry.readmodel import ReadModel
 
     events = EventLog(log_path).read_all()
+    for _ in range(PROJECTOR_WARMUP_PASSES):
+        Projector(ReadModel()).replay(events)
+
     start = time.perf_counter()
     model = None
-    for _ in range(PROJECTOR_REPLAY_PASSES):
+    replay_passes = 0
+    while replay_passes == 0 or time.perf_counter() - start < PROJECTOR_MIN_MEASURE_SECONDS:
         model = ReadModel()
         _stats = Projector(model).replay(events)
+        replay_passes += 1
     seconds = time.perf_counter() - start
     assert model is not None
     return StageResult(
         "projector",
-        len(events) * PROJECTOR_REPLAY_PASSES,
+        len(events) * replay_passes,
         seconds,
         {
             "entities": model.stats()["entities"],
             "events_per_pass": len(events),
-            "replay_passes": PROJECTOR_REPLAY_PASSES,
+            "replay_passes": replay_passes,
+            "warmup_passes": PROJECTOR_WARMUP_PASSES,
+            "minimum_measure_seconds": PROJECTOR_MIN_MEASURE_SECONDS,
         },
     )
 
@@ -304,26 +311,33 @@ def _evaluate(report: dict, baseline: dict | None) -> list[str]:
 
 
 def _median_report(n_entities: int, iterations: int) -> dict:
-    """Median across iterations for stable gate numbers."""
+    """Report the median-rate iteration with internally consistent counts."""
     reports = []
     for _ in range(iterations):
         with tempfile.TemporaryDirectory() as tmp:
             reports.append(run_e2e(n_entities, Path(tmp)))
     report = reports[-1].copy()
     median_stages = {}
-    for stage, entry in report["stages"].items():
-        median_rate = statistics.median(
-            result["stages"][stage]["events_per_second"] for result in reports
+    for stage in report["stages"]:
+        samples = [result["stages"][stage] for result in reports]
+        median_rate = statistics.median(sample["events_per_second"] for sample in samples)
+        # Keep count, replay passes, and elapsed time from the iteration whose
+        # measured rate is the median. Reconstructing seconds from the last
+        # iteration's count can describe a sample that never actually ran.
+        representative = min(
+            samples,
+            key=lambda sample: abs(sample["events_per_second"] - median_rate),
         )
         median_stages[stage] = {
-            **entry,
+            **representative,
             "events_per_second": round(median_rate, 1),
-            "seconds": round(entry["count"] / median_rate, 4) if median_rate else 0.0,
+            "seconds": round(representative["seconds"], 4),
         }
     report["stages"] = median_stages
-    report["stages"]["lake_query"]["p95_ms"] = round(
-        statistics.median(r["stages"]["lake_query"]["p95_ms"] for r in reports), 3
-    )
+    for percentile in ("p50_ms", "p95_ms"):
+        report["stages"]["lake_query"][percentile] = round(
+            statistics.median(r["stages"]["lake_query"][percentile] for r in reports), 3
+        )
     return report
 
 

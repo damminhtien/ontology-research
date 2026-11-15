@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import hashlib
 import json
@@ -150,6 +151,20 @@ def _oxigraph_rows(store, query: str) -> tuple[list[str], list[list[object]]]:
         for solution in result
     ]
     return variables, rows
+
+
+def _timed_oxigraph_query(store, query: str) -> tuple[float, list[str], list[list[object]]]:
+    """Time query execution and binding materialization before row normalization."""
+    started = time.perf_counter_ns()
+    result = store.query(query)
+    variables = [variable.value for variable in result.variables]
+    raw_rows = list(result)
+    elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000
+    rows = [
+        [_normalize_value(solution[variable]) for variable in result.variables]
+        for solution in raw_rows
+    ]
+    return elapsed_ms, variables, rows
 
 
 def _same_rows(actual: list[list[object]], expected: list[list[object]], ordered: bool) -> bool:
@@ -416,6 +431,107 @@ class _ReadOnlyFuseki:
                 self.process.wait(timeout=5)
 
 
+class _JenaTdb2Client:
+    """Keep one in-process TDB2 dataset open for direct engine measurements."""
+
+    def __init__(
+        self,
+        java_home: Path,
+        jena_home: Path,
+        classes_dir: Path,
+        dataset_path: Path,
+        log_path: Path,
+    ) -> None:
+        self.java_home = java_home
+        self.jena_home = jena_home
+        self.classes_dir = classes_dir
+        self.dataset_path = dataset_path
+        self.log_path = log_path
+        self.process: subprocess.Popen | None = None
+        self._log_handle = None
+        self.open_seconds = 0.0
+
+    def __enter__(self) -> _JenaTdb2Client:
+        classpath = os.pathsep.join((str(self.classes_dir), f"{self.jena_home}/lib/*"))
+        self._log_handle = self.log_path.open("w", encoding="utf-8")
+        self.process = subprocess.Popen(
+            [
+                str(self.java_home / "bin" / "java"),
+                "-cp",
+                classpath,
+                "Tdb2QueryHarness",
+                str(self.dataset_path),
+            ],
+            cwd=self.dataset_path.parent,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=self._log_handle,
+            text=True,
+            encoding="utf-8",
+            bufsize=1,
+        )
+        ready_line = self.process.stdout.readline() if self.process.stdout else ""
+        if not ready_line.startswith("READY\t"):
+            self.__exit__()
+            raise RuntimeError(
+                "TDB2 engine harness failed to start:\n" + self.log_path.read_text(encoding="utf-8")
+            )
+        self.open_seconds = int(ready_line.split("\t", 1)[1]) / 1_000_000_000
+        return self
+
+    def query(self, query: str) -> tuple[float, list[str], list[list[object]]]:
+        """Run a SELECT query and return Java-measured execution time and rows."""
+        if self.process is None or self.process.stdin is None or self.process.stdout is None:
+            raise RuntimeError("TDB2 engine harness is not running")
+        encoded_query = base64.b64encode(query.encode("utf-8")).decode("ascii")
+        self.process.stdin.write(encoded_query + "\n")
+        self.process.stdin.flush()
+        response = self.process.stdout.readline()
+        if not response:
+            raise RuntimeError(
+                "TDB2 engine harness exited during query:\n"
+                + self.log_path.read_text(encoding="utf-8")
+            )
+        elapsed_text, encoded_result = response.rstrip("\n").split("\t", 1)
+        result = json.loads(base64.b64decode(encoded_result))
+        variables, rows = _sparql_json_rows(result)
+        return int(elapsed_text) / 1_000_000, variables, rows
+
+    def __exit__(self, *_exc) -> None:
+        if self.process is not None:
+            if self.process.stdin is not None:
+                self.process.stdin.close()
+            try:
+                self.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.process.terminate()
+                self.process.wait(timeout=5)
+        if self._log_handle is not None:
+            self._log_handle.close()
+
+
+def _compile_jena_harness(java_home: Path, jena_home: Path, output_dir: Path) -> Path:
+    """Compile the direct engine query client against the pinned Jena libraries."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    source = REPO_ROOT / "tools" / "java" / "Tdb2QueryHarness.java"
+    result = subprocess.run(
+        [
+            str(java_home / "bin" / "javac"),
+            "-cp",
+            f"{jena_home}/lib/*",
+            "-d",
+            str(output_dir),
+            str(source),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        raise RuntimeError(f"failed to compile TDB2 engine harness:\n{result.stderr}")
+    return output_dir
+
+
 def _post_query(endpoint: str, query: str) -> dict:
     """Issue one SPARQL query over HTTP and return the decoded result document."""
     request = urllib.request.Request(
@@ -438,7 +554,11 @@ def _post_query(endpoint: str, query: str) -> dict:
 
 def _http_rows(endpoint: str, query: str) -> tuple[list[str], list[list[object]]]:
     """Run a SELECT query over Fuseki and normalize SPARQL JSON bindings."""
-    result = _post_query(endpoint, query)
+    return _sparql_json_rows(_post_query(endpoint, query))
+
+
+def _sparql_json_rows(result: dict) -> tuple[list[str], list[list[object]]]:
+    """Normalize a SPARQL Results JSON SELECT response."""
     variables = result["head"]["vars"]
     rows = [
         [_normalize_value(binding.get(variable)) for variable in variables]
@@ -488,12 +608,14 @@ def _validate_workload_rows(name: str, variables: list[str], rows: list[list[obj
         )
 
 
-def _profile_query_memory(store, endpoint: str, *, entities: int, jena_pid: int) -> tuple[int, int]:
-    """Sample engine RSS during untimed representative queries."""
+def _profile_service_memory(
+    store, endpoint: str, *, entities: int, fuseki_pid: int
+) -> tuple[int, int]:
+    """Sample Oxigraph and Fuseki service RSS during untimed request checks."""
     indices = sorted({0, entities // 4, entities // 2, (3 * entities) // 4, entities - 1})
     with (
         _PeakRssSampler(os.getpid()) as oxigraph_rss,
-        _PeakRssSampler(jena_pid) as jena_rss,
+        _PeakRssSampler(fuseki_pid) as fuseki_rss,
     ):
         for entity_index in indices:
             entity_iri = f"urn:world:entity:bench-{entity_index:08d}"
@@ -503,9 +625,10 @@ def _profile_query_memory(store, endpoint: str, *, entities: int, jena_pid: int)
                 http_variables, http_rows = _http_rows(endpoint, query)
                 if variables != http_variables or not _same_rows(rows, http_rows, ordered=False):
                     raise RuntimeError(
-                        f"Oxigraph and Jena returned different {name} rows at entity {entity_index}"
+                        f"Oxigraph and Fuseki returned different {name} rows "
+                        f"at entity {entity_index}"
                     )
-    return oxigraph_rss.peak_bytes, jena_rss.peak_bytes
+    return oxigraph_rss.peak_bytes, fuseki_rss.peak_bytes
 
 
 def _check_read_only(endpoint: str) -> None:
@@ -525,56 +648,121 @@ def _check_read_only(endpoint: str) -> None:
             raise RuntimeError(f"unexpected update endpoint response: HTTP {exc.code}") from exc
 
 
-def _measure_queries(store, endpoint: str, *, entities: int, runs: int) -> dict:
-    """Measure local Oxigraph calls and separately labelled Fuseki HTTP calls."""
+def _measure_engine_queries(
+    store,
+    jena_engine: _JenaTdb2Client,
+    *,
+    entities: int,
+    runs: int,
+    expected_probe: dict[str, tuple[list[str], list[list[object]]]],
+) -> dict:
+    """Measure direct Oxigraph and in-process TDB2 calls with equivalent SELECTs."""
     indices = sorted({min(entities - 1, index * entities // runs) for index in range(runs)})
     names = ("point_lookup", "temporal", "provenance")
     oxigraph_samples = {name: [] for name in names}
-    fuseki_samples = {name: [] for name in names}
+    jena_samples = {name: [] for name in names}
     warmup_count = min(5, len(indices))
+    cold_oxigraph = {}
+    cold_jena = {}
+    jena_pid = jena_engine.process.pid
+
+    with _PeakRssSampler(jena_pid) as jena_rss:
+        for name, query in _query_set("urn:world:entity:bench-00000000").items():
+            ox_ms, ox_variables, ox_rows = _timed_oxigraph_query(store, query)
+            jena_ms, jena_variables, jena_rows = jena_engine.query(query)
+            _validate_workload_rows(name, ox_variables, ox_rows)
+            if ox_variables != jena_variables or not _same_rows(ox_rows, jena_rows, ordered=False):
+                raise RuntimeError(f"Oxigraph and in-process TDB2 differ for {name}")
+            expected_variables, expected_rows = expected_probe[name]
+            if ox_variables != expected_variables or not _same_rows(
+                ox_rows, expected_rows, ordered=False
+            ):
+                raise RuntimeError(f"query output changed after the full snapshot rebuild: {name}")
+            cold_oxigraph[name] = round(ox_ms, 4)
+            cold_jena[name] = round(jena_ms, 4)
+
+        for entity_index in indices[:warmup_count]:
+            entity_iri = f"urn:world:entity:bench-{entity_index:08d}"
+            for name, query in _query_set(entity_iri).items():
+                ox_ms, ox_variables, ox_rows = _timed_oxigraph_query(store, query)
+                jena_ms, jena_variables, jena_rows = jena_engine.query(query)
+                _validate_workload_rows(name, ox_variables, ox_rows)
+                if ox_variables != jena_variables or not _same_rows(
+                    ox_rows, jena_rows, ordered=False
+                ):
+                    raise RuntimeError(f"Oxigraph and in-process TDB2 differ for {name}")
+
+        for entity_index in indices:
+            entity_iri = f"urn:world:entity:bench-{entity_index:08d}"
+            for name, query in _query_set(entity_iri).items():
+                ox_ms, ox_variables, ox_rows = _timed_oxigraph_query(store, query)
+                jena_ms, jena_variables, jena_rows = jena_engine.query(query)
+                _validate_workload_rows(name, ox_variables, ox_rows)
+                if ox_variables != jena_variables or not _same_rows(
+                    ox_rows, jena_rows, ordered=False
+                ):
+                    raise RuntimeError(f"Oxigraph and in-process TDB2 differ for {name}")
+                oxigraph_samples[name].append(ox_ms)
+                jena_samples[name].append(jena_ms)
+    return {
+        "sample_count_per_query": len(indices),
+        "warmup_count": warmup_count,
+        "cold_first_after_open_ms": {
+            "oxigraph_engine": cold_oxigraph,
+            "jena_tdb2_engine": cold_jena,
+        },
+        "warm_engine_percentiles": {
+            "oxigraph_engine": {
+                name: _query_statistics(values, warmups=warmup_count)
+                for name, values in oxigraph_samples.items()
+            },
+            "jena_tdb2_engine": {
+                name: _query_statistics(values, warmups=warmup_count)
+                for name, values in jena_samples.items()
+            },
+        },
+        "jena_tdb2_query_process_peak_rss_bytes": jena_rss.peak_bytes,
+    }
+
+
+def _measure_fuseki_service(store, endpoint: str, *, entities: int, runs: int) -> dict:
+    """Measure Fuseki HTTP service latency separately from engine query latency."""
+    indices = sorted({min(entities - 1, index * entities // runs) for index in range(runs)})
+    names = ("point_lookup", "temporal", "provenance")
+    samples = {name: [] for name in names}
+    warmup_count = min(5, len(indices))
+    cold_samples = {}
+
+    def query_checked(name: str, query: str) -> float:
+        started = time.perf_counter_ns()
+        variables, rows = _http_rows(endpoint, query)
+        elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000
+        _validate_workload_rows(name, variables, rows)
+        ox_variables, ox_rows = _oxigraph_rows(store, query)
+        if variables != ox_variables or not _same_rows(rows, ox_rows, ordered=False):
+            raise RuntimeError(f"Fuseki and Oxigraph returned different {name} rows")
+        return elapsed_ms
+
+    for name, query in _query_set("urn:world:entity:bench-00000000").items():
+        cold_samples[name] = round(query_checked(name, query), 4)
 
     for entity_index in indices[:warmup_count]:
         entity_iri = f"urn:world:entity:bench-{entity_index:08d}"
         for name, query in _query_set(entity_iri).items():
-            ox_variables, ox_rows = _oxigraph_rows(store, query)
-            http_variables, http_rows = _http_rows(endpoint, query)
-            _validate_workload_rows(name, ox_variables, ox_rows)
-            if ox_variables != http_variables or not _same_rows(ox_rows, http_rows, ordered=False):
-                raise RuntimeError(
-                    f"Oxigraph and Jena returned different {name} rows: "
-                    f"oxigraph={ox_rows}, jena={http_rows}"
-                )
+            query_checked(name, query)
 
-    for sample_index, entity_index in enumerate(indices):
+    for entity_index in indices:
         entity_iri = f"urn:world:entity:bench-{entity_index:08d}"
         for name, query in _query_set(entity_iri).items():
-            started = time.perf_counter_ns()
-            variables, rows = _oxigraph_rows(store, query)
-            elapsed = (time.perf_counter_ns() - started) / 1_000_000
-            _validate_workload_rows(name, variables, rows)
-            oxigraph_samples[name].append(elapsed)
-
-            started = time.perf_counter_ns()
-            http_variables, http_rows = _http_rows(endpoint, query)
-            elapsed = (time.perf_counter_ns() - started) / 1_000_000
-            if variables != http_variables or not _same_rows(rows, http_rows, ordered=False):
-                raise RuntimeError(
-                    f"Oxigraph and Jena differ for {name} at sample {sample_index}: "
-                    f"oxigraph={rows}, jena={http_rows}"
-                )
-            fuseki_samples[name].append(elapsed)
+            samples[name].append(query_checked(name, query))
     return {
-        "samples_per_query": len(indices),
+        "sample_count_per_query": len(indices),
         "warmup_count": warmup_count,
-        "oxigraph_direct_engine": {
+        "cold_first_workload_after_ready_ms": cold_samples,
+        "warm_http_percentiles": {
             name: _query_statistics(values, warmups=warmup_count)
-            for name, values in oxigraph_samples.items()
+            for name, values in samples.items()
         },
-        "jena_fuseki_loopback_http_engine_plus_http": {
-            name: _query_statistics(values, warmups=warmup_count)
-            for name, values in fuseki_samples.items()
-        },
-        "peak_rss_bytes": {},
     }
 
 
@@ -632,6 +820,7 @@ def _build_scale(
     jena_home: Path,
     fuseki_home: Path,
     java_home: Path,
+    classes_dir: Path,
     temporary_root: Path,
 ) -> dict:
     """Generate one scale, build/reopen/rebuild snapshots, and benchmark both stores."""
@@ -664,17 +853,10 @@ def _build_scale(
     if current_snapshot(snapshot_root) != snapshot_path or first_snapshot == snapshot_path:
         raise RuntimeError("full rebuild did not atomically publish a new snapshot")
 
-    oxigraph_started = time.perf_counter()
-    store = open_current_store(snapshot_root)
-    reopen_seconds = time.perf_counter() - oxigraph_started
-    second_probe = {
-        name: _oxigraph_rows(store, query) for name, query in comparison_queries.items()
-    }
-    if first_probe != second_probe:
-        raise RuntimeError("query output changed after the full snapshot rebuild")
-
     projection_path = temporary_root / f"projection-{scale}.nq"
-    store.dump(output=str(projection_path), format=RdfFormat.N_QUADS)
+    projection_store = open_current_store(snapshot_root)
+    projection_store.dump(output=str(projection_path), format=RdfFormat.N_QUADS)
+    del projection_store
     jena_store_path = scale_dir / "jena-tdb2"
     if jena_store_path.exists():
         shutil.rmtree(jena_store_path)
@@ -699,22 +881,47 @@ def _build_scale(
     manifest = json.loads((snapshot_path / "manifest.json").read_text(encoding="utf-8"))
     snapshot_bytes = directory_size_bytes(snapshot_path / "store")
 
+    oxigraph_started = time.perf_counter()
+    store = open_current_store(snapshot_root)
+    reopen_seconds = time.perf_counter() - oxigraph_started
+    with _JenaTdb2Client(
+        java_home,
+        jena_home,
+        classes_dir,
+        jena_store_path,
+        scale_dir / "tdb2-engine.log",
+    ) as jena_engine:
+        jena_open_seconds = jena_engine.open_seconds
+        engine_metrics = _measure_engine_queries(
+            store,
+            jena_engine,
+            entities=scale,
+            runs=runs,
+            expected_probe=first_probe,
+        )
+
     with _ReadOnlyFuseki(fuseki_home, jena_store_path, scale_dir, java_home) as fuseki:
         _check_read_only(fuseki.endpoint)
-        oxigraph_runtime_rss, jena_runtime_rss = _profile_query_memory(
-            store, fuseki.endpoint, entities=scale, jena_pid=fuseki.process.pid
+        service_metrics = _measure_fuseki_service(store, fuseki.endpoint, entities=scale, runs=runs)
+        oxigraph_runtime_rss, fuseki_runtime_rss = _profile_service_memory(
+            store, fuseki.endpoint, entities=scale, fuseki_pid=fuseki.process.pid
         )
-        query_metrics = _measure_queries(store, fuseki.endpoint, entities=scale, runs=runs)
-    query_metrics["peak_rss_bytes"].update(
-        {
+    query_metrics = {
+        "engine_level": engine_metrics,
+        "service_level": {
+            "service": "Apache Jena Fuseki loopback HTTP; includes HTTP and SPARQL JSON overhead",
+            **service_metrics,
+        },
+        "peak_rss_bytes": {
             "oxigraph_first_build_process": first_build_rss.peak_bytes,
             "oxigraph_first_reopen_process": first_reopen_rss.peak_bytes,
             "oxigraph_rebuild_process": rebuild_rss.peak_bytes,
             "oxigraph_runtime_process": oxigraph_runtime_rss,
             "jena_tdb2_loader_process": jena_loader_peak_rss,
-            "jena_fuseki_server_process": jena_runtime_rss,
-        }
-    )
+            "jena_tdb2_engine_process": engine_metrics["jena_tdb2_query_process_peak_rss_bytes"],
+            "jena_fuseki_server_process": fuseki_runtime_rss,
+        },
+    }
     del store
 
     return {
@@ -734,6 +941,7 @@ def _build_scale(
         },
         "jena_tdb2": {
             "load_seconds": round(jena_load_seconds, 3),
+            "open_seconds": round(jena_open_seconds, 6),
             "store_bytes": tdb_bytes,
             "query_endpoint": "loopback only; query-only Fuseki config; update endpoint rejected",
         },
@@ -768,6 +976,9 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     java_home, _java = _java_executable()
     _jena_archive, jena_home, _fuseki_archive, fuseki_home = _jena_archives(out_dir / "tool-cache")
+    harness_compile_started = time.perf_counter()
+    classes_dir = _compile_jena_harness(java_home, jena_home, out_dir / "tool-cache" / "harness")
+    harness_compile_seconds = time.perf_counter() - harness_compile_started
 
     with tempfile.TemporaryDirectory(prefix="ontology-oxigraph-") as tmp_name:
         temporary_root = Path(tmp_name)
@@ -780,13 +991,14 @@ def main() -> int:
                 jena_home=jena_home,
                 fuseki_home=fuseki_home,
                 java_home=java_home,
+                classes_dir=classes_dir,
                 temporary_root=temporary_root,
             )
             for scale in args.scales
         ]
 
     report = {
-        "report_version": 1,
+        "report_version": 2,
         "generated_at": datetime.now().astimezone().isoformat(),
         "software": {
             "python": sys.version.split()[0],
@@ -795,13 +1007,44 @@ def main() -> int:
             "java": _java_version(java_home),
         },
         "hardware": _hardware_metadata(),
+        "reproduction": {
+            "command": "make oxigraph-eval",
+            "requirements_sha256": hashlib.sha256(
+                (REPO_ROOT / "requirements" / "evaluation-oxigraph.txt").read_bytes()
+            ).hexdigest(),
+            "jena_archive_sha512": JENA_SHA512,
+            "fuseki_archive_sha512": FUSEKI_SHA512,
+            "generator": "tools/benchmark.py::generate_events(seed=42)",
+            "generator_sha256": hashlib.sha256(
+                (REPO_ROOT / "tools" / "benchmark.py").read_bytes()
+            ).hexdigest(),
+            "jena_harness_sha256": hashlib.sha256(
+                (REPO_ROOT / "tools" / "java" / "Tdb2QueryHarness.java").read_bytes()
+            ).hexdigest(),
+            "harness_compile_seconds": round(harness_compile_seconds, 3),
+            "scales": args.scales,
+            "runs_per_query_per_scale": args.runs,
+            "entities_and_assertions_seed": 42,
+        },
         "seed_cq_equivalence": seed_cqs,
         "scales": scale_results,
         "measurement_notes": {
-            "oxigraph": "direct in-process Store.query calls",
-            "jena": "Fuseki SPARQL HTTP on 127.0.0.1, so percentiles include HTTP overhead",
-            "percentiles": (
-                "per-call samples after warm-up; not comparable to historical batch averages"
+            "engine_level": (
+                "Oxigraph Store.query and a persistent Java QueryExecution client over TDB2; "
+                "both include query parsing and result materialization; Jena timing excludes only "
+                "the harness protocol and JSON output"
+            ),
+            "service_level": (
+                "Fuseki loopback HTTP only; includes HTTP and SPARQL JSON serialization overhead "
+                "and is reported separately from engine-level latency"
+            ),
+            "cold_queries": (
+                "one first workload query after opening each store; Fuseki readiness and "
+                "read-only probes run before its measured first workload query; operating-system "
+                "page cache was not cleared"
+            ),
+            "warm_percentiles": (
+                "per-call samples after five warmups; not comparable to historical batch averages"
             ),
             "snapshots": (
                 "event-log full rebuild; previous CURRENT retained until completed store reopen"
