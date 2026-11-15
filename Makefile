@@ -1,4 +1,4 @@
-.PHONY: setup validate dag align test lint fmt check conformance quality ontology-design oxigraph-test oxigraph-eval splink-test splink-fetch splink-eval clean docs-setup docs-sync docs-serve docs-build
+.PHONY: setup validate dag align test lint fmt check conformance quality ontology-design oxigraph-test oxigraph-eval splink-test splink-fetch splink-eval rdf-export-eval clean docs-setup docs-sync docs-serve docs-build
 
 PY := .venv/bin/python
 
@@ -54,7 +54,7 @@ benchmark:
 
 slo:
 	$(PY) tools/check_slo.py
-	$(PY) tools/benchmark_e2e.py --check --entities 60
+	$(PY) tools/benchmark_e2e.py --check --entities 60 --iterations 11
 
 align:
 	$(PY) tools/manage_ontology.py align check
@@ -85,6 +85,11 @@ splink-fetch:
 
 splink-eval:
 	uv run --no-project --python 3.13 --with-requirements requirements/evaluation-splink.txt python tools/evaluate_splink.py
+
+rdf-export-eval:
+	$(PY) tools/benchmark_rdf_export.py \
+		--scales 1000000 10000000 \
+		--summary-path benchmarks/evaluations/reports/rdf-export-v1.json
 
 clean:
 	find . -name __pycache__ -type d -exec rm -rf {} +

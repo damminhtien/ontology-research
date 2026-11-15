@@ -17,7 +17,7 @@ from rdflib import RDF, Graph, URIRef
 from rdflib.namespace import OWL
 
 from foundry.events import EventLog
-from foundry.rdf_export import collect_projection_context, iter_projected_quads
+from foundry.rdf_export import iter_projected_quads, open_projection_context_index
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DCTERMS_VERSION = URIRef("http://purl.org/dc/terms/version")
@@ -132,7 +132,6 @@ def build_snapshot(
     root.mkdir(parents=True, exist_ok=True)
     log = EventLog(event_log_path)
     initial_fingerprint = log.fingerprint()
-    context = collect_projection_context(event_log_path)
     candidate = Path(tempfile.mkdtemp(prefix=".candidate-", dir=root))
     published_path: Path | None = None
     published = False
@@ -141,15 +140,22 @@ def build_snapshot(
         store_path = candidate / "store"
         store_path.mkdir()
         projection_path = candidate / "projection.nq"
-        emitted_quad_count = _write_quads(
-            projection_path,
-            iter_projected_quads(
-                event_log_path,
-                profile=profile,
-                geometry_path=geometry_path,
-                context=context,
-            ),
-        )
+        context_index_path = candidate / "projection-context.sqlite"
+        with open_projection_context_index(event_log_path, context_index_path) as context:
+            if context.source_fingerprint != initial_fingerprint:
+                raise RuntimeError("event log changed before snapshot projection began")
+            emitted_quad_count = _write_quads(
+                projection_path,
+                iter_projected_quads(
+                    event_log_path,
+                    profile=profile,
+                    geometry_path=geometry_path,
+                    context=context,
+                ),
+            )
+            event_count = context.event_count
+            last_sequence = context.last_sequence
+        context_index_path.unlink(missing_ok=True)
         store = Store(str(store_path))
         # `load` preserves document-wide blank-node identity across input chunks.
         store.load(path=str(projection_path), format=RdfFormat.N_QUADS)
@@ -183,8 +189,8 @@ def build_snapshot(
             "created_at": datetime.now(UTC).isoformat(),
             "source": {
                 **source,
-                "last_sequence": context.last_sequence,
-                "event_count": context.event_count,
+                "last_sequence": last_sequence,
+                "event_count": event_count,
             },
             "ontology_modules": _ontology_versions(),
             "profile": profile,

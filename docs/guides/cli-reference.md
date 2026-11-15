@@ -49,9 +49,10 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 | `.venv/bin/python tools/split_entity.py --survivor ID --duplicate ID [--reason TEXT]` | Undo một merge đã ghi: restore set đọc từ `EntityMerged`; append `EntitySplit` |
 | `.venv/bin/python tools/backfill_external_ids.py [--log PATH] [--no-lake]` | Khôi phục QID binding của log cũ (quy ước `source_id: wikidata:QID`) thành `ExternalIdBound` events; idempotent |
 | `.venv/bin/python tools/import_events.py --src PATH --dst PATH [--skip N] [--dry-run]` | Copy events giữa hai log, re-stamp sequence theo log nhận (event_id giữ nguyên) |
-| `.venv/bin/python tools/export_rdf.py --event-log PATH --profile {canonical-v1,interop-v1} --output PATH [--geometry CSV]` | Export offline event log thành TriG; xem [RDF export profiles](rdf-export.md) |
+| `.venv/bin/python tools/export_rdf.py --event-log PATH --profile {canonical-v1,interop-v1} --output PATH [--geometry CSV] [--context-index PATH]` | Stream offline event log thành TriG với SQLite reference index; xem [RDF export profiles](rdf-export.md) |
 | `make oxigraph-test` | Kiểm tra atomic publication, read-only reopen và full rebuild trong môi trường riêng |
 | `make oxigraph-eval` | So sánh 41 CQ, đo engine Oxigraph/TDB2 và service Fuseki riêng ở 10K, 100K entity; xem [Oxigraph snapshot evaluation](oxigraph-evaluation.md) |
+| `make rdf-export-eval` | Đo bounded-memory TriG export ở 1M và 10M events; xem [RDF export profiles](rdf-export.md) |
 | `make splink-fetch` | Tải hai file FEBRL4 theo revision và SHA-256 đã pin vào `build/` |
 | `make splink-test` | Chạy test đánh giá resolver/Splink trong môi trường Splink 5 riêng |
 | `make splink-eval` | Đánh giá production và controlled name-only resolver/Splink trên synthetic + FEBRL4; xem [Splink evaluation](splink-evaluation.md) |
