@@ -35,7 +35,9 @@ class TestRunE2E:
         assert stages["ingest"]["accepted"] > 0
         assert stages["ingest"]["pending"] > 0  # pending observations exercised
         assert stages["projector"]["entities"] > 0
-        assert stages["projector"]["replay_passes"] == e2e.PROJECTOR_REPLAY_PASSES
+        assert stages["projector"]["replay_passes"] > 0
+        assert stages["projector"]["warmup_passes"] == e2e.PROJECTOR_WARMUP_PASSES
+        assert stages["projector"]["seconds"] >= e2e.PROJECTOR_MIN_MEASURE_SECONDS
         assert stages["projector"]["count"] == (
             stages["projector"]["events_per_pass"] * stages["projector"]["replay_passes"]
         )
@@ -94,6 +96,7 @@ class TestGate:
                     "count": 10,
                     "seconds": seconds,
                     "events_per_second": 10 / seconds,
+                    "p50_ms": 4.0,
                     "p95_ms": 5.0,
                 }
                 for name in ("ingest", "lake_persist", "projector", "lake_query")
@@ -106,3 +109,33 @@ class TestGate:
         projector = report["stages"]["projector"]
         assert projector["events_per_second"] == 500.0
         assert projector["seconds"] == 0.02
+
+    def test_median_report_uses_matching_dynamic_projector_sample(self, monkeypatch):
+        projector_samples = iter(
+            (
+                {"count": 1000, "seconds": 1.0, "events_per_second": 1000.0},
+                {"count": 600, "seconds": 1.0, "events_per_second": 600.0},
+                {"count": 800, "seconds": 1.0, "events_per_second": 800.0},
+                {"count": 1200, "seconds": 1.0, "events_per_second": 1200.0},
+                {"count": 400, "seconds": 1.0, "events_per_second": 400.0},
+            )
+        )
+
+        def fake_run_e2e(_n_entities, _tmp):
+            projector = next(projector_samples)
+            stages = {
+                name: {"count": 10, "seconds": 1.0, "events_per_second": 10.0}
+                for name in ("ingest", "lake_persist", "projector", "lake_query")
+            }
+            stages["projector"] = projector
+            stages["lake_query"].update({"p50_ms": 5.0, "p95_ms": 8.0})
+            return {"stages": stages}
+
+        monkeypatch.setattr(e2e, "run_e2e", fake_run_e2e)
+        report = e2e._median_report(1, 5)
+
+        projector = report["stages"]["projector"]
+        assert projector["events_per_second"] == 800.0
+        assert projector["count"] == 800
+        assert projector["seconds"] == 1.0
+        assert projector["count"] / projector["seconds"] == projector["events_per_second"]
