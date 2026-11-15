@@ -19,7 +19,7 @@ import urllib.request
 from collections import defaultdict
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -483,6 +483,60 @@ def _current_resolver_candidates(split: DataSplit) -> list[Candidate]:
     return candidates
 
 
+def _name_only_split(split: DataSplit) -> DataSplit:
+    """Expose only the production resolver's name input to a controlled run."""
+
+    def rows(side: tuple[dict[str, Any], ...]) -> tuple[dict[str, Any], ...]:
+        result = []
+        for row in side:
+            name = split.resolver_name_by_key[row["row_key"]]
+            result.append(
+                {"row_key": row["row_key"], "name": normalize_name(name) if name else None}
+            )
+        return tuple(result)
+
+    return replace(
+        split,
+        left=rows(split.left),
+        right=rows(split.right),
+        feature_columns=("name",),
+        blocking_only_columns=(),
+    )
+
+
+def _controlled_resolver_candidates(split: DataSplit) -> list[Candidate]:
+    """Generate name-only baseline pairs and retain every positive overlap score."""
+    service = IdentityService()
+    for row in split.right:
+        row_key = row["row_key"]
+        service.register(
+            entity_id=row_key,
+            entity_type=split.type_by_key[row_key],
+            aliases=list(split.resolver_aliases_by_key[row_key]),
+        )
+
+    candidates: dict[Pair, Candidate] = {}
+    for row in split.left:
+        left_key = row["row_key"]
+        name = split.resolver_name_by_key[left_key]
+        if not name:
+            continue
+        tokens = set(normalize_name(name).split())
+        if not tokens:
+            continue
+        for alias_norm, overlap in service._store.candidate_aliases(tokens).items():
+            score = overlap / min(len(tokens), len(alias_norm.split()))
+            for owner in service._store.alias_owners(alias_norm):
+                record = service._store.get(owner)
+                if record is None or record.entity_type != split.type_by_key[left_key]:
+                    continue
+                pair = (left_key, owner)
+                existing = candidates.get(pair)
+                if existing is None or (existing.score is not None and score > existing.score):
+                    candidates[pair] = Candidate(*pair, score=score)
+    return list(candidates.values())
+
+
 def _splink_profile(profile_name: str) -> Profile:
     """Return feature comparisons and blocks without label or ID columns."""
     import splink.comparison_library as cl
@@ -503,6 +557,21 @@ def _splink_profile(profile_name: str) -> Profile:
                 *cross_alias_blocks,
             ),
             training_blocks=(block_on("name"), block_on("alias"), block_on("region")),
+        )
+    if profile_name == "controlled_name_only":
+        comparisons = (
+            cl.NameComparison("name").configure(
+                m_probabilities=[0.72, 0.18, 0.07, 0.02, 0.01],
+                u_probabilities=[0.0005, 0.0025, 0.012, 0.1, 0.885],
+            ),
+        )
+        return Profile(
+            comparisons=comparisons,
+            prediction_blocks=(block_on("name"),),
+            # Exact-name EM blocks contain no fuzzy comparison levels. This
+            # controlled model therefore uses train-only u estimates and the
+            # explicit m priors below rather than fitting an empty EM update.
+            training_blocks=(),
         )
     if profile_name == "febrl4":
         comparisons = (
@@ -568,6 +637,23 @@ def _unestimated_parameters(model_path: Path) -> list[str]:
                     label = level.get("label_for_charts", level.get("sql_condition", "level"))
                     missing.append(f"{comparison_name}/{label}/{parameter}")
     return missing
+
+
+def _trained_probabilities(model_path: Path) -> dict[str, list[dict[str, Any]]]:
+    """Extract the comparison-level probabilities used by a saved model."""
+    settings = json.loads(model_path.read_text(encoding="utf-8"))
+    return {
+        comparison["output_column_name"]: [
+            {
+                "level": level.get("label_for_charts", level.get("sql_condition", "level")),
+                "m_probability": level.get("m_probability"),
+                "u_probability": level.get("u_probability"),
+            }
+            for level in comparison["comparison_levels"]
+            if not level.get("is_null_level")
+        ]
+        for comparison in settings["comparisons"]
+    }
 
 
 def _train_model(
@@ -799,7 +885,7 @@ def _evaluate_test(
         "ranking_or_threshold_misses": len(ranking_misses),
         "ranking_misses_with_missing_features": len(ranking_missing_data_misses),
         "missing_data_affected_misses": len(missing_data_misses),
-        "unsafe_candidates_removed_before_scoring_or_suggestion": filtered_count,
+        "unsafe_candidates_removed_before_recommendation": filtered_count,
         "unsafe_suggestions": violations,
         "threshold": threshold,
     }
@@ -809,6 +895,114 @@ def _run_baseline(split: DataSplit) -> tuple[list[Candidate], float, int]:
     """Measure the current resolver as a pure, isolated candidate generator."""
     candidates, elapsed, peak_rss = _measure(lambda: _current_resolver_candidates(split))
     return candidates, elapsed, peak_rss
+
+
+def _evaluate_controlled_name_only(
+    splits: dict[str, DataSplit], output_dir: Path, seed: int, max_pairs: int
+) -> dict[str, Any]:
+    """Compare resolver and Splink with only combined name available to either."""
+    train, validation, test = (
+        _name_only_split(splits[name]) for name in ("train", "validation", "test")
+    )
+
+    baseline_val_raw, baseline_val_seconds, baseline_val_rss = _measure(
+        lambda: _controlled_resolver_candidates(validation)
+    )
+    baseline_val, baseline_val_removed = _filter_safe(baseline_val_raw, validation)
+    baseline_threshold = _choose_threshold(
+        baseline_val, validation.truth_pairs, REVIEW_BUDGET_PER_RECORD
+    )
+    baseline_test_raw, baseline_test_seconds, baseline_test_rss = _measure(
+        lambda: _controlled_resolver_candidates(test)
+    )
+    baseline_test, baseline_test_removed = _filter_safe(baseline_test_raw, test)
+    baseline_metrics = _evaluate_test(
+        test, baseline_test, baseline_test_removed, baseline_threshold
+    )
+
+    model_path = output_dir / "models" / "febrl4-controlled-name-only-settings.json"
+    train_seconds, train_rss = _train_model(
+        train, "controlled_name_only", model_path, max_pairs, seed
+    )
+
+    rerank_val_raw, rerank_val_seconds, rerank_val_rss = _score_with_splink(
+        validation, "controlled_name_only", model_path, baseline_val
+    )
+    rerank_val, rerank_val_removed = _filter_safe(rerank_val_raw, validation)
+    rerank_threshold = _choose_threshold(
+        rerank_val, validation.truth_pairs, REVIEW_BUDGET_PER_RECORD
+    )
+    rerank_test_raw, rerank_test_seconds, rerank_test_rss = _score_with_splink(
+        test, "controlled_name_only", model_path, baseline_test
+    )
+    rerank_test, rerank_test_removed = _filter_safe(rerank_test_raw, test)
+    rerank_metrics = _evaluate_test(test, rerank_test, rerank_test_removed, rerank_threshold)
+
+    blocked_val_raw, blocked_val_seconds, blocked_val_rss = _score_with_splink(
+        validation, "controlled_name_only", model_path
+    )
+    blocked_val, blocked_val_removed = _filter_safe(blocked_val_raw, validation)
+    blocked_threshold = _choose_threshold(
+        blocked_val, validation.truth_pairs, REVIEW_BUDGET_PER_RECORD
+    )
+    blocked_test_raw, blocked_test_seconds, blocked_test_rss = _score_with_splink(
+        test, "controlled_name_only", model_path
+    )
+    blocked_test, blocked_test_removed = _filter_safe(blocked_test_raw, test)
+    blocked_metrics = _evaluate_test(test, blocked_test, blocked_test_removed, blocked_threshold)
+
+    return {
+        "feature_columns_available_to_all_methods": ["name"],
+        "feature_definition": "normalized combined given_name and surname; no soc_sec_id",
+        "threshold_policy": "each method maximizes pairwise F1 on the same validation split",
+        "splink_training_policy": (
+            "train-only random-pair u estimates with fixed m priors; exact-name EM would contain "
+            "no fuzzy comparison levels"
+        ),
+        "review_budget_per_source_record": REVIEW_BUDGET_PER_RECORD,
+        "splink_configured_probabilities": {
+            "m": [0.72, 0.18, 0.07, 0.02, 0.01],
+            "u": [0.0005, 0.0025, 0.012, 0.1, 0.885],
+            "levels": ["exact", "jw>=0.92", "jw>=0.88", "jw>=0.70", "else"],
+        },
+        "splink_trained_probabilities": _trained_probabilities(model_path),
+        "methods": {
+            "resolver_name_only": {
+                "validation_threshold": baseline_threshold,
+                "validation_runtime_seconds": round(baseline_val_seconds, 6),
+                "test_runtime_seconds": round(baseline_test_seconds, 6),
+                "peak_rss_bytes": max(baseline_val_rss, baseline_test_rss),
+                "validation_unsafe_candidates_removed": baseline_val_removed,
+                "test": baseline_metrics,
+            },
+            "splink_name_only_rerank_same_candidates": {
+                "validation_threshold": rerank_threshold,
+                "training_runtime_seconds": round(train_seconds, 6),
+                "validation_runtime_seconds": round(rerank_val_seconds, 6),
+                "test_runtime_seconds": round(rerank_test_seconds, 6),
+                "peak_rss_bytes": max(train_rss, rerank_val_rss, rerank_test_rss),
+                "validation_unsafe_candidates_removed": rerank_val_removed,
+                "test": rerank_metrics,
+            },
+            "splink_name_only_independent_blocking": {
+                "validation_threshold": blocked_threshold,
+                "training_runtime_seconds": round(train_seconds, 6),
+                "validation_runtime_seconds": round(blocked_val_seconds, 6),
+                "test_runtime_seconds": round(blocked_test_seconds, 6),
+                "peak_rss_bytes": max(train_rss, blocked_val_rss, blocked_test_rss),
+                "validation_unsafe_candidates_removed": blocked_val_removed,
+                "test": blocked_metrics,
+            },
+            "safety_filter_counts": {
+                "resolver_validation_candidates_removed": baseline_val_removed,
+                "resolver_test_candidates_removed": baseline_test_removed,
+                "rerank_validation_candidates_removed": rerank_val_removed,
+                "rerank_test_candidates_removed": rerank_test_removed,
+                "independent_validation_candidates_removed": blocked_val_removed,
+                "independent_test_candidates_removed": blocked_test_removed,
+            },
+        },
+    }
 
 
 def _evaluate_dataset(
@@ -926,6 +1120,15 @@ def _evaluate_dataset(
                 "independent_test_candidates_removed": blocked_test_removed,
             },
         },
+        **(
+            {
+                "controlled_name_only": _evaluate_controlled_name_only(
+                    splits, output_dir, seed, max_pairs
+                )
+            }
+            if bundle.name == "febrl4"
+            else {}
+        ),
     }
 
 
@@ -959,12 +1162,30 @@ def run_evaluation(
     import psutil
 
     report = {
+        "report_version": 2,
         "protocol": {
             "seed": seed,
+            "max_random_pairs_for_splink_training": max_pairs,
             "entity_split": {"train": 0.60, "validation": 0.20, "test": 0.20},
             "review_budget_per_source_record": REVIEW_BUDGET_PER_RECORD,
             "threshold_selection": "maximize pairwise F1 on validation, then lock before test",
-            "splink_training": "unsupervised u sampling and EM on train split only",
+            "comparison_design": {
+                "production_baseline": (
+                    "retains production soc_sec_id availability and fixed 0.50 review cutoff"
+                ),
+                "controlled_febrl4": (
+                    "resolver and Splink receive only combined name; both tune cutoff on the same "
+                    "validation split and share the same five-pair review budget"
+                ),
+            },
+            "splink_training": (
+                "unsupervised u sampling on train only; EM on multi-feature models, fixed m priors "
+                "for the controlled name-only model"
+            ),
+            "splink_training_initialization": (
+                "FEBRL4 controlled name-only comparison starts from the reported fixed m priors "
+                "and estimates u probabilities from train only"
+            ),
             "splink_writes_identity_store_or_event_log": False,
             "production_resolver_store_used": False,
         },
@@ -977,6 +1198,11 @@ def run_evaluation(
             "processor": platform.processor(),
             "logical_cpu_count": psutil.cpu_count(logical=True),
             "physical_memory_bytes": psutil.virtual_memory().total,
+        },
+        "reproduction": {
+            "fetch_command": "make splink-fetch",
+            "evaluation_command": "make splink-eval",
+            "requirements_sha256": _sha256(REPO_ROOT / "requirements/evaluation-splink.txt"),
         },
         "datasets": {
             "synthetic": {
@@ -1031,7 +1257,9 @@ def _main() -> int:
     )
     print(f"wrote {args.output}")
     for dataset, result in report["results"].items():
-        for method, values in result["methods"].items():
+        methods = dict(result["methods"])
+        methods.update(result.get("controlled_name_only", {}).get("methods", {}))
+        for method, values in methods.items():
             if method == "safety_filter_counts":
                 continue
             metrics = values["test"]

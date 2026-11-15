@@ -54,7 +54,7 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 | `make oxigraph-eval` | So sánh 41 CQ và đo Oxigraph/TDB2 ở 10K, 100K entity; xem [Oxigraph snapshot evaluation](oxigraph-evaluation.md) |
 | `make splink-fetch` | Tải hai file FEBRL4 theo revision và SHA-256 đã pin vào `build/` |
 | `make splink-test` | Chạy test đánh giá resolver/Splink trong môi trường Splink 5 riêng |
-| `make splink-eval` | So sánh resolver hiện tại, Splink rerank và Splink blocking trên synthetic + FEBRL4; xem [Splink evaluation](splink-evaluation.md) |
+| `make splink-eval` | Đánh giá production và controlled name-only resolver/Splink trên synthetic + FEBRL4; xem [Splink evaluation](splink-evaluation.md) |
 
 ## Visualization & Console
 

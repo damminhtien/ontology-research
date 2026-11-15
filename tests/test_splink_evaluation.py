@@ -8,9 +8,13 @@ import math
 import pytest
 from evaluate_splink import (
     Candidate,
+    DataSplit,
     _choose_threshold,
+    _controlled_resolver_candidates,
     _filter_safe,
+    _name_only_split,
     _recommendations,
+    _splink_profile,
     _synthetic_dataset,
     _unestimated_parameters,
     split_by_entity,
@@ -78,6 +82,57 @@ def test_review_budget_caps_each_source_record_and_threshold_is_validation_score
     assert threshold is not None
     assert len(recommendations) <= 5
     assert math.isclose(threshold, 0.7)
+
+
+def test_controlled_split_exposes_only_the_shared_name_feature():
+    """The controlled comparison does not pass IDs or other FEBRL fields to Splink."""
+    split = split_by_entity(_synthetic_dataset(90, seed=42), seed=42)["test"]
+
+    controlled = _name_only_split(split)
+
+    assert all(set(row) == {"row_key", "name"} for row in (*controlled.left, *controlled.right))
+    assert controlled.feature_columns == ("name",)
+    assert controlled.blocking_only_columns == ()
+    assert controlled.truth_pairs == split.truth_pairs
+
+
+def test_controlled_resolver_retains_subthreshold_scores_for_validation_tuning():
+    """Controlled tuning can lower the resolver's production 0.50 cutoff."""
+    split = DataSplit(
+        name="validation",
+        left=({"row_key": "left", "name": "alpha beta gamma"},),
+        right=({"row_key": "right", "name": "alpha delta epsilon zeta"},),
+        truth_pairs=frozenset({("left", "right")}),
+        cannot_link_pairs=frozenset(),
+        truth_by_key={"left": "entity-1", "right": "entity-1"},
+        type_by_key={"left": "Person", "right": "Person"},
+        trusted_id_by_key={"left": None, "right": None},
+        resolver_name_by_key={"left": "alpha beta gamma", "right": "alpha delta epsilon zeta"},
+        resolver_aliases_by_key={"left": (), "right": ("alpha delta epsilon zeta",)},
+        feature_columns=("name",),
+        blocking_only_columns=(),
+    )
+
+    candidates = _controlled_resolver_candidates(split)
+    threshold = _choose_threshold(candidates, split.truth_pairs, budget=5)
+
+    assert len(candidates) == 1
+    assert candidates[0].score == pytest.approx(1 / 3)
+    assert threshold == pytest.approx(1 / 3)
+    assert _recommendations(candidates, threshold, budget=5) == candidates
+
+
+def test_controlled_splink_profile_uses_the_same_name_feature_and_explicit_priors():
+    """The controlled Splink method is restricted to name and reproducible priors."""
+    pytest.importorskip("splink")
+
+    profile = _splink_profile("controlled_name_only")
+    comparison = profile.comparisons[0]
+
+    assert profile.prediction_blocks
+    assert profile.training_blocks == ()
+    assert comparison.m_probabilities == [0.72, 0.18, 0.07, 0.02, 0.01]
+    assert comparison.u_probabilities == [0.0005, 0.0025, 0.012, 0.1, 0.885]
 
 
 def test_saved_model_parameter_gate_detects_unestimated_levels(tmp_path):
