@@ -1,0 +1,458 @@
+{
+  "datasets": {
+    "febrl4": {
+      "entities": 5000,
+      "files": {
+        "dataset4a.csv": {
+          "sha256": "797ffc5072b5d6cbfdcd0bcb603b92be8916fa67fe8e180db366994c5389d3a0"
+        },
+        "dataset4b.csv": {
+          "sha256": "af0330f0c355b7b12006ac0b8a2de23539d3bc868153f9416fc5ae43cc5f401c"
+        }
+      },
+      "ground_truth": "parsed from source rec_id solely for splitting/scoring; not passed to Splink",
+      "rows_per_side": 5000,
+      "source_revision": "75876d806d9eff72072d21878150ee50a96d5f41",
+      "trusted_identifier": "soc_sec_id available only to the current resolver baseline; excluded from Splink columns"
+    },
+    "synthetic": {
+      "entities": 900,
+      "generator": "fixed multilingual aliases, typos, duplicate names, missing trusted IDs, types, and cannot-link pairs"
+    }
+  },
+  "environment": {
+    "duckdb": "2.0.0",
+    "logical_cpu_count": 12,
+    "machine": "arm64",
+    "physical_memory_bytes": 68719476736,
+    "platform": "macOS-27.2.1-arm64-arm-64bit-Mach-O",
+    "processor": "arm",
+    "psutil": "7.2.2",
+    "python": "3.13.16",
+    "splink": "5.0.0"
+  },
+  "protocol": {
+    "comparison_design": {
+      "controlled_febrl4": "resolver and Splink receive only combined name; both tune cutoff on the same validation split and share the same five-pair review budget",
+      "production_baseline": "retains production soc_sec_id availability and fixed 0.50 review cutoff"
+    },
+    "entity_split": {
+      "test": 0.2,
+      "train": 0.6,
+      "validation": 0.2
+    },
+    "max_random_pairs_for_splink_training": 100000,
+    "production_resolver_store_used": false,
+    "review_budget_per_source_record": 5,
+    "seed": 42,
+    "splink_training": "unsupervised u sampling on train only; EM on multi-feature models, fixed m priors for the controlled name-only model",
+    "splink_training_initialization": "FEBRL4 controlled name-only comparison starts from the reported fixed m priors and estimates u probabilities from train only",
+    "splink_writes_identity_store_or_event_log": false,
+    "threshold_selection": "maximize pairwise F1 on validation, then lock before test"
+  },
+  "report_version": 2,
+  "reproduction": {
+    "evaluation_command": "make splink-eval",
+    "fetch_command": "make splink-fetch",
+    "requirements_sha256": "42664d708b363f982cd3f06aef2c7fd55bcfe2507d97a296a4e90206eb335e4d"
+  },
+  "results": {
+    "febrl4": {
+      "all_non_null_comparison_m_and_u_estimates_present": true,
+      "blocking_only_columns": [
+        "address_1"
+      ],
+      "cannot_link_pairs_in_test": 0,
+      "controlled_name_only": {
+        "feature_columns_available_to_all_methods": [
+          "name"
+        ],
+        "feature_definition": "normalized combined given_name and surname; no soc_sec_id",
+        "methods": {
+          "resolver_name_only": {
+            "peak_rss_bytes": 267124736,
+            "test": {
+              "blocking_misses": 73,
+              "blocking_misses_with_missing_features": 0,
+              "candidate_pairs_after_safety_filter": 7783,
+              "candidate_recall": 0.927,
+              "false_suggestions": 328,
+              "missing_data_affected_misses": 0,
+              "pairwise_precision": 0.636364,
+              "pairwise_recall": 0.574,
+              "ranking_misses_with_missing_features": 0,
+              "ranking_or_threshold_misses": 353,
+              "recall_at_5": 0.821,
+              "review_budget_per_source_record": 5,
+              "suggestions": 902,
+              "test_entities": 1000,
+              "threshold": 0.6666666667,
+              "true_suggestions": 574,
+              "unsafe_candidates_removed_before_recommendation": 0,
+              "unsafe_suggestions": 0
+            },
+            "test_runtime_seconds": 0.009185,
+            "validation_runtime_seconds": 0.009758,
+            "validation_threshold": 0.6666666667,
+            "validation_unsafe_candidates_removed": 0
+          },
+          "safety_filter_counts": {
+            "independent_test_candidates_removed": 0,
+            "independent_validation_candidates_removed": 0,
+            "rerank_test_candidates_removed": 0,
+            "rerank_validation_candidates_removed": 0,
+            "resolver_test_candidates_removed": 0,
+            "resolver_validation_candidates_removed": 0
+          },
+          "splink_name_only_independent_blocking": {
+            "peak_rss_bytes": 307380224,
+            "test": {
+              "blocking_misses": 516,
+              "blocking_misses_with_missing_features": 0,
+              "candidate_pairs_after_safety_filter": 500,
+              "candidate_recall": 0.484,
+              "false_suggestions": 10,
+              "missing_data_affected_misses": 0,
+              "pairwise_precision": 0.979675,
+              "pairwise_recall": 0.482,
+              "ranking_misses_with_missing_features": 0,
+              "ranking_or_threshold_misses": 2,
+              "recall_at_5": 0.484,
+              "review_budget_per_source_record": 5,
+              "suggestions": 492,
+              "test_entities": 1000,
+              "threshold": 0.0347356166,
+              "true_suggestions": 482,
+              "unsafe_candidates_removed_before_recommendation": 0,
+              "unsafe_suggestions": 0
+            },
+            "test_runtime_seconds": 0.053949,
+            "training_runtime_seconds": 0.115827,
+            "validation_runtime_seconds": 0.05469,
+            "validation_threshold": 0.0347356166,
+            "validation_unsafe_candidates_removed": 0
+          },
+          "splink_name_only_rerank_same_candidates": {
+            "peak_rss_bytes": 288079872,
+            "test": {
+              "blocking_misses": 73,
+              "blocking_misses_with_missing_features": 0,
+              "candidate_pairs_after_safety_filter": 7783,
+              "candidate_recall": 0.927,
+              "false_suggestions": 99,
+              "missing_data_affected_misses": 0,
+              "pairwise_precision": 0.878079,
+              "pairwise_recall": 0.713,
+              "ranking_misses_with_missing_features": 0,
+              "ranking_or_threshold_misses": 214,
+              "recall_at_5": 0.862,
+              "review_budget_per_source_record": 5,
+              "suggestions": 812,
+              "test_entities": 1000,
+              "threshold": 0.0347356166,
+              "true_suggestions": 713,
+              "unsafe_candidates_removed_before_recommendation": 0,
+              "unsafe_suggestions": 0
+            },
+            "test_runtime_seconds": 0.076011,
+            "training_runtime_seconds": 0.115827,
+            "validation_runtime_seconds": 0.079472,
+            "validation_threshold": 0.0347356166,
+            "validation_unsafe_candidates_removed": 0
+          }
+        },
+        "review_budget_per_source_record": 5,
+        "splink_configured_probabilities": {
+          "levels": [
+            "exact",
+            "jw>=0.92",
+            "jw>=0.88",
+            "jw>=0.70",
+            "else"
+          ],
+          "m": [
+            0.72,
+            0.18,
+            0.07,
+            0.02,
+            0.01
+          ],
+          "u": [
+            0.0005,
+            0.0025,
+            0.012,
+            0.1,
+            0.885
+          ]
+        },
+        "splink_trained_probabilities": {
+          "name": [
+            {
+              "level": "Exact match on name",
+              "m_probability": 0.72,
+              "u_probability": 0.0001557688390428604
+            },
+            {
+              "level": "Jaro-Winkler distance of name >= 0.92",
+              "m_probability": 0.18,
+              "u_probability": 0.00016775105743077273
+            },
+            {
+              "level": "Jaro-Winkler distance of name >= 0.88",
+              "m_probability": 0.07,
+              "u_probability": 0.0006350575745593539
+            },
+            {
+              "level": "Jaro-Winkler distance of name >= 0.7",
+              "m_probability": 0.02,
+              "u_probability": 0.010795978767509016
+            },
+            {
+              "level": "All other comparisons",
+              "m_probability": 0.01,
+              "u_probability": 0.988245443761458
+            }
+          ]
+        },
+        "splink_training_policy": "train-only random-pair u estimates with fixed m priors; exact-name EM would contain no fuzzy comparison levels",
+        "threshold_policy": "each method maximizes pairwise F1 on the same validation split"
+      },
+      "excluded_from_splink_scoring": [
+        "ground_truth_entity_id",
+        "trusted_external_identifier",
+        "record_key",
+        "entity_type_safety_gate"
+      ],
+      "methods": {
+        "current_resolver": {
+          "candidate_policy": "existing exact trusted-ID/alias lookup and fuzzy overlap cutoff; sorted candidate IDs",
+          "peak_rss_bytes": 238944256,
+          "test": {
+            "blocking_misses": 53,
+            "blocking_misses_with_missing_features": 12,
+            "candidate_pairs_after_safety_filter": 949,
+            "candidate_recall": 0.947,
+            "false_suggestions": 2,
+            "missing_data_affected_misses": 12,
+            "pairwise_precision": 0.997893,
+            "pairwise_recall": 0.947,
+            "ranking_misses_with_missing_features": 0,
+            "ranking_or_threshold_misses": 0,
+            "recall_at_5": 0.947,
+            "review_budget_per_source_record": 5,
+            "suggestions": 949,
+            "test_entities": 1000,
+            "threshold": 0.5,
+            "true_suggestions": 947,
+            "unsafe_candidates_removed_before_recommendation": 0,
+            "unsafe_suggestions": 0
+          },
+          "test_runtime_seconds": 0.004011,
+          "threshold": 0.5,
+          "validation_runtime_seconds": 0.003415
+        },
+        "safety_filter_counts": {
+          "baseline_test_candidates_removed": 0,
+          "baseline_validation_candidates_removed": 0,
+          "independent_test_candidates_removed": 0,
+          "independent_validation_candidates_removed": 0,
+          "rerank_test_candidates_removed": 0,
+          "rerank_validation_candidates_removed": 0
+        },
+        "splink_independent_blocking": {
+          "peak_rss_bytes": 264273920,
+          "test": {
+            "blocking_misses": 49,
+            "blocking_misses_with_missing_features": 22,
+            "candidate_pairs_after_safety_filter": 1022,
+            "candidate_recall": 0.951,
+            "false_suggestions": 1,
+            "missing_data_affected_misses": 22,
+            "pairwise_precision": 0.998948,
+            "pairwise_recall": 0.95,
+            "ranking_misses_with_missing_features": 0,
+            "ranking_or_threshold_misses": 1,
+            "recall_at_5": 0.951,
+            "review_budget_per_source_record": 5,
+            "suggestions": 951,
+            "test_entities": 1000,
+            "threshold": 0.002369066041,
+            "true_suggestions": 950,
+            "unsafe_candidates_removed_before_recommendation": 0,
+            "unsafe_suggestions": 0
+          },
+          "test_runtime_seconds": 0.109361,
+          "threshold_locked_on_validation": 0.002369066041,
+          "training_runtime_seconds": 0.704587,
+          "validation_runtime_seconds": 0.112362,
+          "validation_unsafe_candidates_removed": 0
+        },
+        "splink_rerank_current_candidates": {
+          "peak_rss_bytes": 263585792,
+          "test": {
+            "blocking_misses": 53,
+            "blocking_misses_with_missing_features": 12,
+            "candidate_pairs_after_safety_filter": 949,
+            "candidate_recall": 0.947,
+            "false_suggestions": 0,
+            "missing_data_affected_misses": 12,
+            "pairwise_precision": 1.0,
+            "pairwise_recall": 0.947,
+            "ranking_misses_with_missing_features": 0,
+            "ranking_or_threshold_misses": 0,
+            "recall_at_5": 0.947,
+            "review_budget_per_source_record": 5,
+            "suggestions": 947,
+            "test_entities": 1000,
+            "threshold": 3.011380098e-05,
+            "true_suggestions": 947,
+            "unsafe_candidates_removed_before_recommendation": 0,
+            "unsafe_suggestions": 0
+          },
+          "test_runtime_seconds": 0.116671,
+          "threshold_locked_on_validation": 3.011380098e-05,
+          "training_runtime_seconds": 0.704587,
+          "validation_runtime_seconds": 0.134507,
+          "validation_unsafe_candidates_removed": 0
+        }
+      },
+      "scoring_columns": [
+        "given_name",
+        "surname",
+        "date_of_birth",
+        "postcode",
+        "street_number",
+        "state"
+      ],
+      "split_entities": {
+        "test": 1000,
+        "train": 3000,
+        "validation": 1000
+      },
+      "trusted_identifier_coverage_not_used_by_splink": {
+        "test": 1.0,
+        "train": 1.0,
+        "validation": 1.0
+      }
+    },
+    "synthetic": {
+      "all_non_null_comparison_m_and_u_estimates_present": true,
+      "blocking_only_columns": [],
+      "cannot_link_pairs_in_test": 180,
+      "excluded_from_splink_scoring": [
+        "ground_truth_entity_id",
+        "trusted_external_identifier",
+        "record_key",
+        "entity_type_safety_gate"
+      ],
+      "methods": {
+        "current_resolver": {
+          "candidate_policy": "existing exact trusted-ID/alias lookup and fuzzy overlap cutoff; sorted candidate IDs",
+          "peak_rss_bytes": 47153152,
+          "test": {
+            "blocking_misses": 3,
+            "blocking_misses_with_missing_features": 3,
+            "candidate_pairs_after_safety_filter": 1076,
+            "candidate_recall": 0.983333,
+            "false_suggestions": 287,
+            "missing_data_affected_misses": 7,
+            "pairwise_precision": 0.324706,
+            "pairwise_recall": 0.766667,
+            "ranking_misses_with_missing_features": 4,
+            "ranking_or_threshold_misses": 39,
+            "recall_at_5": 0.766667,
+            "review_budget_per_source_record": 5,
+            "suggestions": 425,
+            "test_entities": 180,
+            "threshold": 0.5,
+            "true_suggestions": 138,
+            "unsafe_candidates_removed_before_recommendation": 62,
+            "unsafe_suggestions": 0
+          },
+          "test_runtime_seconds": 0.001192,
+          "threshold": 0.5,
+          "validation_runtime_seconds": 0.0012
+        },
+        "safety_filter_counts": {
+          "baseline_test_candidates_removed": 62,
+          "baseline_validation_candidates_removed": 60,
+          "independent_test_candidates_removed": 177,
+          "independent_validation_candidates_removed": 178,
+          "rerank_test_candidates_removed": 62,
+          "rerank_validation_candidates_removed": 60
+        },
+        "splink_independent_blocking": {
+          "peak_rss_bytes": 238747648,
+          "test": {
+            "blocking_misses": 9,
+            "blocking_misses_with_missing_features": 4,
+            "candidate_pairs_after_safety_filter": 2455,
+            "candidate_recall": 0.95,
+            "false_suggestions": 5,
+            "missing_data_affected_misses": 30,
+            "pairwise_precision": 0.545455,
+            "pairwise_recall": 0.033333,
+            "ranking_misses_with_missing_features": 26,
+            "ranking_or_threshold_misses": 165,
+            "recall_at_5": 0.4,
+            "review_budget_per_source_record": 5,
+            "suggestions": 11,
+            "test_entities": 180,
+            "threshold": 0.1493031481,
+            "true_suggestions": 6,
+            "unsafe_candidates_removed_before_recommendation": 177,
+            "unsafe_suggestions": 0
+          },
+          "test_runtime_seconds": 0.088185,
+          "threshold_locked_on_validation": 0.1493031481,
+          "training_runtime_seconds": 0.704151,
+          "validation_runtime_seconds": 0.08536,
+          "validation_unsafe_candidates_removed": 178
+        },
+        "splink_rerank_current_candidates": {
+          "peak_rss_bytes": 215351296,
+          "test": {
+            "blocking_misses": 3,
+            "blocking_misses_with_missing_features": 3,
+            "candidate_pairs_after_safety_filter": 1076,
+            "candidate_recall": 0.983333,
+            "false_suggestions": 224,
+            "missing_data_affected_misses": 7,
+            "pairwise_precision": 0.358166,
+            "pairwise_recall": 0.694444,
+            "ranking_misses_with_missing_features": 4,
+            "ranking_or_threshold_misses": 52,
+            "recall_at_5": 0.777778,
+            "review_budget_per_source_record": 5,
+            "suggestions": 349,
+            "test_entities": 180,
+            "threshold": 5.295840458e-106,
+            "true_suggestions": 125,
+            "unsafe_candidates_removed_before_recommendation": 62,
+            "unsafe_suggestions": 0
+          },
+          "test_runtime_seconds": 0.086941,
+          "threshold_locked_on_validation": 5.295840458e-106,
+          "training_runtime_seconds": 0.704151,
+          "validation_runtime_seconds": 0.085829,
+          "validation_unsafe_candidates_removed": 60
+        }
+      },
+      "scoring_columns": [
+        "name",
+        "alias",
+        "region"
+      ],
+      "split_entities": {
+        "test": 180,
+        "train": 540,
+        "validation": 180
+      },
+      "trusted_identifier_coverage_not_used_by_splink": {
+        "test": 0.638889,
+        "train": 0.677778,
+        "validation": 0.661111
+      }
+    }
+  }
+}

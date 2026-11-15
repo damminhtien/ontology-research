@@ -1,0 +1,6 @@
+.venv/bin/python tools/check_conformance.py
+ROBOT OWL 2 DL, HermiT and diff passed (b6ba61fbe64e baseline).
+pySHACL and Jena agree on canonical-v1 export and four invalid fixtures.
+pySHACL and Jena agree on the interop-v1 export and three invalid fixtures.
+RDFLib and Jena ARQ agree on 41/41 competency queries.
+RDFC-1.0 W3C vectors passed (64); blank-node invariance passed.

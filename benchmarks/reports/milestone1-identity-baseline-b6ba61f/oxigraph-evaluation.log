@@ -1,0 +1,4 @@
+Seed CQs: RDFLib/Oxigraph/Jena ARQ 41/41 each.
+10,000 entities: 1,020,003 triples; Oxigraph build 21.54s, TDB2 load 3.57s.
+100,000 entities: 10,200,003 triples; Oxigraph build 295.81s, TDB2 load 27.34s.
+Report: /Users/macbook/Desktop/workspace/ontology-research/build/milestone1-baseline-b6ba61f/oxigraph-evaluation/oxigraph-evaluation-report.json

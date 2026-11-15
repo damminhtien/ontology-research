@@ -1,0 +1,3 @@
+uv run --no-project --python 3.13 --with-requirements requirements/evaluation-splink.txt python tools/evaluate_splink.py --fetch-data
+verified dataset4a.csv sha256=797ffc5072b5d6cbfdcd0bcb603b92be8916fa67fe8e180db366994c5389d3a0
+verified dataset4b.csv sha256=af0330f0c355b7b12006ac0b8a2de23539d3bc868153f9416fc5ae43cc5f401c
