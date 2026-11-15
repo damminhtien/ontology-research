@@ -78,5 +78,5 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 |--------|---------|
 | `make setup` | Tạo `.venv` + cài `requirements.txt` |
 | `make check` | `lint` + `versions` + `validate` + `dag` + `test` + `slo` |
-| `make conformance` | ROBOT/HermiT, Jena/pySHACL, 41 CQ và W3C RDFC-1.0; chạy độc lập với `make check` |
+| `make conformance` | ROBOT/HermiT trên ontology closure (TBox), Jena/pySHACL trên canonical và interop SHACL, 41 CQ và W3C RDFC-1.0; chạy độc lập với `make check` |
 | `make fmt` | `ruff check --fix` + `ruff format` |

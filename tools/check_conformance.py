@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import os
@@ -21,10 +22,28 @@ from xml.etree.ElementTree import Element, ElementTree, SubElement
 import cq_runner
 from ontology_utils import find_module_files, materialize_type_closure
 from pyshacl import validate as pyshacl_validate
-from rdflib import RDF, BNode, Graph, Literal, Namespace, URIRef
-from rdflib.namespace import OWL, SH
+from rdflib import RDF, BNode, Dataset, Graph, Literal, Namespace, URIRef
+from rdflib.namespace import DCTERMS, OWL, SH
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if REPO_ROOT.as_posix() not in sys.path:
+    sys.path.insert(0, REPO_ROOT.as_posix())
+
+from foundry.assertions import make_assertion, register_document  # noqa: E402
+from foundry.events import EventLog  # noqa: E402
+from foundry.rdf_export import (  # noqa: E402
+    GEO,
+    INTEROP_GRAPH_IRI,
+    PROV,
+    SOSA,
+    project_event_log,
+)
+from foundry.tracking import (  # noqa: E402
+    observation_event,
+    sensor_event,
+    track_event,
+)
+
 ROBOT_URL = "https://github.com/ontodev/robot/releases/download/v1.9.11/robot.jar"
 ROBOT_SHA256 = "53cd275c8e4c0dad1fc2c1c34174876795cd7d6b6926e1444adcbb0cb3c7ab26"
 JENA_URL = (
@@ -307,7 +326,9 @@ def _shacl_checks(tmp: Path, jena_home: Path, java_home: Path) -> None:
     env = dict(os.environ, JAVA_HOME=str(java_home), JENA_HOME=str(jena_home))
     jena_shacl = jena_home / "bin" / "shacl"
     shape_paths = _shacl_group_paths()
-    positive = _load_data_graph()
+    canonical_fixture_dir = tmp / "canonical-export-fixture"
+    canonical_fixture_dir.mkdir()
+    positive = _canonical_export_data(canonical_fixture_dir)
     cases: list[tuple[str, Graph, bool]] = [("seed", positive, True)]
     for shape_path in shape_paths:
         cases.append((shape_path.name, _bad_fixture(shape_path.name), False))
@@ -329,7 +350,180 @@ def _shacl_checks(tmp: Path, jena_home: Path, java_home: Path) -> None:
                     f"SHACL conformance mismatch for {case_name} vs {shape_path.name}: "
                     f"pySHACL={conforms}, Jena={jena_value}, expected={expected}"
                 )
-    print("pySHACL and Jena agree on the seed and four invalid SHACL fixtures.")
+    print("pySHACL and Jena agree on canonical-v1 export and four invalid fixtures.")
+
+
+def _interop_export_graph(tmp: Path) -> Graph:
+    """Export and reopen a deterministic-size interop fixture from real events."""
+    log = EventLog(tmp / "interop-events.jsonl")
+    document = register_document(
+        log=log,
+        uri="https://data.example/conformance/report",
+        title="Interop conformance source",
+        source_system="conformance-fixture",
+    )
+    document_id = document.payload["document_id"]
+    location_id = "urn:world:location:conformance"
+    entity_id = "urn:world:entity:conformance"
+    sensor_id = "urn:world:entity:conformance-sensor"
+    observation_id = "urn:fact:observation-conformance"
+    make_assertion(
+        log=log,
+        subject_id=entity_id,
+        predicate_iri=f"{CORE}locatedAt",
+        object_kind="location",
+        object_value=location_id,
+        valid_from="2026-09-01T00:00:00Z",
+        source_ids=[document_id],
+    )
+    observation = observation_event(
+        observation_id=observation_id,
+        sensor_entity_id=sensor_id,
+        subject_entity_id=entity_id,
+        subject_name="Interop platform",
+        at_time="2026-09-01T03:04:05Z",
+        position_uri=location_id,
+        measurements=[{"name": "speed", "value": 12.4, "unit": "kn"}],
+        source_ids=[document_id],
+    )
+    log.extend(
+        [
+            sensor_event(
+                sensor_entity_id=sensor_id,
+                sensor_id="conformance-sensor",
+                name="Conformance sensor",
+                platform_entity_id=entity_id,
+                platform_name="Interop platform",
+                source_id=document_id,
+            ),
+            observation,
+            track_event(
+                track_id="conformance-track",
+                entity_id=entity_id,
+                subject_name="Interop platform",
+                observation_ids=[observation_id],
+                source_ids=[document_id],
+            ),
+        ]
+    )
+
+    geometry_path = tmp / "interop-geometries.csv"
+    with geometry_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["location_iri", "longitude", "latitude", "source_iri"])
+        writer.writerow([location_id, "103.8", "1.3", document_id])
+
+    summary = project_event_log(
+        log.path,
+        profile="interop-v1",
+        geometry_path=geometry_path,
+    )
+    trig_path = tmp / "interop-export.trig"
+    trig_path.write_bytes(summary.dataset.serialize(format="trig", encoding="utf-8"))
+    reopened = Dataset().parse(trig_path, format="trig")
+    graph = Graph()
+    for triple in reopened.graph(INTEROP_GRAPH_IRI):
+        graph.add(triple)
+    if not len(graph):
+        raise RuntimeError("interop-v1 export did not contain its expected named graph")
+    return graph
+
+
+def _canonical_export_graph(tmp: Path) -> Graph:
+    """Reopen the canonical-v1 TriG graph from the same representative event log."""
+    _interop_export_graph(tmp)
+    summary = project_event_log(tmp / "interop-events.jsonl", profile="canonical-v1")
+    trig_path = tmp / "canonical-export.trig"
+    trig_path.write_bytes(summary.dataset.serialize(format="trig", encoding="utf-8"))
+    reopened = Dataset().parse(trig_path, format="trig")
+    graph = Graph()
+    for triple in reopened.default_graph:
+        graph.add(triple)
+    if not len(graph):
+        raise RuntimeError("canonical-v1 export did not contain its default graph")
+    return graph
+
+
+def _canonical_export_data(tmp: Path) -> Graph:
+    """Combine a serialized canonical export with its ontology closure for SHACL."""
+    graph = _load_data_graph()
+    for triple in _canonical_export_graph(tmp):
+        graph.add(triple)
+    materialize_type_closure(graph)
+    return graph
+
+
+def _interop_negative_fixtures(graph: Graph) -> dict[str, Graph]:
+    """Break one required PROV, SOSA, or GeoSPARQL constraint per fixture."""
+
+    def copy_graph() -> Graph:
+        copied = Graph()
+        for triple in graph:
+            copied.add(triple)
+        return copied
+
+    entity_fixture = copy_graph()
+    entity = next(entity_fixture.subjects(RDF.type, URIRef(f"{PROV}Entity")), None)
+    if entity is None:
+        raise RuntimeError("interop fixture has no PROV entity")
+    generated_by = next(entity_fixture.objects(entity, URIRef(f"{PROV}wasGeneratedBy")), None)
+    if generated_by is None:
+        raise RuntimeError("interop PROV entity has no generation activity")
+    entity_fixture.remove((entity, URIRef(f"{PROV}wasGeneratedBy"), generated_by))
+
+    observation_fixture = copy_graph()
+    observation = next(observation_fixture.subjects(RDF.type, URIRef(f"{SOSA}Observation")), None)
+    if observation is None:
+        raise RuntimeError("interop fixture has no SOSA observation")
+    result = next(observation_fixture.objects(observation, URIRef(f"{SOSA}hasResult")), None)
+    if result is None:
+        raise RuntimeError("interop SOSA observation has no result")
+    observation_fixture.remove((observation, URIRef(f"{SOSA}hasResult"), result))
+
+    geometry_fixture = copy_graph()
+    geometry = next(geometry_fixture.subjects(RDF.type, URIRef(f"{GEO}Geometry")), None)
+    if geometry is None:
+        raise RuntimeError("interop fixture has no GeoSPARQL geometry")
+    source = next(geometry_fixture.objects(geometry, DCTERMS.source), None)
+    if source is None:
+        raise RuntimeError("interop GeoSPARQL geometry has no source")
+    geometry_fixture.remove((geometry, DCTERMS.source, source))
+
+    return {
+        "missing-prov-generation": entity_fixture,
+        "missing-sosa-result": observation_fixture,
+        "missing-geometry-source": geometry_fixture,
+    }
+
+
+def _interop_shacl_checks(tmp: Path, jena_home: Path, java_home: Path) -> None:
+    """Cross-check the serialized interop export and invalid variants in both engines."""
+    env = dict(os.environ, JAVA_HOME=str(java_home), JENA_HOME=str(jena_home))
+    jena_shacl = jena_home / "bin" / "shacl"
+    shapes_path = REPO_ROOT / "shapes" / "interop_shapes.ttl"
+    valid_graph = _interop_export_graph(tmp)
+    cases = [("valid-export", valid_graph, True)]
+    cases.extend(
+        (name, fixture, False) for name, fixture in _interop_negative_fixtures(valid_graph).items()
+    )
+    shape_graph = Graph().parse(shapes_path)
+
+    for index, (case_name, graph, expected) in enumerate(cases):
+        data_path = tmp / f"interop-shacl-{index}.ttl"
+        data_path.write_text(graph.serialize(format="turtle"), encoding="utf-8")
+        conforms, _, _ = pyshacl_validate(
+            data_graph=graph,
+            shacl_graph=shape_graph,
+            inference="none",
+            advanced=True,
+        )
+        jena_value = _jena_conforms(jena_shacl, shapes_path, data_path, env)
+        if conforms is not expected or jena_value is not expected:
+            raise RuntimeError(
+                f"Interop SHACL mismatch for {case_name}: pySHACL={conforms}, "
+                f"Jena={jena_value}, expected={expected}"
+            )
+    print("pySHACL and Jena agree on the interop-v1 export and three invalid fixtures.")
 
 
 def _jena_query(
@@ -517,6 +711,7 @@ def main() -> int:
             raise RuntimeError("Apache Jena 6.2.0 archive did not contain the SHACL CLI")
         _robot_checks(tmp, robot_jar, java)
         _shacl_checks(tmp, jena_home, java_home)
+        _interop_shacl_checks(tmp, jena_home, java_home)
         _query_checks(tmp, jena_home, java_home)
         _rdf_canon_checks(tmp)
     return 0

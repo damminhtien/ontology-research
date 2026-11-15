@@ -54,6 +54,8 @@ thuộc lớp `Role`. Nếu thay đổi một bất biến ở trên, cập nh�
 
 Báo cáo chỉ kiểm tra phần được hỗ trợ của các tiên đề giữa IRI. Nó không
 phân tích biểu thức lớp phức tạp, không xác nhận tính nhất quán OWL 2 DL của
-toàn bộ ontology và không đánh giá dữ liệu thực. Xem
+toàn bộ ontology và không đánh giá dữ liệu thực. Trong `make conformance`,
+HermiT chỉ chạy trên ontology import closure (TBox/schema axioms); nó không
+đọc production event log hay xác nhận consistency cho ABox production. Xem
 [đánh giá chất lượng](ontology-quality.md) cho SHACL và câu hỏi nghiệp vụ
 trên dữ liệu mẫu.
