@@ -46,26 +46,47 @@ Synthetic data có tên đa ngôn ngữ và bí danh, lỗi chính tả, tên tr
 thực thể, trusted ID bị thiếu, nhiều loại thực thể và cặp `cannot-link`.
 FEBRL4 dùng hai file 5.000 dòng của Splink. Ground-truth ID được phân tích
 riêng để chia và chấm điểm. `rec_id`, nhãn cụm và `soc_sec_id` không đi vào
-Splink; `soc_sec_id` chỉ được cấp cho baseline vì resolver hiện tại hỗ trợ
-lookup trusted ID.
+Splink; `soc_sec_id` chỉ được cấp cho baseline production vì resolver hiện tại
+hỗ trợ lookup trusted ID.
 
-Các phương pháp được so sánh:
+Kết quả production và controlled comparison được báo cáo tách biệt. Production
+comparison giữ nguyên baseline thật: resolver dùng trusted ID và cutoff fuzzy
+0.50; Splink không có ID, tự chọn threshold trên validation. Vì candidate set
+của resolver có thể được `soc_sec_id` hỗ trợ, đây là so sánh hành vi production,
+không phải phép so sánh thuật toán cùng điều kiện.
+
+Controlled comparison trên FEBRL4 chỉ đưa normalized combined name vào cả hai
+phương pháp, loại `soc_sec_id` và các trường khác. Cùng train/validation/test,
+threshold F1 trên validation và giới hạn năm đề xuất được dùng. Resolver giữ
+mọi candidate có overlap dương để threshold 0.50 không cắt mất dữ liệu trước
+khi tune. Splink chạy một profile name-only với m prior được ghi trong JSON;
+u được ước lượng từ cặp ngẫu nhiên thuộc train. EM không chạy cho profile này
+vì exact-name block không chứa các fuzzy comparison level để ước lượng.
+
+Các phương pháp production comparison:
 
 1. Resolver hiện tại: exact trusted-ID/alias lookup, sau đó fuzzy token overlap
    theo ngưỡng review hiện hành; danh sách review giữ thứ tự ID như resolver.
 2. Splink rerank: chấm chính xác cùng tập cặp mà resolver tạo.
 3. Splink blocking: tự sinh tập candidate bằng rule trong profile của dataset.
 
-Mọi candidate qua cùng safety filter trước khi thành đề xuất. Cặp sai loại và
+Controlled comparison thêm resolver name-only, Splink name-only rerank trên cùng
+tập candidate và Splink name-only blocking độc lập. Splink đa đặc trưng được giữ
+riêng trong production comparison để đánh giá lợi ích của các trường FEBRL4.
+
+Mọi phương pháp dùng cùng safety filter trước khi tạo đề xuất. Cặp sai loại và
 cặp `cannot-link` bị loại. Báo cáo gồm candidate recall, recall@5, pairwise
 precision/recall, số đề xuất sai, lỗi do blocking/ranking/thiếu dữ liệu, thời
-gian từng giai đoạn và peak RSS được lấy mẫu. Báo cáo không chứa bản ghi hoặc
-danh sách cặp; file sinh ra nằm trong `build/` và không được commit.
+gian từng giai đoạn và peak RSS được lấy mẫu. JSON có `report_version`, phiên
+bản môi trường, hash dataset và lệnh tái lập; snapshot tham chiếu đã đo được
+lưu ở `benchmarks/evaluations/reports/splink-v2.json`. Lệnh mặc định vẫn ghi
+report mới vào `build/`.
 
 ## Đọc kết quả
 
 Chạy `make splink-eval` hai lần với cùng seed để kiểm tra metric và tập candidate
-có lặp lại; thời gian và RSS có thể thay đổi theo tải máy. Chỉ cân nhắc một
-thử nghiệm review nếu recall tăng mà precision không giảm tại cùng ngân sách.
-Kết quả benchmark không kích hoạt merge/split event và không ghi dữ liệu vào
-identity store.
+có lặp lại; thời gian và RSS có thể thay đổi theo tải máy. Kết quả FEBRL4 hiện
+không cho thấy Splink name-only blocking cải thiện recall của resolver. Name-only
+rerank tăng precision và recall trên test ở cùng trần review; chỉ nên đề xuất
+thử nghiệm review nếu precision không giảm tại cùng ngân sách. Kết quả benchmark
+không kích hoạt merge/split event và không ghi dữ liệu vào identity store.
