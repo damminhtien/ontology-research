@@ -57,6 +57,12 @@ STAGE_SLOS = {
     "lake_query": {"max_p95_ms": 100.0},
 }
 
+# Each individual projector pass has only about 127 events at the CI scale.
+# Replaying the same deterministic batch several times makes the timed window
+# long enough to resist sub-millisecond scheduler noise while preserving the
+# input size and the existing per-event baseline.
+PROJECTOR_REPLAY_PASSES = 25
+
 
 @dataclass(frozen=True)
 class StageResult:
@@ -185,16 +191,28 @@ def run_lake_persist(log_path: Path, lake_root: Path) -> StageResult:
 
 
 def run_projector(log_path: Path) -> StageResult:
-    """Stage 3 — full log replay into the read model."""
+    """Stage 3 — replay a fixed event batch repeatedly for stable timing."""
     from foundry.projector import Projector
     from foundry.readmodel import ReadModel
 
     events = EventLog(log_path).read_all()
     start = time.perf_counter()
-    model = ReadModel()
-    _stats = Projector(model).replay(events)
+    model = None
+    for _ in range(PROJECTOR_REPLAY_PASSES):
+        model = ReadModel()
+        _stats = Projector(model).replay(events)
     seconds = time.perf_counter() - start
-    return StageResult("projector", len(events), seconds, {"entities": model.stats()["entities"]})
+    assert model is not None
+    return StageResult(
+        "projector",
+        len(events) * PROJECTOR_REPLAY_PASSES,
+        seconds,
+        {
+            "entities": model.stats()["entities"],
+            "events_per_pass": len(events),
+            "replay_passes": PROJECTOR_REPLAY_PASSES,
+        },
+    )
 
 
 def run_lake_query(lake_root: Path, runs: int = 30) -> StageResult:
@@ -292,15 +310,17 @@ def _median_report(n_entities: int, iterations: int) -> dict:
         with tempfile.TemporaryDirectory() as tmp:
             reports.append(run_e2e(n_entities, Path(tmp)))
     report = reports[-1].copy()
-    report["stages"] = {
-        stage: {
+    median_stages = {}
+    for stage, entry in report["stages"].items():
+        median_rate = statistics.median(
+            result["stages"][stage]["events_per_second"] for result in reports
+        )
+        median_stages[stage] = {
             **entry,
-            "events_per_second": round(
-                statistics.median(r["stages"][stage]["events_per_second"] for r in reports), 1
-            ),
+            "events_per_second": round(median_rate, 1),
+            "seconds": round(entry["count"] / median_rate, 4) if median_rate else 0.0,
         }
-        for stage, entry in report["stages"].items()
-    }
+    report["stages"] = median_stages
     report["stages"]["lake_query"]["p95_ms"] = round(
         statistics.median(r["stages"]["lake_query"]["p95_ms"] for r in reports), 3
     )
