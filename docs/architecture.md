@@ -255,10 +255,11 @@ reference/
 `tools/benchmark.py` đo event synthetic, segmented-log append, exact alias
 lookup, streaming replay, in-memory query latency, peak RSS và kích thước log.
 `tools/benchmark_e2e.py` đo ingest, lake persist, projector replay và lake query;
-`make check` chạy stage gate ở CI scale. Hai benchmark này dùng đường chạy
-in-memory và chưa đo PostgreSQL. `make query-adapter-eval` kiểm tra kết quả của
-PostgreSQL và Oxigraph trên cùng workload; phép đo query của hai adapter gồm
-thành phần xử lý khác nhau nên không phải so sánh engine-only. Chi tiết và phạm
+`make check` chạy stage gate này trong các lần xác minh local. GitHub PR CI dùng
+`make ci-check` và không gate merge bằng timing benchmark. Hai benchmark này dùng
+đường chạy in-memory và chưa đo PostgreSQL. `make query-adapter-eval` kiểm tra
+kết quả của PostgreSQL và Oxigraph trên cùng workload; phép đo của hai adapter
+gồm các thành phần xử lý khác nhau nên không phải so sánh engine-only. Chi tiết và phạm
 vi nằm trong `requirements/scale_targets.md`. Chưa có bằng chứng đạt target
 10M/100M entity.
 
