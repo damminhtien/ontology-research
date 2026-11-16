@@ -67,6 +67,7 @@ nav:
       - Ontology quality: guides/ontology-quality.md
       - Data & correction workflows: guides/workflows.md
       - OSINT source adapters: guides/osint-ingestion.md
+      - OSINT Vietnam-SCS feeds: osint-vietnam-scs.md
       - CLI reference: guides/cli-reference.md
       - Offline RDF export: guides/rdf-export.md
       - Oxigraph snapshot evaluation: guides/oxigraph-evaluation.md

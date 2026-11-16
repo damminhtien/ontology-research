@@ -156,7 +156,19 @@ def make_pipeline(tmp_path: Path, identity: IdentityService, log: EventLog) -> I
 
 def test_source_registry_declares_storage_rights_freshness_and_quality() -> None:
     contracts = load_source_contracts(REGISTRY)
-    assert set(contracts) == {"wikidata", "gleif", "wikipedia-en"}
+    assert set(contracts) == {
+        "wikidata",
+        "gleif",
+        "wikipedia-en",
+        "opensky",
+        "aisstream",
+        "gdelt-events",
+        "openstreetmap",
+        "usgs-earthquakes",
+        "nasa-firms",
+        "global-fishing-watch",
+        "gdacs",
+    }
     for contract in contracts.values():
         assert contract.record_schema
         assert contract.license
@@ -291,6 +303,47 @@ def test_json_http_client_retries_rate_limit_and_uses_retry_after() -> None:
     assert client.get("https://example.org/data", accept="application/json") == b"{}"
     assert calls == 2
     assert sleeps == [2.0]
+
+
+def test_json_http_client_posts_body_and_auth_headers_without_logging_them() -> None:
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self) -> bytes:
+            return b'{"ok":true}'
+
+    def opener(request, timeout):
+        captured["method"] = request.get_method()
+        captured["body"] = request.data
+        captured["authorization"] = request.get_header("Authorization")
+        captured["content_type"] = request.get_header("Content-type")
+        captured["timeout"] = timeout
+        return Response()
+
+    client = JsonHttpClient(user_agent="test-bot/1.0", minimum_interval=0, retries=0, opener=opener)
+
+    result = client.post(
+        "https://example.org/events?limit=10",
+        b'{"query":"bounded"}',
+        accept="application/json",
+        content_type="application/json",
+        headers={"Authorization": "Bearer test-only"},
+    )
+
+    assert result == b'{"ok":true}'
+    assert captured == {
+        "method": "POST",
+        "body": b'{"query":"bounded"}',
+        "authorization": "Bearer test-only",
+        "content_type": "application/json",
+        "timeout": 30,
+    }
 
 
 def test_wikidata_mapper_extracts_identity_alias_and_valid_lei_crosswalk() -> None:

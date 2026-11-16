@@ -454,8 +454,34 @@ class JsonHttpClient:
         self._clock = clock
         self._last_request_at: dict[str, float] = {}
 
-    def get(self, url: str, *, accept: str) -> bytes:
+    def get(self, url: str, *, accept: str, headers: Mapping[str, str] | None = None) -> bytes:
         """Fetch exact bytes and retry only transient HTTP or transport errors."""
+        return self._request(url, method="GET", body=None, accept=accept, headers=headers)
+
+    def post(
+        self,
+        url: str,
+        body: bytes,
+        *,
+        accept: str,
+        content_type: str,
+        headers: Mapping[str, str] | None = None,
+    ) -> bytes:
+        """Post exact bytes with the same pacing and retry contract as GET."""
+        request_headers = dict(headers or {})
+        request_headers["Content-Type"] = content_type
+        return self._request(url, method="POST", body=body, accept=accept, headers=request_headers)
+
+    def _request(
+        self,
+        url: str,
+        *,
+        method: str,
+        body: bytes | None,
+        accept: str,
+        headers: Mapping[str, str] | None,
+    ) -> bytes:
+        """Run one paced request with bounded retries."""
         host = urllib.parse.urlparse(url).netloc
         last_error: Exception | None = None
         for attempt in range(self._retries + 1):
@@ -465,10 +491,9 @@ class JsonHttpClient:
                 if remaining > 0:
                     self._sleep(remaining)
             self._last_request_at[host] = self._clock()
-            request = urllib.request.Request(
-                url,
-                headers={"User-Agent": self._user_agent, "Accept": accept},
-            )
+            request_headers = {"User-Agent": self._user_agent, "Accept": accept}
+            request_headers.update(headers or {})
+            request = urllib.request.Request(url, data=body, headers=request_headers, method=method)
             try:
                 response = self._opener(request, timeout=30)
                 with response as opened:

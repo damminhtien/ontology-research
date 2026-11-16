@@ -49,6 +49,138 @@
         "Assertion evidence span must equal the exact substring in the archived document text.",
         "Unresolved or ambiguous subjects and objects are routed to review by the canonical pipeline."
       ]
+    },
+    {
+      "id": "opensky",
+      "identifier": "https://opensky-network.org",
+      "record_schema": "OpenSky REST API /states/all state vector; schema 1",
+      "license": "Operator-authorized access",
+      "storage_policy": "Store the exact bounded-area response as a content-addressed snapshot outside the repository.",
+      "redistribution_policy": "Keep attribution and access conditions with the archived run manifest.",
+      "freshness_policy": "Fetch one current snapshot per run; use time_position as valid time and retain snapshot time separately.",
+      "identifier_rules": "ICAO24 is scoped to the OpenSky source record and is candidate evidence only; never merge across sources on callsign or name.",
+      "mapping_rules": "Map valid, recent state vectors inside the Vietnam-SCS rectangular AOI to source-backed one-second location assertions. The AOI is not a political boundary.",
+      "data_quality_checks": [
+        "State vector must include a valid ICAO24 address, source position time and finite coordinates.",
+        "Coordinates must fall inside the configured Vietnam-SCS area of interest.",
+        "Positions older than one hour or later than the snapshot time are skipped.",
+        "Callsigns and origin-country labels are retained only as reported metadata, not identity evidence."
+      ]
+    },
+    {
+      "id": "aisstream",
+      "identifier": "https://www.aisstream.io",
+      "record_schema": "AISStream v0 WebSocket PositionReport; schema 1",
+      "license": "Operator-authorized access",
+      "storage_policy": "Store bounded stream windows as immutable content-addressed snapshots outside the repository; keep API credentials out of archives.",
+      "redistribution_policy": "Preserve AISStream attribution and the operator's access conditions with each run.",
+      "freshness_policy": "Collect a time-bounded live window; record local receipt time separately from the AIS UTC-second field.",
+      "identifier_rules": "MMSI is reusable and source-scoped; names and MMSI do not prove cross-source identity.",
+      "mapping_rules": "Archive validated in-area position reports as source documents. The AIS UTC-second value is not a full timestamp and is not converted into valid time.",
+      "data_quality_checks": [
+        "Accept only PositionReport messages with Valid=true and a nine-digit MMSI.",
+        "Latitude and longitude must be finite and inside the configured Vietnam-SCS area of interest.",
+        "Do not create temporal assertions from the AIS second-within-minute field.",
+        "The feed is live and non-replayable; preserve received frames before mapping."
+      ]
+    },
+    {
+      "id": "gdelt-events",
+      "identifier": "https://www.gdeltproject.org",
+      "record_schema": "GDELT 2.0 Events tab-separated export, 61 columns; schema 1",
+      "license": "Operator-authorized access",
+      "storage_policy": "Store the exact checksum-verified export as a content-addressed snapshot outside the repository and map only regional rows.",
+      "redistribution_policy": "Preserve GDELT attribution and the original first-source URL when present.",
+      "freshness_policy": "Fetch the newest export named by lastupdate.txt; event day has daily precision and DATEADDED is an ingestion timestamp.",
+      "identifier_rules": "GlobalEventID identifies a GDELT coded record, not a canonical real-world event or actor.",
+      "mapping_rules": "Filter by ActionGeo coordinates; keep CAMEO codes, geocoder centroid and first SOURCEURL as source-reported metadata. Register each mapped row as a document, not a verified fact.",
+      "data_quality_checks": [
+        "Verify the export MD5 from the official latest-update manifest before parsing.",
+        "Require exactly 61 tab-separated fields, a numeric event ID and a valid YYYYMMDD event day.",
+        "Action latitude and longitude must be finite and fall inside the configured area of interest.",
+        "Retain GDELT's reported event date at daily precision and do not infer article text from SOURCEURL."
+      ]
+    },
+    {
+      "id": "openstreetmap",
+      "identifier": "https://www.openstreetmap.org",
+      "record_schema": "Overpass API JSON; selected port and harbor features; schema 1",
+      "license": "Operator-authorized access; OpenStreetMap ODbL attribution retained",
+      "storage_policy": "Store bounded query responses as content-addressed snapshots outside the repository.",
+      "redistribution_policy": "Preserve OpenStreetMap attribution and applicable database terms.",
+      "freshness_policy": "Fetch a current snapshot on demand; use a new run ID to refresh.",
+      "identifier_rules": "OSM object type plus numeric ID identifies a source feature, not an organization or canonical entity.",
+      "mapping_rules": "Map selected amenity=port, seamark:type=harbour and harbour=yes objects to source documents with local coordinate checks.",
+      "data_quality_checks": [
+        "Every mapped feature must have a node coordinate or way/relation center inside the configured area.",
+        "Retain OSM tags as reported metadata; do not infer operators, ownership or identity.",
+        "Bound the Overpass query by the regional box, timeout and response memory limit."
+      ]
+    },
+    {
+      "id": "usgs-earthquakes",
+      "identifier": "https://earthquake.usgs.gov",
+      "record_schema": "USGS GeoJSON weekly earthquake summary feed; schema 1",
+      "license": "Operator-authorized access",
+      "storage_policy": "Store the exact GeoJSON response as a content-addressed snapshot outside the repository.",
+      "redistribution_policy": "Preserve USGS event identifiers and source URLs with registered reports.",
+      "freshness_policy": "Fetch the current weekly feed on demand; use a new run ID to refresh.",
+      "identifier_rules": "USGS feature ID identifies a catalog record, not a canonical hazard or impact assessment.",
+      "mapping_rules": "Locally filter GeoJSON epicenters to the regional AOI and register reports without inferring damage or impact.",
+      "data_quality_checks": [
+        "Require a FeatureCollection and feature ID, properties, and point coordinates.",
+        "Coordinates must be finite and inside the configured area of interest.",
+        "Preserve source-reported magnitude, origin time, depth, status and URL without reinterpretation."
+      ]
+    },
+    {
+      "id": "nasa-firms",
+      "identifier": "https://firms.modaps.eosdis.nasa.gov",
+      "record_schema": "NASA FIRMS Area API VIIRS NOAA-20 CSV; schema 1",
+      "license": "Operator-authorized access",
+      "storage_policy": "Store the exact bounded-area CSV as a content-addressed snapshot outside the repository; never archive MAP_KEY.",
+      "redistribution_policy": "Preserve NASA FIRMS attribution and detection fields with each report.",
+      "freshness_policy": "Fetch one UTC-day area response per run; use a new run ID to refresh.",
+      "identifier_rules": "A source row hash identifies a detection record only; it is not a confirmed fire or incident identity.",
+      "mapping_rules": "Map valid VIIRS detection rows inside the regional AOI to source documents, not verified fire assertions.",
+      "data_quality_checks": [
+        "Require latitude, longitude, acquisition date/time and satellite columns.",
+        "Coordinates must be finite and inside the configured area of interest.",
+        "Keep MAP_KEY in the request path only; redact it from logs, source URIs and raw manifests."
+      ]
+    },
+    {
+      "id": "global-fishing-watch",
+      "identifier": "https://globalfishingwatch.org",
+      "record_schema": "Global Fishing Watch API v3 events JSON; public-global-fishing-events latest; schema 1",
+      "license": "Operator-authorized API access; token and dataset terms apply",
+      "storage_policy": "Store bounded event responses as content-addressed snapshots outside the repository; keep bearer tokens out of archives.",
+      "redistribution_policy": "Preserve Global Fishing Watch attribution and applicable API dataset terms.",
+      "freshness_policy": "Fetch a bounded date window on demand; pin the window in the run configuration and use a new run ID to refresh.",
+      "identifier_rules": "GFW event and vessel IDs are provider-scoped references; vessel IDs are not cross-source merge evidence.",
+      "mapping_rules": "Map in-AOI fishing event reports as documents; treat vessel activity as modelled AIS-derived evidence, not ground truth.",
+      "data_quality_checks": [
+        "Require an authenticated bounded query and an entries array.",
+        "Require event IDs and finite event positions inside the configured area.",
+        "Do not infer identity or truth from vessel names, event type or AIS-derived activity."
+      ]
+    },
+    {
+      "id": "gdacs",
+      "identifier": "https://www.gdacs.org",
+      "record_schema": "GDACS Events geteventlist/eventsbyarea GeoJSON FeatureCollection; schema 1",
+      "license": "Operator-authorized access; GDACS attribution retained",
+      "storage_policy": "Store the exact current event feed as a content-addressed snapshot outside the repository.",
+      "redistribution_policy": "Attribute the Global Disaster Awareness and Coordination System and preserve its disclaimers.",
+      "freshness_policy": "Query events intersecting the configured AOI for the most recent 4 days; the API permits up to 30 days.",
+      "identifier_rules": "Event type, event ID and episode ID identify a provider alert episode, not an independently verified real-world incident.",
+      "mapping_rules": "Request a rectangular WKT area filter and locally revalidate returned GeoJSON point coordinates before registering provider alert episodes as source documents.",
+      "data_quality_checks": [
+        "Require a GeoJSON FeatureCollection with event type, event ID and point coordinates.",
+        "Coordinates must be finite and inside the configured area of interest.",
+        "Preserve alert level, event dates, modified time, source and affected-country labels as provider metadata.",
+        "The API returns events selected by spatial intersection; exclude returned centroids outside the local AOI."
+      ]
     }
   ]
 }
