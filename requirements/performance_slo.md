@@ -14,8 +14,13 @@ Vi phạm SLO trong regression test → reject release hoặc yêu cầu review.
 | Provenance trace (Q5) | 500 ms | assertion → sources |
 | Analytical (Q6) | n/a | chạy OLAP, không trên graph store |
 
-Read-model hiện tại implement 3 hot query path chính (Q1, current location, Q4);
-các query còn lại sẽ đi theo store backend ở Phase 6.
+Operational query paths được cung cấp qua `QueryService` và PostgreSQL adapter;
+10 truy vấn OSINT cùng quy tắc phân trang, timeout và giới hạn traversal được
+mô tả trong [hợp đồng truy vấn OSINT](https://github.com/damminhtien/ontology-research/blob/main/requirements/osint_queries.md).
+Các số trong bảng là mục tiêu SLO, không phải cam kết độ trễ đã đo cho mọi
+adapter. `make check` đo đường cơ sở hồi quy trong bộ nhớ;
+`make query-adapter-eval` kiểm tra kết quả và đo riêng PostgreSQL với Oxigraph
+trên workload tương ứng.
 
 ## Throughput
 
@@ -53,7 +58,8 @@ Baseline được lưu tại `benchmarks/baseline.json` và tạo bởi `tools/c
 
 Harness: `tools/benchmark.py` — sinh payload tổng hợp với seed cố định rồi đo
 synthetic ingest (tạo event + append bền vững vào JSONL, chưa chạy SHACL), exact
-alias identity lookup, streaming full replay và warm query latency (p50/p95/p99).
+alias lookup, streaming full replay và warm query latency trực tiếp trên in-memory
+read model (p50/p95/p99). Đây chưa phải phép đo PostgreSQL hay HTTP API.
 Mỗi query sample là trung bình của 100 lần gọi đã warm; p95 lấy trên ≥ 100 probe
 entity để giảm nhiễu timer ở query dưới microsecond. Report
 `build/benchmark-report.json` còn ghi peak RSS, dung lượng
@@ -65,7 +71,7 @@ Recovery ở đây là replay vào read model mới; chưa gồm restore snapsho
 `make check` chạy benchmark đầy đủ cho ingestion, Parquet, projector và truy vấn
 lake với 60 entity tổng hợp trong 11 iteration độc lập, giữ cùng quy mô với
 baseline đã commit. Gate so sánh throughput median của từng stage với ngưỡng tuyệt
-đối và baseline. Nhiều iteration giúp một lần runner bị gián đoạn ngắn ít chi
+đối và yêu cầu throughput đạt ít nhất 1/1.5 baseline. Nhiều iteration giúp một lần runner bị gián đoạn ngắn ít chi
 phối kết quả. Gate không tự ghi lại hoặc hiệu chỉnh baseline.
 
 ## Quy tắc đo

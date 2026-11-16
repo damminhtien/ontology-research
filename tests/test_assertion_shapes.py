@@ -416,7 +416,7 @@ class TestAssertionClassification:
         assert URIRef(CORE + "Event") not in closure
 
     def test_information_object_is_disjoint_from_event(self, model):
-        """The split is enforced by the kernel, not just by one module's choice."""
+        """The kernel declares InformationObject disjoint from Event."""
         assert (
             URIRef(CORE + "InformationObject"),
             OWL.disjointWith,

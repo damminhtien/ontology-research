@@ -1,36 +1,34 @@
-# Ontology status & evaluation (2026-11-12)
+# Trạng thái và đánh giá ontology (2026-11-16)
 
-Báo cáo đánh giá định kỳ của ontology — nguồn số liệu: `tools/manage_ontology.py
-stats / stability / blast-radius / report`, audit usage chạy trên toàn bộ
-`foundry/`, `shapes/`, `benchmarks/queries`.
-Chạy `make quality` để lấy số liệu mới về khai báo schema, focus node của
-SHACL và kết quả CQ; xem [phương pháp đánh giá](ontology-quality.md).
+Báo cáo này tổng hợp kết quả từ `tools/manage_ontology.py stats`, `stability`,
+`blast-radius` và `report`, cùng usage audit trên `foundry/`, `shapes/` và
+`benchmarks/queries`. Chạy `make quality` để tạo lại các phép đo schema, focus
+node của SHACL và kết quả CQ; xem [phương pháp đánh giá](ontology-quality.md).
 
-## 1. Inventory: 7 modules, 28 classes, 68 properties
+## 1. Inventory: 7 module, 31 lớp, 78 thuộc tính
 
-| Module | Lớp | Classes | Obj-props | Data-props | Dùng bởi production code |
+| Module | Version | Classes | Object properties | Datatype properties | Dùng bởi production code |
 |--------|-----|--------:|----------:|-----------:|--------------------------|
-| core | 0 | 19 | 24 | 9 | mọi module (kernel) |
-| middle/assertion | 1 | 2 | 7 | 6 | `foundry/assertions.py`, `ingestion.py` |
+| core | 0 | 19 | 24 | 10 | mọi module (kernel) |
+| middle/assertion | 1 | 3 | 7 | 15 | `foundry/assertions.py`, `ingestion.py` |
 | middle/identity | 1 | 2 | 1 | 3 | `foundry/identity_rdf.py` (Identifier, unresolved references) |
 | middle/location | 1 | 2 | 0 | 0 | Country, AdministrativeRegion |
 | middle/organization | 1 | 0 | 1 | 0 | membership mapping (chưa có lane) |
 | domain/sensor | 2 | 1 | 2 | 0 | `foundry/tracking.py` |
 | domain/tracking | 2 | 2 | 7 | 8 | `foundry/tracking.py`, `readmodel.py` |
 
-`middle/assertion` tách `Assertion` khỏi `core:Event` (nay ⊑
-`core:InformationObject` — `AssertionMade` mới là event) và có
-`assertion:predicate` (quan hệ dạng IRI), `assertion:literalValue`, correction
-links and evidence. Location facts use this same assertion class. The existing
-tracking module adds `ObservationResult` for sensor position and typed
-measurements; identity adds `Identifier` for scheme/value/entity links. No
-module or domain taxonomy was added. Inventory was checked with
-`tools/manage_ontology.py stats` on 2026-11-12.
+`middle/assertion` tách `Assertion` khỏi `core:Event`: `Assertion` là một
+`core:InformationObject`, còn `AssertionMade` là event tạo assertion. Module
+này khai báo `assertion:predicate`, `assertion:literalValue`, correction links
+và evidence. Location facts dùng cùng lớp assertion. Module tracking có
+`ObservationResult` cho vị trí sensor và measurement có kiểu; identity có
+`Identifier` để nối scheme, value và entity. Inventory được kiểm tra bằng
+`tools/manage_ontology.py stats` ngày 2026-11-16.
 
 Namespace frozen (ADR-0008), freeze guards trong CI; SemVer registry +
 `check-versions` xanh. `tools/manage_ontology.py stability` hiện báo:
 
-| Module | Stability | Breaking / releases | Status |
+| Module | Stability | Breaking / releases | Trạng thái |
 |---|---:|---:|---|
 | core | 0.3333 | 2 / 3 | dưới ngưỡng 0.99 |
 | assertion | 0.6667 | 1 / 3 | dưới ngưỡng 0.95 |
@@ -43,36 +41,35 @@ Namespace frozen (ADR-0008), freeze guards trong CI; SemVer registry +
 Ba module dưới ngưỡng là cảnh báo governance được báo bởi công cụ; chạy lại
 `stability` sau mỗi release để cập nhật trạng thái.
 
-## 2. Reserved terms và usage coverage
+## 2. Thuật ngữ dự trữ và mức sử dụng
 
-Kernel hiện giữ 53 terms. Usage audit trước đây ghi nhận 32 terms được shipped
-code/shapes/queries tham chiếu; đây là snapshot audit, không được tính lại tự
-động. Các terms chưa có consumer được giữ làm scaffold cho Phase 6–7 theo nhóm
-sau:
+Kernel có 53 term. Usage audit ngày 2026-11-12 ghi nhận 32 term được code,
+shape hoặc query đã phát hành tham chiếu. Đây là snapshot, chưa được tính lại
+tự động. Các term chưa có consumer được giữ làm scaffold cho Phase 6–7:
 
-| Nhóm reserved | Terms | Phase dự kiến dùng |
+| Nhóm | Thuật ngữ | Phase dự kiến dùng |
 |---|---|---|
 | Participation / Role | `Activity`, `Role`, `hasRole`, `playsRole`* (`hasParticipant`, `participatesIn`) | Phase 7 (Vietnam profile: chức danh, vai trò) |
 | Capability / Quality | `Capability`, `Quality`, `hasCapability` | Phase 7 (năng lực đơn vị) |
 | Mereology | `hasPart`, `partOf`* (`connectedTo`, `dependsOn`, `controls`) | Phase 6 (federation: quan hệ cấu trúc) |
 | Temporal boundaries | `startTime`, `endTime` | Phase 6 (khoảng thời gian cho State/Activity) |
-| Mirrors | `observedBy`, `describedBy`, `hasLocation`, `hasMember`, `externalId` | inverse/nvenience properties — giữ cho query templates |
+| Thuộc tính phản chiếu | `observedBy`, `describedBy`, `hasLocation`, `hasMember`, `externalId` | Thuộc tính nghịch đảo và tiện ích được giữ cho query template |
 
-\* terms tồn tại trong core nhưng chưa mapped. Chính sách: **reserved terms
-được giữ nguyên** (blast radius = 0 vì không consumer), chỉ gỡ khi Phase 6/7
-chốt design — gỡ term = MAJOR release theo governance, không đáng khi chưa
-biết shape cuối.
+\* Các term này có trong core nhưng chưa được map. Giữ reserved terms tới khi
+Phase 6/7 chốt thiết kế; việc gỡ term cần MAJOR release theo governance.
 
-## 3. Blast radius (sức khoẻ cấu trúc)
+## 3. Blast radius
 
-| Term | BR | Consumers |
+Bảng dưới là kết quả audit ngày 2026-11-12; chạy lại lệnh để xem consumer hiện
+tại.
+
+| Thuật ngữ | BR | Thành phần sử dụng |
 |---|----|-----------|
 | `core:Platform` | 4 | core, sensor (modules) + ingestion, tracking (applications) |
 | `tracking:Track` | 4 | tracking + ingestion, readmodel, tracking.py |
 | `assertion:Assertion` | 3 | assertion module + assertions.py, ingestion.py |
 
-BR nhỏ và có hướng (core → middle → domain → apps). Không term nào có BR lan
-vào queries (0) — competency queries chỉ phụ thuộc class hierarchy, đúng design.
+Các phụ thuộc trong audit đi theo chiều core → middle → domain → applications.
 
 ## 4. SHACL coverage
 
@@ -82,21 +79,23 @@ vào queries (0) — competency queries chỉ phụ thuộc class hierarchy, đ�
 | domain_shapes.ttl | TrackShape, ObservationResultShape, SensorShape | pipeline gate (tracking vertical) + `make validate` |
 | assertion_shapes.ttl | AssertionShape, DocumentShape | pipeline gate (assertion lane) + `make validate` |
 | identity_shapes.ttl | UnresolvedReferenceShape, IdentifierShape | pipeline gate (pending/identity) + `make validate` |
+| interop_shapes.ttl | PROV-O, SOSA, GeoSPARQL export constraints | `make conformance` trên export hợp lệ và fixture lỗi |
 
-SHACL contracts được kiểm tra trong `make check`. Snapshot 2026-11-12 có 9/9
-shape target theo class với focus node và corpus conform; unit regressions cũng
-kiểm tra assertion, document, unresolved reference, identifier và observation
-result. Có 41 competency queries bắt buộc, chạy được trên workload cố định;
-các câu ngoài workload hiện tại đã được gỡ khỏi contract
-(xem [Competency Questions](../generated/competency_questions.md)).
+`make check` tạo quality report và kiểm tra canonical data contracts. Snapshot
+ngày 2026-11-16 có 9 trong 15 shape target theo class với focus node; combined
+corpus conform. `make conformance` kiểm tra export canonical và interop bằng
+pySHACL và Jena, gồm fixture hợp lệ và lỗi. Unit regressions bao phủ assertion,
+document, unresolved reference, identifier và observation result. CQ contract
+có 41 câu bắt buộc trên workload cố định; xem
+[Competency Questions](../generated/competency_questions.md).
 
 ## 5. Gaps & hành động
 
-1. **organization.ttl chỉ có 1 property (`memberOf`), 0 class** — membership
+1. **organization.ttl chỉ có 1 thuộc tính (`memberOf`), 0 class** — membership
    lane chưa có data source; giữ nguyên tới khi Phase 7 VN profile cần.
 2. **Reserved terms (21)** — đánh dấu trong report này thay vì xoá; reviewed
    lại mỗi Phase 6/7 milestone.
-3. **`core:externalId` remains unused** — source-scoped values are represented
-   as `identity:Identifier` resources instead of a flat entity literal, and
-   mapped to RDF from `EntityCreated`/`ExternalIdBound`. Keep the reserved core
-   mirror unchanged until an explicit compatibility decision.
+3. **`core:externalId` chưa được dùng** — giá trị theo nguồn được biểu diễn
+   thành tài nguyên `identity:Identifier`, thay vì literal trực tiếp trên
+   entity; RDF mapper tạo chúng từ `EntityCreated` và `ExternalIdBound`. Giữ
+   thuộc tính core dự trữ cho tới khi có quyết định tương thích rõ ràng.

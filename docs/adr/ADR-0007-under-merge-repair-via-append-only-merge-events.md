@@ -3,6 +3,8 @@
 - Status: accepted
 - Date: 2026-08-30
 - Amends: [ADR-0006](ADR-0006-trusted-external-id-overrides-fuzzy-review.md) (phần under-merge)
+- Amendment (2026-11-15): merges require explicit same-entity evidence and use
+  the configured persistent identity store when PostgreSQL is enabled.
 
 ## Context
 
@@ -15,14 +17,15 @@ và cần được gộp lại mà **không phá** tính append-only của log (
 Correction là một event, không phải một edit:
 
 - Event type mới **`EntityMerged`** với payload `survivor_id`, `duplicate_id`,
-  `moved_aliases`, `moved_external_ids`, `reason`.
+  `moved_aliases`, `moved_external_ids`, `reason` và `actor`.
 - `IdentityService.merge_entities()` chuyển toàn bộ alias + external-id binding
   của duplicate sang survivor, ghi redirect vĩnh viễn (`merged_into`), từ chối
   self-merge / unknown id / type conflict / duplicate đã merge.
 - Read model projection gộp location history của duplicate vào survivor; id cũ
   chase được qua redirect.
-- CLI: `tools/merge_entities.py` rebuild registry từ log trước khi merge để
-  validate trên canonical state thật, rồi append event + ghi lake.
+- CLI: `tools/merge_entities.py` kiểm tra identity state rồi append event và
+  ghi lake. In-memory mode dựng registry từ log; PostgreSQL mode dùng persistent
+  indexes và yêu cầu projector đã theo kịp log.
 - Log không bao giờ bị rewrite: merge là sự kiện xảy ra *sau*, replay lại cho
   cùng kết quả (idempotent theo cấu trúc).
 
@@ -46,3 +49,12 @@ claim** (do một lượt chạy ghi nhầm vào log khác). Cả 185 cặp đư
 Un-merge is now supported by the append-only `EntitySplit` event and
 `tools/split_entity.py`, shipped in Phase 5. This supersedes the consequence
 above that an incorrect merge had no dedicated reversal operation.
+
+## Current merge contract (2026-11-15)
+
+`EntityMerged` records `same_entity_evidence`. The command requires an evidence
+ID, source, basis and reviewer/system actor; name similarity alone cannot
+authorize a merge. A recorded cannot-link constraint blocks it. The command
+commits the event before changing any in-memory projection; PostgreSQL mode
+leaves projection updates to the checkpointed worker. A retry with the same
+idempotency key returns the previously committed event.

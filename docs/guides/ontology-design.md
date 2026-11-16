@@ -32,9 +32,11 @@ về bản chất và vai trò của các lớp; bước Python không tự suy 
 
 Số liệu annotation dùng các IRI lớp và thuộc tính đối tượng/dữ liệu được
 khai báo trong namespace của module làm mẫu số. Mỗi term chỉ đếm một lần.
-Lần chạy đầu tiên: **7 module**, **0 lỗi**, **70/70** term có nhãn,
-**34/70** term có mô tả. Cả **36** term thiếu mô tả thuộc core; ưu tiên viết
-định nghĩa cho term đang dùng trước khi mở rộng vocabulary.
+Snapshot ngày 2026-11-16: **7 module**, **0 lỗi**, **109/109** term có nhãn và
+**46/109** term có mô tả. Trong 63 term chưa có mô tả, 36 nằm trong core, 11
+trong tracking, 13 trong assertion và 3 trong identity. Đây là cảnh báo, không
+phải lỗi chặn; nên bổ sung comment cho term đang dùng trước khi mở rộng
+vocabulary. Chạy lại `make ontology-design` để cập nhật số liệu.
 
 ## Các quyết định cần bảo vệ
 

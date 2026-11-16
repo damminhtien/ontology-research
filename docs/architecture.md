@@ -1,18 +1,18 @@
 # Kiến trúc Semantic Foundry
 
 - Status: accepted
-- Last synchronized with source: 2026-11-15
+- Last synchronized with source: 2026-11-16
 - Historical audit baseline: ADR-0001…ADR-0010 and an operational snapshot of 47.628 events / 24.217 entities (2026-09-02)
-- Tài liệu này mô tả kiến trúc hiện tại và giữ lại lịch sử các vấn đề đã phát hiện cùng cách xử lý. Backlog còn mở nằm trong `roadmap.md`; các quyết định ban đầu nằm trong ADR.
+- Tài liệu mô tả kiến trúc hiện tại và giữ lại các vấn đề trong audit ban đầu cùng cách xử lý. Backlog còn mở nằm trong `roadmap.md`; quyết định kiến trúc được ghi trong ADR.
 
-## 1. Nguyên tắc bất diệt
+## 1. Nguyên tắc kiến trúc
 
-Mọi thiết kế dưới đây phục tùng bốn nguyên tắc này — chúng không phải bàn cãi:
+Kiến trúc hiện tại tuân theo bốn nguyên tắc:
 
-1. **Log là sự thật, append-only** (ADR-0002): corrections là event mới, không bao giờ rewrite.
-2. **Never make the operational query path pay for semantic complexity it does not need** — read model là materialized, đơn giản, nhanh.
-3. **Precision-first identity** (ADR-0003/0006): false-merge đắt hơn under-merge; lexical similarity không bao giờ tự merge.
-4. **Namespace frozen** (ADR-0008): URI/URN đã mint là vĩnh viễn.
+1. **Event log là nguồn sự thật và chỉ ghi nối tiếp** (ADR-0002): correction là event mới.
+2. **Tách đường truy vấn theo nhu cầu**: query vận hành dùng read model có index; query ngữ nghĩa dùng ontology và SPARQL.
+3. **Identity ưu tiên precision** (ADR-0003/0006): trùng tên hoặc độ giống từ vựng không đủ làm bằng chứng gộp.
+4. **Namespace đã phát hành được giữ ổn định** (ADR-0008): URI/URN đã mint không đổi.
 
 ## 2. Kiến trúc hiện tại
 
@@ -40,20 +40,24 @@ Mọi thiết kế dưới đây phục tùng bốn nguyên tắc này — chún
                     └──────────────────────────────┘   └───────────────────────────────┘
 ```
 
-Các số liệu chạy thử dưới đây là kết quả của audit ban đầu, không phải số liệu
-được cập nhật tự động mỗi lần build tài liệu.
+Sơ đồ ghi phiên bản log schema v4; hiện contract là schema v6 với 13 event type
+được chấp nhận. Identity dùng in-memory store trong test/offline mode và
+PostgreSQL store khi cấu hình `FOUNDRY_DATABASE_URL`. `QueryService` phục vụ
+query vận hành; các CQ SPARQL có đường đánh giá riêng qua RDFLib, Jena và
+Oxigraph. API không chuyển query vận hành sang RDF store.
 
 Thành phần và invariant đã được triển khai:
 
-| Thành phần | Vì sao tốt |
+| Thành phần | Hợp đồng hiện hành |
 |---|---|
-| Event schema v4 (sequence, valid-time, generic assertions, upcasters) | Replay kiểm tra sequence; log v1–v3 cũ vẫn đọc qua upcaster |
-| Identity precision-first + blocking index | unresolved_rate = 0% trên nguồn có QID; fuzzy không bao giờ tự merge |
-| Registry = log projection | Restart không mất định danh; re-ingest là external-id hit (đã verify 298/298) |
-| SHACL gate trước log | Không có fact vi phạm contract trong write model |
-| Namespace freeze guards | Không ai đổi URI vô tình — CI chặn |
-| Merge là event không phải edit | 185 cặp trùng repair được, có audit trail, replay được |
-| Core ontology boundary | Core giữ vocabulary cross-domain; domain-specific terms thuộc các module/versioned packs |
+| Event log schema v6 | Sequence bền vững, event bất biến, upcaster và idempotency key cho logical batch |
+| Identity | Source-record identity tách khỏi canonical identity; tên và alias tạo candidate, còn merge cần same-entity evidence; cannot-link được lưu bền vững |
+| Identity persistence | `IdentityStore` có adapter in-memory và PostgreSQL; namespace quyết định cách external ID được index |
+| Read model | Projector cập nhật projection, idempotency record và checkpoint trong cùng transaction PostgreSQL |
+| SHACL | Dữ liệu qua validation phù hợp trước khi event được commit |
+| Namespace | Freeze guards kiểm tra URI/URN đã phát hành |
+| Merge và split | Correction là event có thể replay; merge ghi same-entity evidence |
+| Core ontology | Core giữ vocabulary dùng chung; term theo domain nằm trong module có version |
 
 ## 3. Các vấn đề trong audit ban đầu (đã khắc phục)
 
@@ -105,6 +109,10 @@ Quy tắc vận hành: CLI production (`ingest_wikidata`, `merge_entities`,
 `seed_console_data` chạm tới. Import giữa hai log là tool tường minh
 (`import-events`) re-stamp sequence theo log nhận — đã được chứng minh cần thiết
 bởi sự cố D1.
+
+`sequence` là số thứ tự event tăng dần trên toàn bộ segment, không phải byte
+offset. Các số đo hiệu năng trong tài liệu này được ghi riêng với ngày và
+workload; chúng không tự cập nhật khi build docs.
 
 ### 4.2 Document → Assertion model (sửa D4, D8)
 
@@ -166,8 +174,8 @@ Quy tắc hiện hành:
   mà không có correction vẫn hiện thành conflict.
 - Entity creation giữ nguyên `EntityCreated` (đã đúng vai trò event).
 
-Location and other facts now share the same assertion lane. The v3→v4 upcaster
-migrates legacy location events on read without rewriting log bytes.
+Location facts và các fact khác dùng cùng assertion lane. Upcaster v3→v4 chuyển
+legacy location events khi đọc; byte trong log không bị ghi lại.
 
 ### 4.3 Projector: sequence-ordered, checkpointed, per-event idempotent (sửa D3, D6, D9)
 
@@ -242,14 +250,17 @@ reference/
 - Unknown object entities are queued for review; they are never fabricated as
   canonical placeholders.
 
-### 4.8 Benchmark end-to-end
+### 4.8 Benchmark và giới hạn số đo
 
-`tools/benchmark.py` đo synthetic event production + segmented log append, exact
-alias lookup, streaming replay, in-memory query latency, peak RSS và log storage.
-`tools/benchmark_e2e.py` đo reference → ingest (identity + SHACL + log) → persist
-lake → replay projector → lake query; `make check` chạy stage gate ở scale CI.
-Số đo chi tiết và scope nằm trong `requirements/scale_targets.md`. Cả hai harness
-đều chưa chứng minh target 10M/100M; identity và read-model index hiện vẫn in-memory.
+`tools/benchmark.py` đo event synthetic, segmented-log append, exact alias
+lookup, streaming replay, in-memory query latency, peak RSS và kích thước log.
+`tools/benchmark_e2e.py` đo ingest, lake persist, projector replay và lake query;
+`make check` chạy stage gate ở CI scale. Hai benchmark này dùng đường chạy
+in-memory và chưa đo PostgreSQL. `make query-adapter-eval` kiểm tra kết quả của
+PostgreSQL và Oxigraph trên cùng workload; phép đo query của hai adapter gồm
+thành phần xử lý khác nhau nên không phải so sánh engine-only. Chi tiết và phạm
+vi nằm trong `requirements/scale_targets.md`. Chưa có bằng chứng đạt target
+10M/100M entity.
 
 ### 4.9 Schema evolution preflight
 
@@ -278,9 +289,9 @@ Workflow này áp dụng ý tưởng parser → validator → schema diff/codege
 và [codegen](https://github.com/syzygyhack/open-foundry/blob/main/packages/odl/src/codegen/index.ts),
 giữ nguyên Turtle/SHACL và API contracts của repo.
 
-## 5. Thứ tự chuyển đổi đã thực hiện
+## 5. Thứ tự triển khai nền tảng
 
-Đây là thứ tự triển khai đã chọn để giữ các phụ thuộc rõ ràng:
+Các thay đổi từ audit ban đầu được triển khai theo thứ tự sau:
 
 ```text
 B1. 4.1 Log duy nhất + transport bền vững       ← nền cho mọi thứ; dọn D1/D2
@@ -292,9 +303,11 @@ B6. 4.6 Reference lane + paging; 4.7 SHACL unresolved; 4.8 e2e benchmark
 ```
 
 Mỗi bước giữ nguyên bất biến: log không rewrite; mọi migration là upcaster mới
-hoặc event mới. Tiến trình track ở `roadmap.md`, mục "Nền móng production facts".
+hoặc event mới. Sau các bước này, repo bổ sung PostgreSQL identity/read model,
+projector checkpoint trong transaction và `QueryService`; xem trạng thái mới ở
+`roadmap.md`.
 
-## 6. Trạng thái triển khai (đối chiếu 2026-11-12)
+## 6. Trạng thái triển khai (đối chiếu 2026-11-16)
 
 Toàn bộ thiết kế trong tài liệu này **đã triển khai**:
 
@@ -310,15 +323,20 @@ Toàn bộ thiết kế trong tài liệu này **đã triển khai**:
 | §4.7 SHACL unresolved identity (`identity:UnresolvedReference`) | `a972f8b` |
 | §4.8 E2E per-stage benchmark + gate | `b2cac79` |
 | Phase 5 Console admin write ops (token auth + audit trail) | `54eab65` |
-| Phase 6 item 1 query provenance access (`FOUNDRY_PROVENANCE_TOKENS`) | `foundry/console/api/provenance_access.py`, `tests/test_console_api.py` |
-| Task 2: location unified with generic assertions; corrections/retractions refresh location projection | implementation and regressions in `foundry/`, `tests/test_events.py`, `tests/test_readmodel.py` |
-| Task 3: ObservationResult, typed measurements, source normalization, Identifier and compatibility rules | implementation and regressions in `foundry/`, `tests/test_tracking.py`, `tests/test_semantic_consistency.py` |
+| Phase 6 provenance access (`FOUNDRY_PROVENANCE_TOKENS`) | `foundry/console/api/provenance_access.py`, `tests/test_console_api.py` |
+| Location facts use generic assertions; corrections/retractions refresh the location projection | `foundry/`, `tests/test_events.py`, `tests/test_readmodel.py` |
+| `ObservationResult`, typed measurements, source normalization, `Identifier` and compatibility rules | `foundry/`, `tests/test_tracking.py`, `tests/test_semantic_consistency.py` |
+| Event and assertion provenance, identity evidence and idempotent commands | `cd4c938` |
+| PostgreSQL identity/read model and transactional projection | `5e92123` |
+| Bounded operational `QueryService` and semantic adapters | `4875f89` |
+| RDF export bounded-memory probe | `b6ba61f` |
+| Oxigraph engine and Fuseki service latency measurements separated | `c6440d3` |
 | CQ workload: 41 executable queries | `requirements/competency_questions.md`, `benchmarks/queries/`, `benchmarks/expected_results/` |
 
-D1–D12 and the follow-on assertion, observation, identity and workload repairs
-are closed. Query API chỉ trả provenance theo source-ID scope; read request
-không token nhận dữ liệu không có source IDs. Việc tiếp theo là scale ladder
-theo `roadmap.md`.
+D1–D12 và các sửa đổi assertion, observation, identity, query và workload đã
+được triển khai. Query API giới hạn provenance theo source-ID scope; request
+không có token nhận danh sách source rỗng. PostgreSQL backend đã có; scale ladder
+và đo recovery ở quy mô lớn vẫn còn trong backlog tại `roadmap.md`.
 
 ## 7. Rủi ro đã ghi nhận trong quá trình triển khai
 
@@ -326,11 +344,10 @@ Các mục dưới đây là rủi ro rollout được ghi trong audit thiết k
 mô tả backlog còn mở.
 
 - **4.2 (Assertion) is a breaking conceptual change, migrated in v4**:
-  `LocationObserved` is read only through the v3→v4 upcaster; new records use
-  `AssertionMade`. Historical log bytes are unchanged.
+  `LocationObserved` chỉ được đọc qua upcaster v3→v4; record mới dùng
+  `AssertionMade`. Byte của log lịch sử không đổi.
 - **4.3 đổi thứ tự replay** có thể đổi `first_seen`/`last_event_time` trên dữ
   liệu cùng giây — chấp nhận vì đó mới là thứ tự nhân quả đúng; ghi rõ trong
   release note.
-- **B1 khoá single-writer** là hạn chế throughput có chủ đích: 10^5 events/s của
-  Phase 6 sẽ cần multi-writer — thiết kế segment ở 4.1 để sẵn đường này, nhưng
-  không làm trước khi có nhu cầu đo được.
+- **B1 single-writer** giới hạn throughput. Multi-writer chưa được triển khai;
+  trước hết cần benchmark workload lớn và xác định mức throughput cần thiết.

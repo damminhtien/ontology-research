@@ -25,22 +25,22 @@ Ba nguyên tắc thiết kế:
 .venv/bin/python tools/seed_console_data.py --force
 ```
 
-Entity identifiers are generated for each fresh seed run, and the accepted
-records determine the event count. Read the receipts instead of relying on
-fixed UUIDs or a copied count.
+Mỗi lượt seed mới tạo entity ID khác nhau; số record được chấp nhận quyết định
+số event. Đọc receipt của lượt chạy để lấy kết quả thay vì dùng UUID hoặc số
+lượng chép từ lần trước.
 
 ## Bước 2 — Đọc từng kết quả
 
 | Tình huống | Kết quả | Vì sao |
 |-----------|---------|--------|
-| Entity mới có danh tính rõ | accepted | Tạo `EntityCreated` sau khi qua validation |
-| Tên mơ hồ, khớp nhiều candidate | review | Không tự merge; ghi `ResolutionReviewQueued` |
-| Observation của entity đã resolve | accepted nếu conform | Đi qua SHACL gate |
-| Observation mơ hồ hoặc sai contract | pending/rejected theo trường hợp | Identity receipt và SHACL report nêu nguyên nhân |
+| Entity mới có identity rõ | Được nhận | Tạo `EntityCreated` sau validation |
+| Tên mơ hồ, khớp nhiều candidate | Chờ review | Ghi `ResolutionReviewQueued`; không tự merge |
+| Observation của entity đã resolve | Được nhận nếu conform | Đi qua SHACL gate |
+| Observation mơ hồ hoặc sai contract | Pending hoặc bị từ chối | Identity receipt và SHACL report nêu nguyên nhân |
 
-!!! tip "Đây là tính năng, không phải bug"
-    "Vessel 02" rất có thể là đơn vị khác "Vessel 01". Merge nhầm hai entity là lỗi
-    đắt nhất trong hệ thống knowledge — pipeline thà chuyển sang review queue.
+!!! tip "Tên trùng cần được review"
+    "Vessel 02" có thể là một đơn vị khác "Vessel 01". Trùng tên tạo candidate
+    để xem xét; cần identity evidence trước khi merge hai canonical entity.
 
 !!! note "Ngoại lệ: nguồn có external id có thẩm quyền (ADR-0006)"
     Khi record mang `external_id` toàn cục từ nguồn có thẩm quyền (ví dụ Wikidata
@@ -58,23 +58,27 @@ cat "$EVENT_DATA_ROOT/events.jsonl" | .venv/bin/python -m json.tool --json-lines
 
 Mỗi dòng là một JSON object: `event_id`, `event_type` (ví dụ `EntityCreated`,
 `AssertionMade`, `ObservationRecorded`, `ResolutionReviewQueued`), `schema_version`, `occurred_at`
-(record-time), `valid_at` (valid-time, `null` = trùng record-time), `sequence`
-(vị trí 1-based trong log), `payload`. Đây là **write model** — canonical truth
-của hệ thống. Contract chi
-tiết: [ADR-0009](../adr/ADR-0009-event-contract-v2-sequence-valid-time-upcasters.md).
+(recorded time), `valid_at` (valid-time, `null` = trùng recorded time), `sequence`
+(số thứ tự event 1-based tăng dần qua các segment), `payload`. Đây là **write
+model**, nguồn sự thật chuẩn của hệ thống. Xem contract tại
+[ADR-0009](../adr/ADR-0009-event-contract-v2-sequence-valid-time-upcasters.md).
 
 Với `EntityCreated`, payload chứa `name` (tên chính), `name_aliases` (các tên
 phụ — ví dụ nhãn tiếng Anh khi ingesting dữ liệu Wikidata song ngữ Việt–Anh) và
 `external_ids` (định danh nguồn, ví dụ Wikidata QID). Alias và external id được
 bind vào canonical identity để các tham chiếu sau này resolve chính xác, và được
 persist cùng event nên read model/lake đều phục vụ được dữ liệu đa ngôn ngữ.
+Source record có stable key và content hash; ingest lại cùng key và nội dung là
+idempotent. Document có version mới khi nội dung đổi. Assertion giữ recorded
+time, valid-time, nguồn và evidence locator/span. Model score và chất lượng
+evidence được lưu riêng, không biểu thị xác suất fact đúng.
 
 ## Bước 4 — Nạp dữ liệu thật từ Wikidata
 
 Nguồn production chính hiện nay là Wikidata SPARQL (song ngữ Việt–Anh), ghi vào
 log riêng `~/Data/ontology-research/data/production.jsonl`:
 
-Trong local operational setup, `data/` là symlink tới
+Trong cấu hình vận hành local, `data/` là symlink tới
 `~/Data/ontology-research/data`; xem [hướng dẫn PostgreSQL](../guides/postgres-readmodel.md)
 để cấu hình identity store và projector worker.
 
@@ -105,9 +109,9 @@ trong repo nên hãy đo lại trước khi dùng các con số này làm trạn
 
 ## Bước 5 — Sửa under-merge khi phát hiện
 
-Khi hai canonical entity hoá ra là một thực thể thật (duplicate của chính nguồn,
-hoặc hai lượt chạy ghi vào hai log khác nhau), repair bằng merge tool — không
-sửa log, chỉ append `EntityMerged`:
+Khi có bằng chứng xác nhận hai canonical entity là cùng một thực thể, dùng merge
+tool để append `EntityMerged`. Event ghi same-entity evidence; log hiện có không
+bị sửa.
 
 ```bash
 .venv/bin/python tools/merge_entities.py \
@@ -115,10 +119,17 @@ sửa log, chỉ append `EntityMerged`:
     --reason "duplicate QID pair confirmed"
 ```
 
-Tool rebuild registry từ log trước, từ chối merge sai (unknown id, type
-conflict, self-merge) mà không ghi gì. Undo merge sai: `tools/split_entity.py`
-(same flags) — restore set đọc từ `EntityMerged`, split không có merge record
-bị reject. Chi tiết: [ADR-0007](../adr/ADR-0007-under-merge-repair-via-append-only-merge-events.md).
+Đoạn lệnh trên chỉ minh họa hai entity cần merge. CLI hiện yêu cầu thêm
+`--evidence-id`, `--evidence-source`, `--evidence-basis` và `--recorded-by`; xem
+[CLI reference](../guides/cli-reference.md) để biết cú pháp đầy đủ.
+
+Ở chế độ in-memory, tool dựng identity registry từ log. Khi dùng PostgreSQL,
+projector phải theo kịp log trước khi chạy lệnh identity; tool dùng persistent
+registry và để projector áp dụng correction. Merge bị từ chối nếu ID không tồn
+tại, entity type xung đột, self-merge, duplicate đã merge hoặc thiếu bằng chứng
+hợp lệ. `tools/split_entity.py` append `EntitySplit` để hoàn tác merge có trong
+log. Chi tiết: [ADR-0007](../adr/ADR-0007-under-merge-repair-via-append-only-merge-events.md)
+và [hướng dẫn PostgreSQL](../guides/postgres-readmodel.md).
 
 Toàn bộ các luồng sửa dữ liệu + data lanes gom ở
 [Workflows guide](../guides/workflows.md).
@@ -148,19 +159,19 @@ Ambiguity thật (một tên, hai entity cùng loại) vẫn vào review queue. 
 | Reference (Wikidata) | SPARQL / Parquet snapshot | `build_reference_lane.py` → `ingest_wikidata.py --from-lane` | `EntityCreated`, `ExternalIdBound` |
 | Tracking (AIS feed) | JSONL sensor feed (`position_uri`, typed `measurements`) | `ingest_tracking_feed.py` | `SensorRegistered`, `ObservationRecorded` → `ObservationResult`, `TrackObserved` |
 | Documents (văn bản) | Báo cáo/tin — extractor *đề xuất* | `pipeline.ingest_document(...)` | `DocumentRegistered`, `AssertionMade` |
-| Corrections | Human decision | merge/split/backfill/import CLI | `EntityMerged`, `EntitySplit`, `ExternalIdBound`, `ResolutionReviewQueued`, `AssertionSuperseded` |
+| Corrections | Quyết định đã review | merge/split/backfill/import CLI | `EntityMerged`, `EntitySplit`, `ExternalIdBound`, `ResolutionReviewQueued`, `AssertionSuperseded` |
 
-Tracking writes the observation act as `core:Observation` and its reported
-position, typed measurement values, units and evidence as a separate
-`tracking:ObservationResult`. Position is sensor output; it does not itself
-assert `core:locatedAt`. Source IDs and inline evidence use the same normalized
-provenance model as assertions.
+Tracking ghi hành động quan sát thành `core:Observation`; vị trí, measurement có
+kiểu, unit và evidence được lưu trong `tracking:ObservationResult`. Một fact
+`core:locatedAt` cần được tạo riêng như assertion. Source ID và inline evidence
+dùng cùng provenance model đã chuẩn hóa.
 
 Document lane theo nguyên tắc *"LLM chỉ đề xuất; semantic system quyết định"*:
 `PatternExtractor` (deterministic VI/EN, không cần LLM) làm mặc định,
-`LlmExtractor` pluggable qua completion callable; candidate không bao giờ
-auto-mint — subject unresolved thì vào review queue, confidence cap 0.7,
-provenance là citing document.
+`LlmExtractor` có thể thay thế qua completion callable; candidate không tự mint.
+Subject chưa resolve thì vào review queue. Extractor ghi `model_score` tối đa
+0.7; chất lượng evidence được lưu riêng, và score này không phải xác suất fact
+đúng. Trường `confidence` là alias tương thích cũ.
 
 ## Bước 8 — Quan sát trong Console
 
@@ -180,17 +191,15 @@ Tab **Dashboard** có card "Events logged" hiển thị cùng số liệu.
 
 ## Bài tập
 
-1. Thêm một location assertion hợp lệ cho Patrol Vessel 01 qua pipeline, chạy lại
-   `--force`, rồi mở Console xem location projection được cập nhật. Event mới
-   phải là `AssertionMade` với predicate `core:locatedAt`.
-2. Thử ingest một observation với `confidence=1.5`. Điều gì xảy ra và ở lớp nào
-   (pipeline hay SHACL)?
+1. Nạp lại cùng source record với cùng content hash. Kiểm tra event/document
+   không bị nhân đôi; sau đó đổi nội dung và kiểm tra document version mới.
+2. Tạo một location assertion hợp lệ cho Patrol Vessel 01. Xác nhận event mới là
+   `AssertionMade` với predicate `core:locatedAt` và có evidence lineage.
 
-## Điều gì vừa xảy ra
+## Kết quả
 
-Bạn đã chạy ingestion pipeline thật và thấy cả ba lớp bảo vệ hoạt động: identity
-review gate, entity-đã-biết check, SHACL validation. Đây chính là "data plane"
-mà mọi source dữ liệu sau này sẽ đi qua — kể cả LLM extraction trong tương lai.
+Pipeline kiểm tra identity, SHACL và provenance trước khi commit event. Mọi data
+lane ghi vào cùng event log làm nguồn sự thật.
 
 ## Tiếp theo
 
