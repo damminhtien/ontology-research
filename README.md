@@ -53,15 +53,20 @@ docs/                          # ADRs 0001-0010, architecture, workflows, tutori
 ## Chạy
 
 ```bash
-make setup      # .venv + dependencies
-make check      # lint + versions + alignment + SHACL(4 files) + DAG + pytest + 2 SLO gates
-make fmt        # auto-fix trước khi commit
+make setup        # .venv + dependencies
+make ci-check     # correctness checks used by GitHub CI; no timing benchmarks
+make check        # full local checks, including performance SLO gates
+make conformance  # independent OWL, Jena/SHACL, CQ and RDF canonicalization gate
+make fmt          # auto-fix trước khi commit
 ```
 
-`make check` cũng chạy ontology design và quality reports. `make conformance` là
-gate độc lập: kiểm tra OWL 2 DL/TBox, pySHACL và Jena trên canonical cùng interop
-fixtures, 41 competency queries và RDF canonicalization. Bốn shape group trong
-`make check` là canonical; `interop_shapes.ttl` được kiểm tra trong conformance.
+`make ci-check` chạy ontology design/quality, version và alignment checks, bốn
+nhóm SHACL canonical, DAG và toàn bộ unit tests. `make check` bổ sung các SLO và
+benchmark timing để chạy local trước khi phát hành. GitHub chạy
+`ontology-conformance` theo lịch hàng tuần hoặc khi được gọi thủ công; lệnh
+`make conformance` vẫn sẵn để chạy local. Conformance kiểm tra OWL 2 DL/TBox,
+pySHACL và Jena trên canonical cùng interop fixtures, 41 competency queries và
+RDF canonicalization.
 
 > **Quy tắc commit**: xem [CODING_CONVENTIONS.md](CODING_CONVENTIONS.md).
 > Mỗi task hoàn tất cần một commit; chạy `make check` trước commit; dùng
