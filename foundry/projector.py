@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from foundry.events import EventLog, SemanticEvent
-from foundry.readmodel import ReadModel, parse_instant
+from foundry.readmodel import ReadModel, ReadModelStore, parse_instant
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,7 @@ class ProjectStats:
 class Projector:
     """Applies domain events onto a ReadModel."""
 
-    def __init__(self, model: ReadModel) -> None:
+    def __init__(self, model: ReadModelStore) -> None:
         """Bind the projector to a target read model."""
         self._model = model
 
@@ -51,6 +51,11 @@ class Projector:
         Re-applying an event that was already folded into the model is a
         no-op (reported as handled, counted as a duplicate by :meth:`replay`).
         """
+        with self._model.transaction():
+            return self._apply(event)
+
+    def _apply(self, event: SemanticEvent) -> bool:
+        """Apply one event inside the store transaction scope."""
         if self._model.is_applied(event.event_id):
             return True
         occurred = parse_instant(event.occurred_at)
@@ -78,12 +83,16 @@ class Projector:
             )
         elif event.event_type == "ExternalIdBound":
             pass  # identity-level fact; the read model holds no binding state
+        elif event.event_type == "SourceRecordMatched":
+            pass  # identity-level source-record mapping; no operational read projection
+        elif event.event_type == "EntityCannotLinkAsserted":
+            pass  # identity constraint; no operational read projection
         elif event.event_type == "ResolutionReviewQueued":
             pass  # durable review-queue fact; drained by review tooling, not the read model
         elif event.event_type == "AssertionMade":
             self._model.add_assertion(payload)
         elif event.event_type == "AssertionSuperseded":
-            self._model.supersede_assertion(payload["assertion_id"])
+            self._model.supersede_assertion(payload["assertion_id"], payload.get("reason", ""))
         elif event.event_type == "DocumentRegistered":
             pass  # provenance source; served from the log/lake, not the read model
         elif event.event_type == "SensorRegistered":
@@ -152,6 +161,7 @@ class Projector:
             if self.apply(event):
                 applied += 1
             else:
+                self._model.mark_skipped(event.event_id, event.sequence)
                 skipped += 1
         return ProjectStats(
             applied=applied, skipped=skipped, by_type=by_type, duplicates=duplicates

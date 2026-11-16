@@ -25,7 +25,7 @@ class TestShellAndOverview:
         data = client.get("/api/overview").json()
         assert data["modules"], "expected at least the core module"
         core = next(m for m in data["modules"] if m["name"] == "core")
-        assert core["version"] == "2.0.0"
+        assert core["version"] == "2.1.0"
         assert {"classes", "properties"} <= set(core.keys())
         for key in ("version_check", "stability", "events", "cq"):
             assert key in data
@@ -35,7 +35,7 @@ class TestOntologyEndpoints:
     def test_model_counts_match_kernel(self, client):
         model = client.get("/api/ontology/model").json()
         assert len(model["classes"]) == 31
-        assert len(model["properties"]) == 68
+        assert len(model["properties"]) == 78
 
     def test_tree_roots_at_entity(self, client):
         tree = client.get("/api/ontology/tree").json()["tree"]
@@ -70,12 +70,12 @@ class TestRegistryEndpoints:
         ]
         assert core_entries[0]["version"] == "2.0.0"
 
-    def test_pending_with_no_changes_is_clean(self, client):
+    def test_unreleased_core_changes_remain_pending(self, client):
         data = client.get("/api/releases/core/pending").json()
         assert data["has_baseline"] is True
-        assert data["changes"] == []
-        assert data["severity"] == "NONE"
-        assert data["suggested_version"] is None
+        assert any(change["name"] == "recordedAt" for change in data["changes"])
+        assert data["severity"] == "MINOR"
+        assert data["suggested_version"] == "2.1.0"
 
     def test_diff_between_missing_versions_is_404(self, client):
         response = client.get(
@@ -84,11 +84,11 @@ class TestRegistryEndpoints:
         )
         assert response.status_code == 404
 
-    def test_versions_check_passes_on_clean_tree(self, client):
+    def test_versions_check_accepts_pending_minor_core_version(self, client):
         data = client.get("/api/versions/check").json()
         assert data["passed"] is True
         core = next(m for m in data["modules"] if m["module"] == "core")
-        assert core["declared_version"] == "2.0.0"
+        assert core["declared_version"] == "2.1.0"
         assert core["latest_version"] == "2.0.0"
 
     def test_stability_reports_core_breaking_release(self, client):
@@ -260,6 +260,23 @@ class TestProjectionEndpoints:
         )
         assert other.json()["current_location"]["source_ids"] == ["urn:source:s2"]
 
+    def test_assertion_endpoint_scopes_sources_and_evidence(self, seeded_client, monkeypatch):
+        monkeypatch.setenv(
+            "FOUNDRY_PROVENANCE_TOKENS",
+            json.dumps({"reader-token": ["urn:source:s1"]}),
+        )
+        anonymous = seeded_client.get("/api/projection/assertions/urn:assert:test:console-location")
+        assert anonymous.status_code == 200
+        assert anonymous.json()["source_ids"] == []
+        assert anonymous.json()["evidence"] == []
+
+        authorized = seeded_client.get(
+            "/api/projection/assertions/urn:assert:test:console-location",
+            headers={"Authorization": "Bearer reader-token"},
+        )
+        assert authorized.json()["source_ids"] == ["urn:source:s1"]
+        assert authorized.json()["evidence"][0]["source_id"] == "urn:source:s1"
+
     def test_wildcard_provenance_token_sees_all_sources(self, seeded_client, monkeypatch):
         monkeypatch.setenv("FOUNDRY_PROVENANCE_TOKENS", json.dumps({"reader-token": ["*"]}))
         response = seeded_client.get(
@@ -292,6 +309,25 @@ class TestProjectionEndpoints:
             headers={"Authorization": "Bearer invalid-token"},
         )
         assert response.status_code == 401
+
+    def test_operational_query_timeout_maps_to_gateway_timeout(self, seeded_client, monkeypatch):
+        from contextlib import nullcontext
+
+        from foundry.console.api import projection
+        from foundry.query_service import QueryTimeoutError
+
+        class TimedOutAdapter:
+            def query_timeout(self, _timeout_ms):
+                return nullcontext()
+
+            def get_entity(self, _entity_id):
+                raise QueryTimeoutError("query timed out")
+
+        monkeypatch.setattr(projection, "_read_model", lambda: TimedOutAdapter())
+        response = seeded_client.get("/api/projection/entities/urn:x:patrol-01")
+
+        assert response.status_code == 504
+        assert response.json()["detail"] == "operational query timed out"
 
     def test_projection_resumes_incrementally_from_snapshot(self, seeded_client, tmp_path):
         """B6 follow-up: log growth folds in the suffix, never a full re-replay."""

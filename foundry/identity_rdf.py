@@ -39,10 +39,18 @@ def identifier_to_rdf(graph: Graph, *, entity_id: str, scheme: str, value: str) 
 
 def entity_identity_to_rdf(graph: Graph, event: SemanticEvent) -> tuple[URIRef, ...]:
     """Map entity identity events and return the Identifier nodes they add."""
-    if event.event_type == "EntityCreated":
+    if event.event_type in {"EntityCreated", "SourceRecordMatched"}:
         entity_id = event.payload["entity_id"]
         entity = URIRef(entity_id)
-        graph.add((entity, RDF.type, URIRef(CORE_ONTOLOGY_NS + event.payload["entity_type"])))
+        graph.add((entity, RDF.type, URIRef(CORE_ONTOLOGY_NS + "Entity")))
+        if event.payload.get("entity_type"):
+            graph.add(
+                (
+                    entity,
+                    RDF.type,
+                    URIRef(CORE_ONTOLOGY_NS + event.payload["entity_type"]),
+                )
+            )
         graph.add(
             (
                 entity,

@@ -30,7 +30,7 @@ def test_competency_query_matches_ground_truth(spec_path, benchmark_graph):
     query_file = QUERIES_DIR / spec["query_file"]
     assert query_file.is_file(), f"missing query file {query_file}"
 
-    result = cq_runner.run_query_spec(benchmark_graph, spec)
+    result = cq_runner.run_query_spec(cq_runner.RDFLibQueryAdapter(benchmark_graph), spec)
     assert result["passed"], (
         f"{spec['id']} ({spec.get('group', '?')}): {result['error']}\n"
         f"actual rows: {result['actual_rows']}"

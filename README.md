@@ -71,7 +71,8 @@ make fmt        # auto-fix trước khi commit
 .venv/bin/python tools/ingest_wikidata.py --from-lane --class Q3918
 
 # Tracking (AIS feed JSONL → sensor/observation/track qua domain SHACL)
-.venv/bin/python tools/ingest_tracking_feed.py --feed data/tracking-feed.jsonl
+.venv/bin/python tools/ingest_tracking_feed.py \
+    --feed "$HOME/Data/ontology-research/data/crawl-runs/tracking-feed.jsonl"
 
 # Corrections: merge/split/backfill/import — xem guides/workflows.md
 ```
@@ -102,7 +103,14 @@ make console        # http://127.0.0.1:8787
 
 Admin API mặc định bị vô hiệu hóa nếu chưa cấu hình
 `FOUNDRY_CONSOLE_TOKEN`. Các thao tác merge/split/backfill dùng production log
-(`FOUNDRY_ADMIN_LOG`, mặc định `data/production.jsonl`), không dùng log demo.
+(`FOUNDRY_ADMIN_LOG`, mặc định `~/Data/ontology-research/data/production.jsonl`),
+không dùng log demo.
+
+Operational identity and read projections use PostgreSQL. Runtime data, the
+Parquet lake, and crawl/reference files live outside the worktree under
+`~/Data/ontology-research`; `data/` is a compatibility symlink. Setup,
+migration, incremental projection, rebuild, and database integration-test
+commands are in the [PostgreSQL operational storage guide](docs/guides/postgres-readmodel.md).
 
 Views: **Dashboard** (health cards) · **Explorer** (D3 hierarchy + blast
 radius) · **Versions** (SemVer, diff, timeline) · **Impact** (blast radius) ·
@@ -135,7 +143,7 @@ $FOUNDRY_CONSOLE_TOKEN` (constant-time compare; biến unset → admin API trả
 503 — admin routes bị vô hiệu hóa nếu token chưa cấu hình). **Audit trail =
 event log**: merge/split ghi `actor` trong payload; backfill ghi các event
 `ExternalIdBound` vào production log (`$FOUNDRY_ADMIN_LOG`, mặc định
-`data/production.jsonl`).
+`~/Data/ontology-research/data/production.jsonl`).
 
 ## Governance & versioning
 

@@ -1,0 +1,10 @@
+wrote build/milestone1-baseline-b6ba61f/splink-evaluation/repro-2.json
+synthetic current_resolver: candidate_recall=0.983 recall@5=0.767 precision=0.325 recall=0.767 false=287 unsafe=0
+synthetic splink_rerank_current_candidates: candidate_recall=0.983 recall@5=0.778 precision=0.358 recall=0.694 false=224 unsafe=0
+synthetic splink_independent_blocking: candidate_recall=0.950 recall@5=0.400 precision=0.545 recall=0.033 false=5 unsafe=0
+febrl4 current_resolver: candidate_recall=0.947 recall@5=0.947 precision=0.998 recall=0.947 false=2 unsafe=0
+febrl4 splink_rerank_current_candidates: candidate_recall=0.947 recall@5=0.947 precision=1.000 recall=0.947 false=0 unsafe=0
+febrl4 splink_independent_blocking: candidate_recall=0.951 recall@5=0.951 precision=0.999 recall=0.950 false=1 unsafe=0
+febrl4 resolver_name_only: candidate_recall=0.927 recall@5=0.821 precision=0.636 recall=0.574 false=328 unsafe=0
+febrl4 splink_name_only_rerank_same_candidates: candidate_recall=0.927 recall@5=0.862 precision=0.878 recall=0.713 false=99 unsafe=0
+febrl4 splink_name_only_independent_blocking: candidate_recall=0.484 recall@5=0.484 precision=0.980 recall=0.482 false=10 unsafe=0

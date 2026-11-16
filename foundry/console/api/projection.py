@@ -8,7 +8,9 @@ does not need; this router is the live demonstration of that rule.
 from __future__ import annotations
 
 import json
+import os
 import threading
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -21,8 +23,11 @@ from foundry.console.api.provenance_access import (
     visible_source_ids,
 )
 from foundry.events import EventLog
+from foundry.postgres import PostgresDatabase
+from foundry.postgres_readmodel import PostgresReadModelStore
 from foundry.projector import Projector, replay_log
-from foundry.readmodel import ReadModel, format_instant, parse_instant
+from foundry.query_service import DEFAULT_TIMEOUT_MS, QueryPage, QueryService
+from foundry.readmodel import ReadModel, ReadModelStore, format_instant, parse_instant
 
 BENCHMARK_REPORT = Path(__file__).resolve().parents[3] / "build" / "benchmark-report.json"
 
@@ -56,10 +61,14 @@ def _snapshot_paths(log_path: Path) -> tuple[Path, Path]:
     )
 
 
-def _read_model() -> ReadModel:
+def _read_model() -> ReadModelStore:
     """Read model cached in-process and on disk, resumed incrementally.
 
-    Layers:
+    With ``FOUNDRY_DATABASE_URL``, reads use the PostgreSQL projection directly;
+    the independent projector worker owns replay and checkpoint updates. Without
+    it, local development retains the pickle-backed in-memory scaffold.
+
+    In-memory layers:
     1. in-process cache keyed by log mtime — the common hit;
     2. persisted snapshot + checkpoint (B2/B6): a log change applies only the
        suffix after the recorded sequence, and a server restart loads the
@@ -68,6 +77,9 @@ def _read_model() -> ReadModel:
        a cache, never a source of truth (ADR-0002/0004).
     """
     global _model_cache, _model_log_fingerprint
+    dsn = os.environ.get("FOUNDRY_DATABASE_URL")
+    if dsn:
+        return PostgresReadModelStore(PostgresDatabase(dsn))
     with _model_lock:
         path = event_log_path()
         log = EventLog(path)
@@ -133,6 +145,22 @@ def _read_model() -> ReadModel:
         return _model_cache
 
 
+def _query_service() -> QueryService:
+    """Create a backend-independent query facade over the configured store."""
+    return QueryService(_read_model())
+
+
+def _page_payload(page: QueryPage) -> dict:
+    """Serialize shared paging metadata for the projection API."""
+    return {
+        "total": page.total,
+        "limit": page.limit,
+        "offset": page.offset,
+        "has_more": page.has_more,
+        "truncated": page.truncated,
+    }
+
+
 def reset_cache() -> None:
     """Invalidate the cached model (used by tests)."""
     global _model_cache, _model_log_fingerprint
@@ -162,10 +190,11 @@ def entity_by_id(
     scope: Annotated[ProvenanceScope, Depends(provenance_scope)],
 ) -> dict:
     """Q1 point lookup against the read model."""
-    view = _read_model().get_entity(entity_id)
+    query = _query_service()
+    view = query.entity_lookup(entity_id)
     if view is None:
         raise HTTPException(status_code=404, detail=f"unknown entity {entity_id}")
-    location = _read_model().current_location(entity_id)
+    location = query.current_location(entity_id)
     return {
         "entity": {
             "entity_id": view.entity_id,
@@ -187,9 +216,29 @@ def entity_by_id(
 
 
 @router.get("/lookup")
-def entity_lookup(name: Annotated[str, Query(min_length=1)]) -> dict:
-    """Name lookup returning canonical ids (read-model only)."""
-    hits = _read_model().find_by_name(name)
+def entity_lookup(
+    name: Annotated[str, Query(min_length=1)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+    sort_by: Annotated[
+        str,
+        Query(pattern="^(entity_id|name|entity_type|first_seen|last_event_time)$"),
+    ] = "entity_id",
+    descending: bool = False,
+    timeout_ms: Annotated[int, Query(ge=10, le=5_000)] = DEFAULT_TIMEOUT_MS,
+) -> dict:
+    """Page exact primary-name and alias candidates from the operational index."""
+    try:
+        page = _query_service().entity_search(
+            name,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            descending=descending,
+            timeout_ms=timeout_ms,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "query": name,
         "matches": [
@@ -198,8 +247,9 @@ def entity_lookup(name: Annotated[str, Query(min_length=1)]) -> dict:
                 "entity_type": view.entity_type,
                 "name": view.name,
             }
-            for view in hits
+            for view in page.items
         ],
+        **_page_payload(page),
     }
 
 
@@ -214,7 +264,7 @@ def location_as_of(
         instant = parse_instant(at)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    fact = _read_model().location_as_of(entity_id, instant)
+    fact = _query_service().location_as_of(entity_id, instant)
     return {
         "entity_id": entity_id,
         "at": format_instant(instant),
@@ -228,3 +278,199 @@ def location_as_of(
             else None
         ),
     }
+
+
+@router.get("/entities/{entity_id}/relationships")
+def relationships_as_of(
+    entity_id: str,
+    scope: Annotated[ProvenanceScope, Depends(provenance_scope)],
+    at: str | None = None,
+    predicate_iri: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+    timeout_ms: Annotated[int, Query(ge=10, le=5_000)] = DEFAULT_TIMEOUT_MS,
+) -> dict:
+    """Return entity-valued assertions active at one valid-time instant."""
+    try:
+        instant = parse_instant(at) if at else datetime.now(UTC)
+        page = _query_service().relationships_as_of(
+            entity_id,
+            instant,
+            predicate_iri=predicate_iri,
+            limit=limit,
+            offset=offset,
+            timeout_ms=timeout_ms,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    rows = [_visible_assertion(row, scope) for row in page.items]
+    return {
+        "entity_id": entity_id,
+        "at": format_instant(instant),
+        "relationships": rows,
+        **_page_payload(page),
+    }
+
+
+@router.get("/entities/{entity_id}/traverse")
+def traverse_relationships(
+    entity_id: str,
+    at: str,
+    scope: Annotated[ProvenanceScope, Depends(provenance_scope)],
+    max_hops: Annotated[int, Query(ge=1, le=3)] = 1,
+    predicate_iri: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+    timeout_ms: Annotated[int, Query(ge=10, le=5_000)] = DEFAULT_TIMEOUT_MS,
+) -> dict:
+    """Return bounded shortest-path discovery results over active relations."""
+    try:
+        instant = parse_instant(at)
+        page = _query_service().traverse_relationships(
+            entity_id,
+            instant,
+            max_hops=max_hops,
+            predicate_iri=predicate_iri,
+            limit=limit,
+            offset=offset,
+            timeout_ms=timeout_ms,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "entity_id": entity_id,
+        "at": format_instant(instant),
+        "paths": [
+            {
+                "nodes": list(path.nodes),
+                "assertions": [_visible_assertion(row, scope) for row in path.assertions],
+                "hops": path.hops,
+            }
+            for path in page.items
+        ],
+        **_page_payload(page),
+    }
+
+
+@router.get("/entities/{entity_id}/contradictions")
+def entity_contradictions(
+    entity_id: str,
+    predicate_iri: str,
+    at: str,
+    scope: Annotated[ProvenanceScope, Depends(provenance_scope)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+    timeout_ms: Annotated[int, Query(ge=10, le=5_000)] = DEFAULT_TIMEOUT_MS,
+) -> dict:
+    """Return competing distinct values active for one relation."""
+    try:
+        instant = parse_instant(at)
+        page = _query_service().contradictions(
+            entity_id,
+            predicate_iri,
+            instant,
+            limit=limit,
+            offset=offset,
+            timeout_ms=timeout_ms,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    contradictions = []
+    for item in page.items:
+        alternatives = [
+            {
+                **alternative,
+                "assertions": [_visible_assertion(row, scope) for row in alternative["assertions"]],
+            }
+            for alternative in item["alternatives"]
+        ]
+        contradictions.append({**item, "alternatives": alternatives})
+    return {"contradictions": contradictions, **_page_payload(page)}
+
+
+@router.get("/assertions/{assertion_id}")
+def assertion_provenance(
+    assertion_id: str,
+    scope: Annotated[ProvenanceScope, Depends(provenance_scope)],
+    timeout_ms: Annotated[int, Query(ge=10, le=5_000)] = DEFAULT_TIMEOUT_MS,
+) -> dict:
+    """Return a source-scoped assertion record with locators and spans."""
+    assertion = _query_service().assertion_provenance(assertion_id, timeout_ms=timeout_ms)
+    if assertion is None:
+        raise HTTPException(status_code=404, detail=f"unknown assertion {assertion_id}")
+    return _visible_assertion(assertion, scope)
+
+
+@router.get("/locations/occupancy")
+def location_occupancy(
+    location_uri: str,
+    at: str,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+    timeout_ms: Annotated[int, Query(ge=10, le=5_000)] = DEFAULT_TIMEOUT_MS,
+) -> dict:
+    """Page entities uniquely located at a point in valid time."""
+    try:
+        instant = parse_instant(at)
+        page = _query_service().entities_at_location(
+            location_uri,
+            instant,
+            limit=limit,
+            offset=offset,
+            timeout_ms=timeout_ms,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "location_uri": location_uri,
+        "at": format_instant(instant),
+        "entity_ids": page.items,
+        **_page_payload(page),
+    }
+
+
+@router.get("/entities/{entity_id}/tracks")
+def tracks_for_entity(
+    entity_id: str,
+    scope: Annotated[ProvenanceScope, Depends(provenance_scope)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+    timeout_ms: Annotated[int, Query(ge=10, le=5_000)] = DEFAULT_TIMEOUT_MS,
+) -> dict:
+    """Return source-scoped track hypotheses for one entity."""
+    page = _query_service().tracks_for_entity(
+        entity_id, limit=limit, offset=offset, timeout_ms=timeout_ms
+    )
+    return {
+        "entity_id": entity_id,
+        "tracks": [_visible_track(track, scope) for track in page.items],
+        **_page_payload(page),
+    }
+
+
+@router.get("/tracks/{track_id}")
+def track_provenance(
+    track_id: str,
+    scope: Annotated[ProvenanceScope, Depends(provenance_scope)],
+    timeout_ms: Annotated[int, Query(ge=10, le=5_000)] = DEFAULT_TIMEOUT_MS,
+) -> dict:
+    """Return one track's observation and source references."""
+    track = _query_service().track_provenance(track_id, timeout_ms=timeout_ms)
+    if track is None:
+        raise HTTPException(status_code=404, detail=f"unknown track {track_id}")
+    return _visible_track(track, scope)
+
+
+def _visible_assertion(assertion: dict, scope: ProvenanceScope) -> dict:
+    """Redact source-linked evidence outside a caller's configured scope."""
+    visible = dict(assertion)
+    visible["source_ids"] = visible_source_ids(assertion.get("source_ids"), scope)
+    visible["evidence"] = [
+        item for item in assertion.get("evidence", []) if scope.allows(item.get("source_id"))
+    ]
+    return visible
+
+
+def _visible_track(track: dict, scope: ProvenanceScope) -> dict:
+    """Keep only granted source IDs in a track provenance response."""
+    return {**track, "source_ids": visible_source_ids(track.get("source_ids"), scope)}

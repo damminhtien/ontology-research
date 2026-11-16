@@ -1,0 +1,84 @@
+{
+  "scale": {
+    "entities": 1000,
+    "observations_per_entity": 3,
+    "total_events": 4000,
+    "seed": 42
+  },
+  "ingestion": {
+    "synthetic_ingest_events_per_s": 49544,
+    "synthetic_ingest_secs": 0.0807,
+    "identity_lookup_per_s": 717475,
+    "identity_exact_alias_hits": 3000,
+    "identity_lookup_count": 3000,
+    "slo_reference_events_per_s": "10^4 - 10^5"
+  },
+  "projection": {
+    "events_per_s": 61405,
+    "secs": 0.0651,
+    "index_build_secs": 0.0651,
+    "applied": 4000,
+    "skipped": 0,
+    "read_model": {
+      "entities": 1000,
+      "with_location": 1000,
+      "locations": 100,
+      "assertions": 3000,
+      "tracks": 0,
+      "pending_observations": 0,
+      "pending_assertions": 0,
+      "last_event_time": "2026-11-15T10:43:56Z",
+      "lag_seconds": 2276169364.0
+    }
+  },
+  "recovery": {
+    "full_replay_secs": 0.0651,
+    "scope": "fresh in-memory projection; excludes snapshot restore"
+  },
+  "resources": {
+    "peak_rss_bytes": 36192256,
+    "peak_rss_scope": "process high-water mark; run standalone for comparison",
+    "event_log_bytes": 2591929,
+    "event_log_segments": 1
+  },
+  "query_latency": {
+    "q1_entity_lookup_ms": {
+      "runs": 200,
+      "repetitions_per_sample": 100,
+      "p50_ms": 0.0005,
+      "p95_ms": 0.0005,
+      "p99_ms": 0.0005
+    },
+    "q_current_location_ms": {
+      "runs": 200,
+      "repetitions_per_sample": 100,
+      "p50_ms": 0.0028,
+      "p95_ms": 0.0029,
+      "p99_ms": 0.0029
+    },
+    "q4_temporal_ms": {
+      "runs": 200,
+      "repetitions_per_sample": 100,
+      "p50_ms": 0.0026,
+      "p95_ms": 0.0027,
+      "p99_ms": 0.0027
+    }
+  },
+  "slo_comparison": {
+    "q1_entity_lookup_ms": {
+      "p95_ms": 0.0005,
+      "slo_ms": 50,
+      "within_slo": true
+    },
+    "q_current_location_ms": {
+      "p95_ms": 0.0029,
+      "slo_ms": 100,
+      "within_slo": true
+    },
+    "q4_temporal_ms": {
+      "p95_ms": 0.0027,
+      "slo_ms": 500,
+      "within_slo": true
+    }
+  }
+}

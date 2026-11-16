@@ -361,6 +361,7 @@ def _interop_export_graph(tmp: Path) -> Graph:
         uri="https://data.example/conformance/report",
         title="Interop conformance source",
         source_system="conformance-fixture",
+        content="Offline interoperability fixture source.",
     )
     document_id = document.payload["document_id"]
     location_id = "urn:world:location:conformance"

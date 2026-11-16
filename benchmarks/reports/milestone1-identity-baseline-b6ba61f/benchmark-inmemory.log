@@ -1,0 +1,14 @@
+.venv/bin/python tools/benchmark.py --scale 1000 --observations 3
+
+Benchmark: 4000 events (1000 entities x 3 observations)
+
+  synthetic ingest:  49,544 events/s
+  identity hit :    717,475 lookups/s
+  projection   :     61,405 events/s
+
+  query latency (warm, p50/p95/p99 ms):
+    q1_entity_lookup_ms       0.0005 /  0.0005 /  0.0005  (SLO 50ms, within SLO)
+    q_current_location_ms     0.0028 /  0.0029 /  0.0029  (SLO 100ms, within SLO)
+    q4_temporal_ms            0.0026 /  0.0027 /  0.0027  (SLO 500ms, within SLO)
+
+Wrote /Users/macbook/Desktop/workspace/ontology-research/build/benchmark-report.json

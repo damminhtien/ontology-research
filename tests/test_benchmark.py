@@ -24,10 +24,12 @@ class TestEventGenerator:
 class TestBenchmarkReport:
     def test_report_shape_and_slo_flags(self, tmp_path):
         report = run_benchmark(n_entities=30, observations_per=2, runs=20, out_dir=tmp_path)
+        repeated = run_benchmark(n_entities=30, observations_per=2, runs=20, out_dir=tmp_path)
 
         assert report["scale"]["total_events"] == 90
         assert report["ingestion"]["synthetic_ingest_events_per_s"] > 0
         assert report["ingestion"]["identity_exact_alias_hits"] == 60
+        assert repeated["scale"]["total_events"] == report["scale"]["total_events"]
         assert report["ingestion"]["identity_lookup_count"] == 60
         assert report["projection"]["applied"] == 90
         assert report["projection"]["skipped"] == 0

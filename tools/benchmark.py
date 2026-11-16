@@ -109,9 +109,7 @@ def run_benchmark(n_entities: int, observations_per: int, runs: int, out_dir: Pa
     # 1a. synthetic event production plus durable log append (no SHACL gate)
     out_dir.mkdir(parents=True, exist_ok=True)
     log_path = out_dir / "benchmark-events.jsonl"
-    for segment in out_dir.glob("benchmark-events-*.jsonl"):
-        segment.unlink(missing_ok=True)
-    log_path.unlink(missing_ok=True)
+    _remove_event_log_files(log_path)
     start = time.perf_counter()
     EventLog(log_path).extend(generate_events(n_entities, observations_per))
     synthetic_ingest_secs = time.perf_counter() - start
@@ -130,7 +128,7 @@ def run_benchmark(n_entities: int, observations_per: int, runs: int, out_dir: Pa
     exact_hits = 0
     start = time.perf_counter()
     for _ in range(lookup_count):
-        if identity.resolve(name=name, entity_type="Platform").method == "alias":
+        if identity.lookup(name=name, entity_type="Platform").method == "alias":
             exact_hits += 1
     id_secs = time.perf_counter() - start
     id_rate = lookup_count / id_secs if id_secs else float("inf")
@@ -218,9 +216,24 @@ def run_benchmark(n_entities: int, observations_per: int, runs: int, out_dir: Pa
 
     (out_dir / "benchmark-report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     log_path.unlink(missing_ok=True)
-    for segment in out_dir.glob("benchmark-events-*.jsonl"):
-        segment.unlink(missing_ok=True)
+    _remove_event_log_files(log_path)
     return report
+
+
+def _remove_event_log_files(log_path: Path) -> None:
+    """Remove a benchmark log and all durable sidecars between independent runs."""
+    log = EventLog(log_path)
+    index_path = log.index_path
+    candidates = [
+        *log_path.parent.glob(f"{log_path.stem}-*{log_path.suffix}"),
+        log_path,
+        log.lock_path,
+        index_path,
+        Path(f"{index_path}-wal"),
+        Path(f"{index_path}-shm"),
+    ]
+    for candidate in candidates:
+        candidate.unlink(missing_ok=True)
 
 
 def _peak_rss_bytes() -> int:

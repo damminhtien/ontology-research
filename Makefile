@@ -1,6 +1,7 @@
-.PHONY: setup validate dag align test lint fmt check conformance quality ontology-design oxigraph-test oxigraph-eval splink-test splink-fetch splink-eval rdf-export-eval clean docs-setup docs-sync docs-serve docs-build
+.PHONY: setup validate dag align test lint fmt check conformance quality ontology-design oxigraph-test oxigraph-eval splink-test splink-fetch splink-eval rdf-export-eval postgres-test query-adapter-eval project-events project-events-follow project-events-rebuild project-events-verify clean docs-setup docs-sync docs-serve docs-build
 
 PY := .venv/bin/python
+DATABASE_URL ?= postgresql:///ontology_research
 
 setup:
 	python3 -m venv .venv
@@ -71,11 +72,29 @@ check: lint ontology-design quality versions align validate dag test slo
 conformance:
 	$(PY) tools/check_conformance.py
 
+project-events:
+	FOUNDRY_DATABASE_URL=$${FOUNDRY_DATABASE_URL:-$(DATABASE_URL)} $(PY) tools/project_events.py
+
+project-events-follow:
+	FOUNDRY_DATABASE_URL=$${FOUNDRY_DATABASE_URL:-$(DATABASE_URL)} $(PY) tools/project_events.py --follow
+
+project-events-rebuild:
+	FOUNDRY_DATABASE_URL=$${FOUNDRY_DATABASE_URL:-$(DATABASE_URL)} $(PY) tools/project_events.py --rebuild
+
+project-events-verify:
+	FOUNDRY_DATABASE_URL=$${FOUNDRY_DATABASE_URL:-$(DATABASE_URL)} $(PY) tools/project_events.py --verify
+
+postgres-test:
+	FOUNDRY_TEST_DATABASE_URL=$${FOUNDRY_TEST_DATABASE_URL:-postgresql:///ontology_research_test} $(PY) -m pytest -q tests/test_postgres_storage.py
+
 oxigraph-test:
 	uv run --no-project --python 3.13 --with-requirements requirements/evaluation-oxigraph.txt python -m pytest -q tests/test_oxigraph_snapshots.py tests/test_oxigraph_evaluation.py
 
 oxigraph-eval:
 	uv run --no-project --python 3.13 --with-requirements requirements/evaluation-oxigraph.txt python tools/evaluate_oxigraph.py
+
+query-adapter-eval:
+	FOUNDRY_DATABASE_URL=$${FOUNDRY_DATABASE_URL:-$(DATABASE_URL)} uv run --no-project --python 3.13 --with-requirements requirements.txt --with-requirements requirements/evaluation-oxigraph.txt python tools/compare_query_adapters.py $(QUERY_ADAPTER_ARGS)
 
 splink-test:
 	uv run --no-project --python 3.13 --with-requirements requirements/evaluation-splink.txt python -m pytest -q tests/test_splink_evaluation.py
@@ -96,7 +115,7 @@ clean:
 	rm -rf .pytest_cache
 
 console:
-	$(PY) -m uvicorn foundry.console.app:app --port 8787
+	FOUNDRY_DATABASE_URL=$${FOUNDRY_DATABASE_URL:-$(DATABASE_URL)} $(PY) -m uvicorn foundry.console.app:app --port 8787
 
 seed-console:
 	$(PY) tools/seed_console_data.py

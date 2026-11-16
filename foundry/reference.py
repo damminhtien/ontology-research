@@ -2,7 +2,8 @@
 
 Wikidata/Wikipedia are *reference data* — multi-version, frequently changing —
 never operational facts. The lane stores versioned, typed Parquet snapshots
-under ``<root>/wikidata/{class_qid}/`` (default root ``data/reference``,
+under ``<root>/wikidata/{class_qid}/`` (default root
+``~/Data/ontology-research/data/reference``,
 overridable via ``FOUNDRY_REFERENCE_ROOT``):
 
     wikidata/{class_qid}/snap-{ts}-{id}/part-00000.parquet
@@ -23,13 +24,13 @@ Invariants:
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from foundry.paths import reference_path
 from foundry.versioning import contract_version
 
 REFERENCE_SCHEMA_VERSION = contract_version("reference_lane")
@@ -73,11 +74,8 @@ class SnapshotInfo:
 
 
 def default_reference_root() -> Path:
-    """Resolve the lane root: env override, else ``data/reference``."""
-    env = os.environ.get("FOUNDRY_REFERENCE_ROOT")
-    if env:
-        return Path(env)
-    return Path("data") / "reference"
+    """Resolve the lane root: override or ``~/Data/ontology-research/reference``."""
+    return reference_path()
 
 
 def _class_dir(root: Path, class_qid: str) -> Path:

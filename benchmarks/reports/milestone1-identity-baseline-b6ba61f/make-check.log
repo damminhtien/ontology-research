@@ -1,0 +1,169 @@
+.venv/bin/ruff check .
+All checks passed!
+.venv/bin/ruff format --check .
+131 files already formatted
+.venv/bin/python tools/check_ontology_design.py --output build/ontology-design.json
+Ontology design: PASS (build/ontology-design.json)
+.venv/bin/python tools/check_ontology_quality.py --output build/ontology-quality.json
+Ontology quality: PASS (build/ontology-quality.json)
+.venv/bin/python tools/manage_ontology.py check-versions
+[ok   ] ontology/core/core.ttl: no changes since 2.0.0
+[ok   ] ontology/domain/sensor.ttl: no changes since 0.1.0
+[ok   ] ontology/domain/tracking.ttl: MAJOR release 0.2.0 -> 1.0.0
+[ok   ] ontology/middle/assertion.ttl: MAJOR release 1.1.0 -> 2.0.0
+[ok   ] ontology/middle/identity.ttl: no changes since 1.0.0
+[ok   ] ontology/middle/location.ttl: no changes since 0.1.0
+[ok   ] ontology/middle/organization.ttl: no changes since 0.1.0
+
+Version check passed.
+.venv/bin/python tools/manage_ontology.py align check
+Alignment check passed (3 alignments).
+.venv/bin/python tools/validate.py \
+		--shapes shapes/core_shapes.ttl \
+		--data benchmarks/datasets/sample_data.ttl \
+		--data benchmarks/datasets/domain_tracking.ttl
+Validation Report
+Conforms: True
+
+RESULT: PASS (54 subclass-closure triples materialized)
+.venv/bin/python tools/validate.py \
+		--shapes shapes/domain_shapes.ttl \
+		--data benchmarks/datasets/sample_data.ttl \
+		--data benchmarks/datasets/domain_tracking.ttl
+Validation Report
+Conforms: True
+
+RESULT: PASS (54 subclass-closure triples materialized)
+.venv/bin/python tools/validate.py \
+		--shapes shapes/identity_shapes.ttl \
+		--data benchmarks/datasets/sample_data.ttl \
+		--data benchmarks/datasets/domain_tracking.ttl
+Validation Report
+Conforms: True
+
+RESULT: PASS (54 subclass-closure triples materialized)
+.venv/bin/python tools/validate.py \
+		--shapes shapes/assertion_shapes.ttl \
+		--data benchmarks/datasets/sample_data.ttl \
+		--data benchmarks/datasets/domain_tracking.ttl
+Validation Report
+Conforms: True
+
+RESULT: PASS (54 subclass-closure triples materialized)
+.venv/bin/python tools/check_dependency_dag.py
+Dependency DAG check PASSED (7 files, 7 import edges, no upward deps, no cycles).
+.venv/bin/python -m pytest -q
+........................................................................ [ 13%]
+........................................................................ [ 26%]
+........................................................................ [ 40%]
+........................................................................ [ 53%]
+........................................................................ [ 67%]
+........................................................................ [ 80%]
+.................................................s.s.................... [ 94%]
+................................                                         [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.13/site-packages/_pytest/compat.py:249
+  /Users/macbook/Desktop/workspace/ontology-research/.venv/lib/python3.13/site-packages/_pytest/compat.py:249: UserWarning: Code: _mock_name is not defined in namespace XSD
+    return getattr(object, name, default)
+
+tests/test_conformance_checker.py::test_interop_export_and_negative_fixtures_validate_with_pyshacl
+tests/test_conformance_checker.py::test_canonical_export_conforms_to_the_canonical_shape_groups
+tests/test_conformance_checker.py::test_canonical_export_conforms_to_the_canonical_shape_groups
+tests/test_rdf_export.py::test_trig_round_trip_preserves_assertion_and_sosa_contract
+  /Users/macbook/Desktop/workspace/ontology-research/.venv/lib/python3.13/site-packages/rdflib/plugins/serializers/trig.py:31: DeprecationWarning: Dataset.contexts is deprecated, use Dataset.graphs instead.
+    self.contexts = list(store.contexts())
+
+tests/test_conformance_checker.py::test_interop_export_and_negative_fixtures_validate_with_pyshacl
+tests/test_conformance_checker.py::test_canonical_export_conforms_to_the_canonical_shape_groups
+tests/test_conformance_checker.py::test_canonical_export_conforms_to_the_canonical_shape_groups
+tests/test_rdf_export.py::test_trig_round_trip_preserves_assertion_and_sosa_contract
+  /Users/macbook/Desktop/workspace/ontology-research/.venv/lib/python3.13/site-packages/rdflib/plugins/serializers/trig.py:32: DeprecationWarning: Dataset.default_context is deprecated, use Dataset.default_graph instead.
+    self.default_context = store.default_context.identifier
+
+tests/test_conformance_checker.py::test_interop_export_and_negative_fixtures_validate_with_pyshacl
+tests/test_conformance_checker.py::test_canonical_export_conforms_to_the_canonical_shape_groups
+tests/test_conformance_checker.py::test_canonical_export_conforms_to_the_canonical_shape_groups
+tests/test_rdf_export.py::test_trig_round_trip_preserves_assertion_and_sosa_contract
+  /Users/macbook/Desktop/workspace/ontology-research/.venv/lib/python3.13/site-packages/rdflib/plugins/serializers/trig.py:33: DeprecationWarning: Dataset.default_context is deprecated, use Dataset.default_graph instead.
+    if store.default_context:
+
+tests/test_conformance_checker.py::test_interop_export_and_negative_fixtures_validate_with_pyshacl
+tests/test_conformance_checker.py::test_canonical_export_conforms_to_the_canonical_shape_groups
+tests/test_conformance_checker.py::test_canonical_export_conforms_to_the_canonical_shape_groups
+tests/test_rdf_export.py::test_trig_round_trip_preserves_assertion_and_sosa_contract
+  /Users/macbook/Desktop/workspace/ontology-research/.venv/lib/python3.13/site-packages/rdflib/plugins/serializers/trig.py:34: DeprecationWarning: Dataset.default_context is deprecated, use Dataset.default_graph instead.
+    self.contexts.append(store.default_context)
+
+tests/test_conformance_checker.py::test_interop_export_and_negative_fixtures_validate_with_pyshacl
+tests/test_conformance_checker.py::test_canonical_export_conforms_to_the_canonical_shape_groups
+tests/test_conformance_checker.py::test_canonical_export_conforms_to_the_canonical_shape_groups
+tests/test_rdf_export.py::test_trig_round_trip_preserves_assertion_and_sosa_contract
+tests/test_rdf_export.py::test_export_cli_writes_trig_atomically
+tests/test_rdf_export.py::test_streaming_geometry_and_reusable_index_match_materialized_export
+tests/test_rdf_export.py::test_streaming_geometry_and_reusable_index_match_materialized_export
+tests/test_rdf_export.py::test_streaming_cli_rebuilds_corrupt_context_index
+  /Users/macbook/Desktop/workspace/ontology-research/.venv/lib/python3.13/site-packages/rdflib/graph.py:2508: DeprecationWarning: Dataset.default_context is deprecated, use Dataset.default_graph instead.
+    context = self.default_context
+
+tests/test_conformance_checker.py::test_interop_export_and_negative_fixtures_validate_with_pyshacl
+tests/test_conformance_checker.py::test_canonical_export_conforms_to_the_canonical_shape_groups
+tests/test_conformance_checker.py::test_canonical_export_conforms_to_the_canonical_shape_groups
+tests/test_rdf_export.py::test_trig_round_trip_preserves_assertion_and_sosa_contract
+tests/test_rdf_export.py::test_export_cli_writes_trig_atomically
+tests/test_rdf_export.py::test_streaming_geometry_and_reusable_index_match_materialized_export
+tests/test_rdf_export.py::test_streaming_geometry_and_reusable_index_match_materialized_export
+tests/test_rdf_export.py::test_streaming_cli_rebuilds_corrupt_context_index
+  /Users/macbook/Desktop/workspace/ontology-research/.venv/lib/python3.13/site-packages/rdflib/plugins/parsers/trig.py:155: DeprecationWarning: ConjunctiveGraph is deprecated, use Dataset instead.
+    conj_graph = ConjunctiveGraph(store=graph.store, identifier=graph.identifier)
+
+tests/test_rdf_export.py::test_canonical_profile_has_only_the_repository_default_graph
+  /Users/macbook/Desktop/workspace/ontology-research/tests/test_rdf_export.py:385: DeprecationWarning: Dataset.contexts is deprecated, use Dataset.graphs instead.
+    assert all(graph.identifier == default_identifier for graph in summary.dataset.contexts())
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+534 passed, 4 skipped, 34 warnings in 9.16s
+.venv/bin/python tools/check_slo.py
+
+Query                       Gate base    Current    Ratio      SLO   Status
+------------------------------------------------------------------------------
+q1_entity_lookup_ms            0.0038     0.0005    0.13x       50       OK
+q_current_location_ms          0.0672     0.0028    0.04x      100       OK
+q4_temporal_ms                 0.0675     0.0027    0.04x      500       OK
+  q1_entity_lookup_ms: applying portable relative-comparison floor 0.0038ms (measured baseline 0.0005ms)
+
+SLO regression gate PASSED
+.venv/bin/python tools/benchmark_e2e.py --check --entities 60 --iterations 11
+{
+  "ingest": {
+    "count": 131,
+    "seconds": 0.6658,
+    "events_per_second": 196.7,
+    "accepted": 131,
+    "rejected": 0,
+    "pending": 5
+  },
+  "lake_persist": {
+    "count": 127,
+    "seconds": 0.0025,
+    "events_per_second": 51800.6
+  },
+  "projector": {
+    "count": 111760,
+    "seconds": 0.5002,
+    "events_per_second": 223439.7,
+    "entities": 60,
+    "events_per_pass": 127,
+    "replay_passes": 880,
+    "warmup_passes": 1,
+    "minimum_measure_seconds": 0.5
+  },
+  "lake_query": {
+    "count": 3,
+    "seconds": 0.2414,
+    "events_per_second": 12.4,
+    "p50_ms": 8.019,
+    "p95_ms": 8.525,
+    "runs": 30
+  }
+}
+e2e SLO gate PASSED

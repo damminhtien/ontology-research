@@ -23,7 +23,13 @@ ex:loc-da-nang a core:Location ; core:name "Da Nang" .
 src:registry-import a core:Source ; core:name "Maritime registry import" .
 src:ais-2026-08-01 a core:Source ; core:name "AIS feed 2026-08-01" .
 src:report-2026-08-09 a core:Source, assertion:Document ;
-    core:name "Operations report 2026-08-09" .
+    core:name "Operations report 2026-08-09" ;
+    core:recordedAt "2026-08-09T09:00:00Z"^^xsd:dateTime ;
+    assertion:documentUri "https://data.example/source/report-2026-08-09" ;
+    assertion:sourceSystem "open-report" ;
+    assertion:sourceRecordId "report-2026-08-09" ;
+    assertion:sourceRecordKey "urn:source-record:93f5a0df7bf7d22b766fbe861261e89b9e1c167fe8076df5e072729c03a2d2dd" ;
+    assertion:contentHash "3aed94ed2600d95c23d3e8abc991c163a6c26e81e7ee79c85b5f40ad4c7505f2" .
 src:radar-2026-08-20 a core:Source ; core:name "Surface radar 2026-08-20" .
 src:tracking-run-2026-08-22 a core:Source ; core:name "Tracking run 2026-08-22" .
 
@@ -34,6 +40,9 @@ ex:membership-17-period-1 a assertion:Assertion ;
     assertion:hasObject ex:org-region7 ;
     core:validFrom "2026-08-01T00:00:00Z"^^xsd:dateTime ;
     core:validUntil "2026-08-15T00:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2026-08-01T00:01:00Z"^^xsd:dateTime ;
+    assertion:evidenceQuality "direct"^^xsd:string ;
+    assertion:status "asserted"^^xsd:string ;
     core:hasSource src:registry-import .
 
 ex:membership-17-period-2 a assertion:Assertion ;
@@ -41,6 +50,9 @@ ex:membership-17-period-2 a assertion:Assertion ;
     assertion:predicate core:memberOf ;
     assertion:hasObject ex:org-region8 ;
     core:validFrom "2026-08-15T00:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2026-08-15T00:01:00Z"^^xsd:dateTime ;
+    assertion:evidenceQuality "direct"^^xsd:string ;
+    assertion:status "asserted"^^xsd:string ;
     core:hasSource src:report-2026-08-09 .
 
 # First-class identifiers retain their issuing scheme and value separately.
@@ -70,6 +82,9 @@ ex:assert-17-old a assertion:Assertion ;
     assertion:hasObject ex:loc-vung-tau ;
     core:validFrom "2026-08-01T00:00:00Z"^^xsd:dateTime ;
     core:validUntil "2026-08-10T00:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2026-08-01T00:05:00Z"^^xsd:dateTime ;
+    assertion:evidenceQuality "indirect"^^xsd:string ;
+    assertion:status "superseded"^^xsd:string ;
     core:hasSource src:ais-2026-08-01 .
 
 ex:assert-17-corrected a assertion:Assertion ;
@@ -79,13 +94,17 @@ ex:assert-17-corrected a assertion:Assertion ;
     assertion:supersedes ex:assert-17-old ;
     core:validFrom "2026-08-01T00:00:00Z"^^xsd:dateTime ;
     core:validUntil "2026-08-10T00:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2026-08-09T09:15:00Z"^^xsd:dateTime ;
+    assertion:evidenceQuality "direct"^^xsd:string ;
+    assertion:status "asserted"^^xsd:string ;
     core:hasSource src:report-2026-08-09 ;
     assertion:evidence [
         assertion:evidenceSource src:report-2026-08-09 ;
         assertion:locator "page=3,paragraph=2" ;
         assertion:spanStart 148 ;
         assertion:spanEnd 191 ;
-        assertion:spanUnit "character"
+        assertion:spanUnit "character" ;
+        assertion:exactText "Patrol Vessel 03 was located near Phu Quoc."
     ] .
 
 ex:assert-17-period-2 a assertion:Assertion ;
@@ -94,6 +113,9 @@ ex:assert-17-period-2 a assertion:Assertion ;
     assertion:hasObject ex:loc-vung-tau ;
     core:validFrom "2026-08-10T00:00:00Z"^^xsd:dateTime ;
     core:validUntil "2026-08-20T00:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2026-08-10T00:01:00Z"^^xsd:dateTime ;
+    assertion:evidenceQuality "indirect"^^xsd:string ;
+    assertion:status "asserted"^^xsd:string ;
     core:hasSource src:ais-2026-08-01 .
 
 # These two active statements intentionally contradict each other beginning
@@ -103,13 +125,17 @@ ex:assert-17-current a assertion:Assertion ;
     assertion:predicate core:locatedAt ;
     assertion:hasObject ex:loc-da-nang ;
     core:validFrom "2026-08-20T00:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2026-08-20T00:02:00Z"^^xsd:dateTime ;
+    assertion:evidenceQuality "corroborated"^^xsd:string ;
+    assertion:status "asserted"^^xsd:string ;
     core:hasSource src:report-2026-08-09 , src:radar-2026-08-20 ;
     assertion:evidence [
         assertion:evidenceSource src:radar-2026-08-20 ;
         assertion:locator "scan=88" ;
         assertion:spanStart 0 ;
         assertion:spanEnd 1 ;
-        assertion:spanUnit "record"
+        assertion:spanUnit "record" ;
+        assertion:exactText "A"
     ] .
 
 ex:assert-17-conflict a assertion:Assertion ;
@@ -117,6 +143,9 @@ ex:assert-17-conflict a assertion:Assertion ;
     assertion:predicate core:locatedAt ;
     assertion:hasObject ex:loc-phu-quoc ;
     core:validFrom "2026-08-22T00:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2026-08-22T00:05:00Z"^^xsd:dateTime ;
+    assertion:evidenceQuality "direct"^^xsd:string ;
+    assertion:status "asserted"^^xsd:string ;
     core:hasSource src:radar-2026-08-20 .
 
 # Retraction is an event about an assertion. It remains in the ledger while
@@ -126,6 +155,9 @@ ex:assert-17-retracted a assertion:Assertion ;
     assertion:predicate core:locatedAt ;
     assertion:hasObject ex:loc-vung-tau ;
     core:validFrom "2026-09-01T00:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2026-09-01T00:05:00Z"^^xsd:dateTime ;
+    assertion:evidenceQuality "weak"^^xsd:string ;
+    assertion:status "retracted"^^xsd:string ;
     core:hasSource src:ais-2026-08-01 .
 ex:event-17-retraction a core:Event ;
     core:atTime "2026-09-02T00:00:00Z"^^xsd:dateTime ;
@@ -139,6 +171,9 @@ ex:assert-ghost-location a assertion:Assertion ;
     assertion:predicate core:locatedAt ;
     assertion:hasObject ex:loc-vung-tau ;
     core:validFrom "2026-08-21T00:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2026-08-21T00:01:00Z"^^xsd:dateTime ;
+    assertion:evidenceQuality "unknown"^^xsd:string ;
+    assertion:status "asserted"^^xsd:string ;
     core:hasSource src:report-2026-08-09 .
 
 # Sensor acts and their result objects stay distinct. Position and measurements

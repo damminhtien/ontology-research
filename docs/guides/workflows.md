@@ -1,6 +1,7 @@
 # Data & correction workflows
 
-Các luồng vận hành thực tế trên production log (`data/production.jsonl`). Mỗi
+Các luồng vận hành thực tế trên production log
+(`~/Data/ontology-research/data/production.jsonl`). Mỗi
 workflow dùng đúng công cụ của nó; không workflow nào sửa log in-place
 (ADR-0002).
 
@@ -14,7 +15,8 @@ Wikidata SPARQL ──► build_reference_lane.py ─► reference/ (typed Parqu
   AIS JSONL feed ──────┼──► ingest_tracking_feed.py ─┤
   Báo cáo văn bản ─────┘      (pipeline.ingest_document)│
                                                         ▼
-                                          data/production.jsonl  (write model)
+                                          ~/Data/ontology-research/data/production.jsonl
+                                                                (write model)
                                                         │
    CORRECTIONS                                          ▼
    ────────────────────            merge_entities.py ─► EntityMerged
@@ -122,8 +124,8 @@ versioned hiện có; tạo domain pack mới cần một quyết định riêng
 
 # Với breaking change, scan toàn bộ nguồn cũ có thẩm quyền trước khi tạo script
 .venv/bin/python tools/manage_ontology.py migrate core \
-    --data data/production.jsonl \
-    --data data/lake
+    --data "$HOME/Data/ontology-research/data/production.jsonl" \
+    --data "$HOME/Data/ontology-research/data/lake"
 ```
 
 `migrate` tạo SPARQL Update và file `.impact.json`. Report nêu số data item nhắc tới

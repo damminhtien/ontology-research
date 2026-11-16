@@ -45,6 +45,7 @@ def _write_export_log(tmp_path):
         uri="https://data.example/report/1",
         title="Báo cáo vị trí",
         source_system="research-feed",
+        content="Báo cáo vị trí: fixture source text.",
     )
     document_id = document.payload["document_id"]
     resolved = make_assertion(
@@ -325,6 +326,7 @@ def test_geometry_accepts_locations_present_as_assertion_objects(tmp_path):
         uri="https://data.example/report/location",
         title="Location record",
         source_system="research-feed",
+        content="Location record fixture source text.",
     )
     make_assertion(
         log=log,
@@ -451,6 +453,7 @@ def test_streaming_geometry_and_reusable_index_match_materialized_export(tmp_pat
         uri="https://data.example/report/later",
         title="Later source",
         source_system="research-feed",
+        content="Later source fixture text.",
     )
     third_output = tmp_path / "third.trig"
     third = _run_stream_export(
@@ -534,7 +537,7 @@ def test_streaming_projection_traced_memory_stays_bounded(tmp_path):
     finally:
         tracemalloc.stop()
 
-    assert quad_count == 20_000
+    assert quad_count == 30_000
     assert peak_bytes < 5 * 1024 * 1024
 
 

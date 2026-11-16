@@ -1,27 +1,28 @@
 """Materialized read model for operational queries.
 
 Write model = append-only event log (correctness / provenance / history).
-This module is the read side: plain in-memory indexes that answer the hot
-operational queries in O(1)-ish without touching ontology or SPARQL - the
-live embodiment of the rule "never make the operational query path pay for
-semantic complexity it does not need".
+This module defines the operational read-store contract and its in-memory
+implementation. PostgreSQL lives in ``foundry.postgres_readmodel`` and answers
+the same hot queries without loading the full projection into process memory.
 
 Design contract (ADR-0004):
 - Projector owns write semantics; ReadModel only exposes reads.
-- In-memory scaffold: interfaces are stable so a real store (graph db /
-  relational projection table) can replace internals in Phase 6 without
-  changing call sites.
-- Nothing is persisted here; rebuild = replay the log through the projector.
+- ``ReadModelStore`` is the projector-facing contract.
+- ``ReadModel`` is a test and offline implementation; operational data is
+  persisted by ``PostgresReadModelStore``.
 """
 
 from __future__ import annotations
 
 import pickle
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 
 from foundry.namespaces import CORE_LOCATED_AT, normalize_surface, require_absolute_iri
+from foundry.query_service import QueryPage
 
 
 def parse_instant(text: str) -> datetime:
@@ -112,15 +113,188 @@ class _AssertionRecord:
     valid_until: str | None
     source_ids: tuple[str, ...]
     evidence: tuple[dict, ...]
-    confidence: float | None
-    status: str  # asserted | superseded
+    recorded_at: str
+    model_score: float | None
+    evidence_quality: str
+    status: str  # asserted | superseded | retracted
     original_subject_id: str
     subject_ref: dict | None = None
     subject_status: str = "resolved"
+    superseded_by: str | None = None
+    superseded_reason: str | None = None
+
+
+class ReadModelStore(Protocol):
+    """Storage contract consumed by the event projector and operational API."""
+
+    def transaction(self) -> AbstractContextManager[object]:
+        """Scope one event application and its checkpoint atomically."""
+        ...
+
+    def is_applied(self, event_id: str) -> bool:
+        """Check whether an event was already processed."""
+        ...
+
+    def mark_applied(self, event_id: str, sequence: int | None) -> None:
+        """Record a projected event and advance the checkpoint."""
+        ...
+
+    def mark_skipped(self, event_id: str, sequence: int | None) -> None:
+        """Record an unsupported event as processed."""
+        ...
+
+    def touch(self, event_time: datetime) -> None:
+        """Advance projection freshness metadata."""
+        ...
+
+    def upsert_entity(
+        self,
+        entity_id: str,
+        entity_type: str,
+        name: str,
+        event_time: datetime,
+        aliases: tuple[str, ...] | list[str] = (),
+    ) -> None:
+        """Apply an entity creation or enrichment event."""
+        ...
+
+    def merge_entities(self, survivor_id: str, duplicate_id: str, event_time: datetime) -> None:
+        """Apply an entity merge event."""
+        ...
+
+    def unmerge_entities(self, survivor_id: str, duplicate_id: str, event_time: datetime) -> None:
+        """Apply an entity split event."""
+        ...
+
+    def add_assertion(self, payload: dict) -> None:
+        """Apply an assertion creation event."""
+        ...
+
+    def supersede_assertion(self, assertion_id: str, reason: str = "") -> None:
+        """Retract an assertion in the read projection."""
+        ...
+
+    def add_track(self, payload: dict) -> None:
+        """Apply a track observation event."""
+        ...
+
+    @property
+    def checkpoint_sequence(self) -> int | None:
+        """Return the last log sequence committed to this projection."""
+        ...
+
+    @property
+    def applied_event_count(self) -> int:
+        """Return the number of projected events."""
+        ...
+
+    @property
+    def pending_count(self) -> int:
+        """Count assertions whose subject reference is unresolved."""
+        ...
+
+    def get_entity(self, entity_id: str) -> EntityView | None:
+        """Look up one canonical entity."""
+        ...
+
+    def query_timeout(self, timeout_ms: int) -> AbstractContextManager[object]:
+        """Apply a backend query timeout for one service operation."""
+        ...
+
+    def find_entities_page(
+        self,
+        name: str,
+        *,
+        limit: int,
+        offset: int,
+        sort_by: str,
+        descending: bool,
+    ) -> QueryPage[EntityView]:
+        """Find normalized primary-name and alias matches in stable order."""
+        ...
+
+    def assertions_as_of_page(
+        self,
+        subject_id: str,
+        instant: datetime,
+        *,
+        predicate_iri: str | None,
+        object_kind: str | None,
+        limit: int,
+        offset: int = 0,
+    ) -> QueryPage[dict]:
+        """Return a bounded page of assertions valid at the requested instant."""
+        ...
+
+    def entities_at_page(
+        self, location_uri: str, instant: datetime, *, limit: int, offset: int
+    ) -> QueryPage[str]:
+        """Return a bounded page of uniquely located entities."""
+        ...
+
+    def tracks_page(self, entity_id: str, *, limit: int, offset: int) -> QueryPage[dict]:
+        """Return a bounded page of tracks for an entity."""
+        ...
+
+    def merged_into(self, entity_id: str) -> str | None:
+        """Return the current survivor for a merged entity."""
+        ...
+
+    def find_by_name(self, name: str) -> list[EntityView]:
+        """Find exact primary-name matches."""
+        ...
+
+    def current_location(self, entity_id: str) -> LocationFact | None:
+        """Return a unique location active now."""
+        ...
+
+    def location_as_of(self, entity_id: str, instant: datetime) -> LocationFact | None:
+        """Return a unique location active at a valid-time instant."""
+        ...
+
+    def location_resolution(self, entity_id: str, instant: datetime) -> LocationResolution:
+        """Return none, one location, or all conflicting locations."""
+        ...
+
+    def location_conflicts(
+        self, entity_id: str, instant: datetime | None = None
+    ) -> tuple[LocationFact, ...]:
+        """List active conflicting locations."""
+        ...
+
+    def entities_at(self, location_uri: str, instant: datetime | None = None) -> set[str]:
+        """Find entities uniquely at one location and instant."""
+        ...
+
+    def get_assertion(self, assertion_id: str) -> dict | None:
+        """Return one assertion with provenance and temporal values."""
+        ...
+
+    def active_assertions(self, subject_id: str, predicate_iri: str | None = None) -> list[dict]:
+        """List current assertions for one subject."""
+        ...
+
+    def assertions_as_of(
+        self, subject_id: str, instant: datetime, predicate_iri: str | None = None
+    ) -> list[dict]:
+        """List assertions active at a valid-time instant."""
+        ...
+
+    def get_track(self, track_id: str) -> dict | None:
+        """Return one track and its observation references."""
+        ...
+
+    def tracks_of(self, entity_id: str) -> list[dict]:
+        """List tracks assigned to one entity."""
+        ...
+
+    def stats(self, now: datetime | None = None) -> dict:
+        """Return operational counts and projection lag."""
+        ...
 
 
 class ReadModel:
-    """In-memory read model over the canonical event stream.
+    """In-memory read model over the canonical event stream for tests/offline use.
 
     Thread safety is deliberately out of scope for the in-memory scaffold;
     a future store-backed implementation owns concurrency.
@@ -140,6 +314,7 @@ class ReadModel:
         self._assertions: dict[str, _AssertionRecord] = {}
         self._tracks: dict[str, _TrackRecord] = {}
         self._applied_event_ids: set[str] = set()
+        self._processed_event_ids: set[str] = set()
         self._checkpoint_sequence: int | None = None
         self._last_event_time: datetime | None = None
 
@@ -348,11 +523,20 @@ class ReadModel:
 
     def is_applied(self, event_id: str) -> bool:
         """True when this exact event was already folded into the model."""
-        return event_id in self._applied_event_ids
+        return event_id in self._processed_event_ids
 
     def mark_applied(self, event_id: str, sequence: int | None) -> None:
         """Record one applied event and advance the checkpoint watermark."""
         self._applied_event_ids.add(event_id)
+        self._processed_event_ids.add(event_id)
+        if sequence is not None and (
+            self._checkpoint_sequence is None or sequence > self._checkpoint_sequence
+        ):
+            self._checkpoint_sequence = sequence
+
+    def mark_skipped(self, event_id: str, sequence: int | None) -> None:
+        """Record an unknown event as processed so future replay can resume."""
+        self._processed_event_ids.add(event_id)
         if sequence is not None and (
             self._checkpoint_sequence is None or sequence > self._checkpoint_sequence
         ):
@@ -372,6 +556,15 @@ class ReadModel:
         """Track the newest event time seen for lag calculation."""
         if self._last_event_time is None or event_time > self._last_event_time:
             self._last_event_time = event_time
+
+    def transaction(self) -> AbstractContextManager[object]:
+        """Provide interface parity; in-memory writes are not transactional."""
+        return nullcontext()
+
+    def query_timeout(self, timeout_ms: int) -> AbstractContextManager[object]:
+        """Keep interface parity; Python memory calls cannot be interrupted."""
+        del timeout_ms
+        return nullcontext()
 
     # -- read surface ---------------------------------------------------------
 
@@ -400,6 +593,37 @@ class ReadModel:
             for entity_id, record in self._entities.items()
             if record.name.casefold() == needle
         ]
+
+    def find_entities_page(
+        self,
+        name: str,
+        *,
+        limit: int,
+        offset: int,
+        sort_by: str,
+        descending: bool,
+    ) -> QueryPage[EntityView]:
+        """Find exact normalized primary-name and alias candidates."""
+        normalized = normalize_surface(name)
+        entity_ids = {
+            self._canonical_id(entity_id)
+            for entity_id in self._name_owners.get(normalized, set())
+            if normalized
+        }
+        views = [
+            view for entity_id in entity_ids if (view := self.get_entity(entity_id)) is not None
+        ]
+        views.sort(key=lambda view: view.entity_id)
+        views.sort(key=lambda view: getattr(view, sort_by), reverse=descending)
+        total = len(views)
+        items = tuple(views[offset : offset + limit])
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
 
     def current_location(self, entity_id: str) -> LocationFact | None:
         """Return the unique location active now, or ``None`` for none/conflict."""
@@ -529,6 +753,20 @@ class ReadModel:
             if record.entity_id == entity_id
         ]
 
+    def tracks_page(self, entity_id: str, *, limit: int, offset: int) -> QueryPage[dict]:
+        """Page tracks in stable track identifier order."""
+        tracks = self.tracks_of(entity_id)
+        tracks.sort(key=lambda track: track["track_id"])
+        total = len(tracks)
+        items = tuple(tracks[offset : offset + limit])
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
+
     # -- assertion ledger (docs/architecture.md §4.2) -------------------------
 
     def add_assertion(self, payload: dict) -> None:
@@ -546,7 +784,9 @@ class ReadModel:
             valid_until=payload.get("valid_until", payload.get("valid_to")),
             source_ids=tuple(payload.get("source_ids") or ()),
             evidence=tuple(dict(item) for item in (payload.get("evidence") or ())),
-            confidence=payload.get("confidence"),
+            recorded_at=payload.get("recorded_at", ""),
+            model_score=payload.get("model_score", payload.get("confidence")),
+            evidence_quality=payload.get("evidence_quality", "unknown"),
             status="asserted",
             original_subject_id=payload.get("subject_id") or "",
             subject_ref=dict(subject_ref) if subject_ref else None,
@@ -557,6 +797,7 @@ class ReadModel:
         if superseded is not None and superseded in self._assertions:
             previous = self._assertions[superseded]
             previous.status = "superseded"
+            previous.superseded_by = assertion_id
             if previous.subject_id:
                 self._refresh_location_index(previous.subject_id)
         if record.subject_ref:
@@ -566,8 +807,8 @@ class ReadModel:
         else:
             self._attach_location_claim(assertion_id, record)
 
-    def supersede_assertion(self, assertion_id: str) -> None:
-        """Mark one assertion superseded.
+    def supersede_assertion(self, assertion_id: str, reason: str = "") -> None:
+        """Retract one assertion without a replacement.
 
         Raises:
             ValueError: If the assertion is not in the ledger (log corruption).
@@ -575,7 +816,8 @@ class ReadModel:
         record = self._assertions.get(assertion_id)
         if record is None:
             raise ValueError(f"assertion {assertion_id!r} not in ledger; log is corrupt")
-        record.status = "superseded"
+        record.status = "retracted"
+        record.superseded_reason = reason
         if record.subject_id:
             self._refresh_location_index(record.subject_id)
 
@@ -593,10 +835,14 @@ class ReadModel:
             "object": dict(record.object),
             "valid_from": record.valid_from,
             "valid_until": record.valid_until,
+            "recorded_at": record.recorded_at,
             "source_ids": list(record.source_ids),
             "evidence": [dict(item) for item in record.evidence],
-            "confidence": record.confidence,
+            "model_score": record.model_score,
+            "evidence_quality": record.evidence_quality,
             "status": record.status,
+            "superseded_by": record.superseded_by,
+            "superseded_reason": record.superseded_reason,
         }
 
     def active_assertions(self, subject_id: str, predicate_iri: str | None = None) -> list[dict]:
@@ -663,6 +909,46 @@ class ReadModel:
                 if entry is not None:
                     matches.append(entry)
         return matches
+
+    def assertions_as_of_page(
+        self,
+        subject_id: str,
+        instant: datetime,
+        *,
+        predicate_iri: str | None = None,
+        object_kind: str | None = None,
+        limit: int,
+        offset: int = 0,
+    ) -> QueryPage[dict]:
+        """Return an ordered bounded page of active assertions."""
+        matches = self.assertions_as_of(subject_id, instant, predicate_iri)
+        if object_kind is not None:
+            matches = [item for item in matches if item["object"].get("kind") == object_kind]
+        matches.sort(key=lambda item: (item["valid_from"], item["assertion_id"]))
+        total = len(matches)
+        items = tuple(matches[offset : offset + limit])
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
+
+    def entities_at_page(
+        self, location_uri: str, instant: datetime, *, limit: int, offset: int
+    ) -> QueryPage[str]:
+        """Page unique-location matches in canonical identifier order."""
+        entities = sorted(self.entities_at(location_uri, instant))
+        total = len(entities)
+        items = tuple(entities[offset : offset + limit])
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
 
     # -- internal maintenance (projector-only, keeps indexes consistent) -------
 

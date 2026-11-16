@@ -23,8 +23,8 @@ for _path in (REPO_ROOT / "tools", REPO_ROOT):
     if _path.as_posix() not in sys.path:
         sys.path.insert(0, _path.as_posix())
 
-from fastapi import FastAPI  # noqa: E402
-from fastapi.responses import FileResponse  # noqa: E402
+from fastapi import FastAPI, Request  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from foundry.console.api import (  # noqa: E402
@@ -36,6 +36,7 @@ from foundry.console.api import (  # noqa: E402
     projection,
     registry,
 )
+from foundry.query_service import QueryTimeoutError  # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -49,6 +50,14 @@ def create_app() -> FastAPI:
             "Read-only monitoring and token-gated, audited corrections for the semantic platform."
         ),
     )
+
+    @application.exception_handler(QueryTimeoutError)
+    async def query_timeout_handler(
+        _request: Request, _exception: QueryTimeoutError
+    ) -> JSONResponse:
+        """Return a gateway-timeout response for canceled operational queries."""
+        return JSONResponse(status_code=504, content={"detail": "operational query timed out"})
+
     for router in (
         overview.router,
         ontology.router,

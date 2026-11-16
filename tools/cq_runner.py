@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
+from typing import Protocol
 
 from ontology_utils import find_module_files
 from rdflib import Graph, Literal, URIRef
@@ -17,6 +18,35 @@ from rdflib.plugins.sparql import prepareQuery
 REPO_ROOT = Path(__file__).resolve().parent.parent
 QUERIES_DIR = REPO_ROOT / "benchmarks" / "queries"
 EXPECTED_DIR = REPO_ROOT / "benchmarks" / "expected_results"
+
+
+class SemanticQueryAdapter(Protocol):
+    """Minimal SELECT surface shared by competency-query backends."""
+
+    def select(self, query_text: str, bindings: dict[str, object]) -> tuple[list[str], list[list]]:
+        """Execute one prepared SELECT and return ordered variables and rows."""
+        ...
+
+
+class RDFLibQueryAdapter:
+    """RDFLib implementation of the shared competency-query contract."""
+
+    def __init__(self, graph: Graph) -> None:
+        """Use one loaded graph for all competency SELECT queries."""
+        self.graph = graph
+
+    def select(self, query_text: str, bindings: dict[str, object]) -> tuple[list[str], list[list]]:
+        """Run SELECT over the supplied graph with typed initial bindings."""
+        result = self.graph.query(prepareQuery(query_text), initBindings=bindings)
+        variables = [str(variable) for variable in result.vars]
+        rows = [
+            [
+                _normalize_cell(row[variable]) if row[variable] is not None else None
+                for variable in result.vars
+            ]
+            for row in result
+        ]
+        return variables, rows
 
 
 def _normalize_cell(value) -> object:
@@ -75,7 +105,12 @@ def _query_bindings(spec: dict) -> dict[str, object]:
     return bindings
 
 
-def run_query_spec(graph: Graph, spec: dict, *, queries_dir: Path = QUERIES_DIR) -> dict:
+def run_query_spec(
+    adapter: Graph | SemanticQueryAdapter,
+    spec: dict,
+    *,
+    queries_dir: Path = QUERIES_DIR,
+) -> dict:
     """Run one competency query spec and compare against its ground truth."""
     result: dict = {
         "id": spec.get("id"),
@@ -89,20 +124,11 @@ def run_query_spec(graph: Graph, spec: dict, *, queries_dir: Path = QUERIES_DIR)
     try:
         result["expected_rows"] = len(spec["rows"])
         query_text = (queries_dir / spec["query_file"]).read_text(encoding="utf-8")
-        binding_result = graph.query(prepareQuery(query_text), initBindings=_query_bindings(spec))
-
-        variables = [str(v) for v in binding_result.vars]
+        query_adapter = RDFLibQueryAdapter(adapter) if isinstance(adapter, Graph) else adapter
+        variables, actual_rows = query_adapter.select(query_text, _query_bindings(spec))
         if variables != spec["variables"]:
             result["error"] = f"projected variables {variables} != expected {spec['variables']}"
             return result
-
-        actual_rows: list[list] = []
-        for binding in binding_result:
-            row = [
-                _normalize_cell(binding[var]) if binding[var] is not None else None
-                for var in spec["variables"]
-            ]
-            actual_rows.append(row)
 
         expected = [
             [cell if cell is None or isinstance(cell, (bool, int)) else str(cell) for cell in row]
@@ -118,8 +144,19 @@ def run_query_spec(graph: Graph, spec: dict, *, queries_dir: Path = QUERIES_DIR)
         return result
 
 
-def run_competency_queries(graph: Graph | None = None) -> list[dict]:
+def run_competency_queries(
+    graph: Graph | None = None,
+    *,
+    adapter: SemanticQueryAdapter | None = None,
+) -> list[dict]:
     """Run every registered competency query; returns one result per spec."""
-    graph = graph if graph is not None else load_benchmark_graph()
+    if graph is not None and adapter is not None:
+        raise ValueError("provide graph or adapter, not both")
+    query_adapter = adapter or RDFLibQueryAdapter(
+        graph if graph is not None else load_benchmark_graph()
+    )
     specs = sorted(EXPECTED_DIR.glob("*.json"))
-    return [run_query_spec(graph, json.loads(spec.read_text(encoding="utf-8"))) for spec in specs]
+    return [
+        run_query_spec(query_adapter, json.loads(spec.read_text(encoding="utf-8")))
+        for spec in specs
+    ]

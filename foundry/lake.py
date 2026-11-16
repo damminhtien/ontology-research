@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import fcntl
 import json
-import os
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -36,29 +35,15 @@ from pathlib import Path
 from typing import Any
 
 from foundry.events import EVENT_TYPES, SemanticEvent
+from foundry.paths import lake_path
 from foundry.versioning import LAKE_VERSION
 
 MANIFEST_NAME = "manifest.json"
 
-# Fallback when the archival volume is unavailable (e.g. unmounted external
-# disk) — keeps tests and CI self-contained inside the repo.
-FALLBACK_ROOT_PARENT = "data"
-
-# Preferred archival root: the external "Data" volume with the largest free
-# space on the deployment machine.
-PREFERRED_ROOT = Path("/Volumes/Data/ontology-lake")
-
 
 def default_lake_root() -> Path:
-    """Resolve the lake root: env override, else /Volumes/Data, else repo ``data/``."""
-    env = os.environ.get("FOUNDRY_LAKE_ROOT")
-    if env:
-        return Path(env)
-    try:
-        PREFERRED_ROOT.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        return Path(FALLBACK_ROOT_PARENT) / "lake"
-    return PREFERRED_ROOT
+    """Resolve the lake root: override or ``~/Data/ontology-research/lake``."""
+    return lake_path()
 
 
 def parse_occurred_at(value: str) -> datetime:
@@ -125,7 +110,7 @@ class LakeWriter:
 
     Usage::
 
-        writer = LakeWriter()          # defaults to /Volumes/Data/ontology-lake
+        writer = LakeWriter()          # defaults to ~/Data/ontology-research/data/lake
         writer.write_events(events)   # buffers in memory
         writer.flush()                # writes one file per affected partition
     """
@@ -137,7 +122,7 @@ class LakeWriter:
         max_rows_per_file: int = 500_000,
         compression_level: int = 7,
     ) -> None:
-        """Create a writer; ``root`` defaults to ``$FOUNDRY_LAKE_ROOT`` or the repo default."""
+        """Create a writer; defaults to ``$FOUNDRY_LAKE_ROOT`` or the external Data root."""
         if max_rows_per_file < 1:
             raise ValueError("max_rows_per_file must be >= 1")
         if not 1 <= compression_level <= 22:

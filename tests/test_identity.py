@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from foundry.identity import IdentityService, normalize_name
+from foundry.identity import IdentityDecision, IdentityEvidence, IdentityService, normalize_name
+
+SAME_ENTITY_EVIDENCE = IdentityEvidence(
+    evidence_id="test:reviewed-same-entity",
+    source="test-fixture",
+    basis="explicit-test-confirmation",
+    recorded_by="pytest",
+)
 
 
 class TestNormalization:
@@ -35,35 +42,39 @@ class TestResolution:
 
     def test_exact_alias_match(self, service):
         result = service.resolve(name="USS Gerald R. Ford", entity_type="Platform")
-        assert result.method == "alias"
-        assert not result.is_new
+        assert result.method == "review"
+        assert result.decision == IdentityDecision.REVIEW
+        assert result.canonical_id == ""
+        assert len(result.candidates) == 1
 
     def test_similar_variant_is_proposed_for_review_not_merged(self, service):
         result = service.resolve(name="Gerald Ford Carrier", entity_type="Platform")
         assert result.method == "review"
         assert result.canonical_id == ""
-        original = service.resolve(name="USS Gerald R. Ford", entity_type="Platform")
+        original = service.lookup(name="USS Gerald R. Ford", entity_type="Platform")
         assert original.canonical_id in result.candidates
 
-    def test_trusted_external_id_creates_new_entity_on_fuzzy_hit(self, service):
-        """ADR-0006: a supplied external id asserts identity — no fuzzy review.
+    def test_new_authoritative_external_id_stays_distinct_on_fuzzy_hit(self, service):
+        """A new trusted identifier creates a distinct entity despite name overlap.
 
         Two records with distinct external ids are distinct entities even when
         their names lexically overlap; each binds to its own canonical id.
         """
         result = service.resolve(
             name="Gerald Ford Carrier",
-            external_source="naval-registry",
-            external_id="NVR-77",
+            external_source="wikidata",
+            external_id="Q999999",
             entity_type="Platform",
         )
         assert result.method == "new"
         assert result.is_new
-        assert result.candidates == ()
+        assert result.decision == IdentityDecision.NEW
+        assert len(result.candidates) == 1
+        assert result.canonical_id != result.candidates[0]
 
         # the new entity is resolvable by its external id from now on
         again = service.resolve(
-            external_source="naval-registry", external_id="NVR-77", entity_type="Platform"
+            external_source="wikidata", external_id="Q999999", entity_type="Platform"
         )
         assert again.method == "external_id"
         assert again.canonical_id == result.canonical_id
@@ -97,7 +108,7 @@ class TestResolution:
             IdentityService().resolve(entity_type="Platform")
 
     def test_register_rejects_type_conflict(self, service):
-        canonical = service.resolve(name="USS Gerald R. Ford", entity_type="Platform").canonical_id
+        canonical = service.lookup(name="USS Gerald R. Ford", entity_type="Platform").canonical_id
         with pytest.raises(ValueError, match="type conflict"):
             service.register(entity_id=canonical, entity_type="Person")
 
@@ -192,7 +203,7 @@ class TestAliasMultimap:
         svc.register(entity_id=a, entity_type="Organization", aliases=["Alpha"])
         svc.register(entity_id=b, entity_type="Organization", aliases=["Beta"])
         assert len(svc) == 2
-        svc.merge_entities(a, b)
+        svc.merge_entities(a, b, same_entity_evidence=SAME_ENTITY_EVIDENCE)
         assert len(svc) == 1  # b is a redirect, not a live entity
 
 
@@ -237,7 +248,7 @@ class TestMultiValuedExternalIds:
                 external_ids={"wikidata": "Q123"},
             )
 
-        svc.merge_entities(survivor, duplicate)
+        svc.merge_entities(survivor, duplicate, same_entity_evidence=SAME_ENTITY_EVIDENCE)
 
         result = svc.lookup(
             external_source="wikidata",

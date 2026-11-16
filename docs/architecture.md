@@ -1,7 +1,7 @@
 # Kiến trúc Semantic Foundry
 
 - Status: accepted
-- Last synchronized with source: 2026-11-12
+- Last synchronized with source: 2026-11-15
 - Historical audit baseline: ADR-0001…ADR-0010 and an operational snapshot of 47.628 events / 24.217 entities (2026-09-02)
 - Tài liệu này mô tả kiến trúc hiện tại và giữ lại lịch sử các vấn đề đã phát hiện cùng cách xử lý. Backlog còn mở nằm trong `roadmap.md`; các quyết định ban đầu nằm trong ADR.
 
@@ -22,15 +22,15 @@ Mọi thiết kế dưới đây phục tùng bốn nguyên tắc này — chún
   ─────────────     │                                              │
   Wikidata SPARQL ─►│ fetch/normalize ─► IdentityService ─► SHACL ─┼─► EventLog (JSONL, schema v4)
   (tools/ingest_    │ (foundry/wikidata.py)  (foundry/identity.py) │    data/production.jsonl
-   wikidata.py)     │                        pure lookup + mint    │    = WRITE MODEL (sự thật duy nhất)
-  Console seed ────►│ seed_console_data.py ──► IngestionPipeline ──┤
-  (data/events.jsonl│                                              │
+   wikidata.py)     │                        pure lookup + mint    │    ~/Data/ontology-research/data/production.jsonl
+  Console seed ────►│ seed_console_data.py ──► IngestionPipeline ──┤    = WRITE MODEL (sự thật duy nhất)
+  (demo log dưới    │                                              │
    = demo)          └──────────────┬───────────────────────────────┘
                                     │ persist_events()
                                     ▼
                     ┌──────────────────────────────┐   ┌───────────────────────────────┐
-   READ PATH        │ Lake (Parquet+zstd, manifest)│   │ Projector → ReadModel (CQRS)  │
-                    │ OLAP: DuckDB lake_query      │   │ foundry/projector.py (stream) │
+   READ PATH        │ Lake (Parquet+zstd, manifest)│   │ Projector worker → PostgreSQL │
+                    │ OLAP: DuckDB lake_query      │   │ indexed identity/read model   │
                     └──────────────────────────────┘   └───────────────────────────────┘
                                     │                          │
                                     ▼                          ▼
@@ -83,11 +83,13 @@ code hiện tại, không phải kế hoạch chuyển đổi còn mở.
 
 ### 4.1 Một log production duy nhất + transport bền vững (sửa D1, D2)
 
-**Invariant**: một production log mặc định (`data/production.jsonl`). Seed/demo dùng
-log riêng và **không bao giờ** là default của tool production. Writer an toàn:
+**Invariant**: một production log mặc định (`~/Data/ontology-research/data/production.jsonl`,
+override bằng `FOUNDRY_ADMIN_LOG`). Seed/demo dùng log riêng và **không bao giờ** là
+default của tool production. Thư mục `data/` trong worktree là symlink tới external
+data root. Writer an toàn:
 
 ```text
-EventLog (event schema v4; upcaster reads log v1–v3)
+EventLog (event schema v6; upcaster reads log v1–v5)
 ├── writer lock file (flock) — writer thứ hai fail nhanh, không xen kẽ
 ├── fsync mỗi batch (mỗi lần extend) — crash không mất batch đã báo thành công
 ├── segment files: production-000001.jsonl, … (roll khi đạt ngưỡng hoặc trước
@@ -112,16 +114,16 @@ nhất, làm nền cho mọi fact type sau này:
 ```text
 Document                          Assertion
   document_id (urn:doc:)            assertion_id (urn:assert:)
-  uri / title / fetched_at          subject_id   (canonical entity)
-  source_system                     predicate_iri (IRI tuyệt đối: core:locatedAt)
-  content_ref                       object       (location_uri / entity_id / literal)
+  uri / title / content_ref         subject_id   (canonical entity)
+  source_system / source_record_key predicate_iri (IRI tuyệt đối: core:locatedAt)
+  content_hash (SHA-256)            object       (location_uri / entity_id / literal)
                                     ── generic provenance, mọi assertion như nhau:
                                     valid_from / valid_until (valid-time, [from, until))
-                                    occurred_at             (event record-time)
+                                    recorded_at              (event record-time)
                                     source_ids[]            (Source refs)
                                     evidence[]              (source locator/span)
-                                    confidence
-                                    status: asserted | superseded (read model)
+                                    model_score / evidence_quality
+                                    status: asserted | superseded | retracted (read model)
                                     supersedes: assertion_id | null
 ```
 
@@ -131,7 +133,7 @@ Quy tắc hiện hành:
   `AssertionSuperseded` (retract assertion). Correction tạo assertion thay thế
   với `supersedes` trỏ assertion trước đó. `LocationObserved` cũ được upcast
   thành `AssertionMade(predicate_iri=core:locatedAt)` khi đọc; producer mới chỉ
-  dùng assertion lane (event schema v4, `CHANGELOG-DATA.md`).
+  dùng assertion lane (event schema v6, `CHANGELOG-DATA.md`).
 - **Assertion là information object, không phải event**: `assertion:Assertion ⊑
   core:InformationObject`; quan hệ là một node trong graph
   (`assertion:predicate` → IRI của property, vd `core:locatedAt`), nên hai mệnh
@@ -149,8 +151,19 @@ Quy tắc hiện hành:
   measurement predicates là projection/output-only, không được ingest như world
   assertions.
 - Source IDs được chuẩn hóa thành `core:Source`; evidence giữ source-local
-  locator/span. Unresolved subjects dùng `identity:UnresolvedReference`, không
-  được gán kiểu `core:Entity`.
+  locator/span và exact text khi có. `model_score` mô tả điểm của extractor;
+  `evidence_quality` đánh giá chất lượng nguồn độc lập. Không trường nào trong
+  hai trường này biểu thị xác suất fact đúng. Unresolved subjects dùng
+  `identity:UnresolvedReference`, không được gán kiểu `core:Entity`.
+- `recorded_at` luôn tách khỏi valid-time. Cùng source record và cùng SHA-256
+  content hash tạo lại cùng document event; nội dung khác tạo document version
+  mới nhưng giữ nguyên source-record key. Entity/source-record events cũng lưu
+  stable key và hash của payload nguồn đã chuẩn hóa.
+- Replacement assertion phải trỏ tới assertion chưa được thay thế; một khóa
+  trạng thái duy nhất ngăn retry ghi lặp hoặc hai correction cùng thay một
+  claim. Replay giữ predecessor với trạng thái `superseded`; retraction không
+  có replacement có trạng thái `retracted`. Các giá trị valid-time chồng lấn
+  mà không có correction vẫn hiện thành conflict.
 - Entity creation giữ nguyên `EntityCreated` (đã đúng vai trò event).
 
 Location and other facts now share the same assertion lane. The v3→v4 upcaster
@@ -164,15 +177,17 @@ migrates legacy location events on read without rewriting log bytes.
 - **Per-event idempotency**: read model giữ watermark các event đã apply
   (checkpoint); apply lại event cũ = no-op thật, không chỉ "replay toàn phần cho
   cùng kết quả".
-- **Checkpoint**: lưu `last_sequence` cạnh read model; khởi động lại chỉ replay
-  phần tăng thêm.
+- **Checkpoint**: PostgreSQL lưu `last_sequence` trong cùng transaction với
+  projection writes và event idempotency row; khởi động lại chỉ replay phần tăng thêm.
 - **Streaming log replay**: `EventLog.iter_all()` kiểm tra từng dòng mà không
   nạp cả file vào RAM; `replay_log()` dùng `Projector.replay_in_order()`. API
   `read_all()` và `Projector.replay()` vẫn giữ cho caller cần list/sort.
 - **Streaming-safe**: `rebuild_location_index()` biến thành cập nhật tăng dần
   bên trong từng apply — bỏ invariant "chỉ đúng sau batch replay".
-- Identity registry và read model vẫn in-memory theo ADR-0004; streaming tránh
-  giữ thêm toàn bộ event list nhưng không thay giới hạn RAM của hai index.
+- **Incremental event source**: `EventLog.iter_after_sequence()` dùng segment
+  metadata để bỏ qua segment hoàn tất trước checkpoint; chỉ đọc phần log mới.
+- `ReadModel` in-memory vẫn có cho test và demo; operational mode dùng
+  `PostgresReadModelStore` để API không nạp toàn graph vào RAM.
 
 ### 4.4 Lake: manifest-authoritative + compaction + dedup (sửa D5, D10)
 
@@ -185,11 +200,16 @@ migrates legacy location events on read without rewriting log bytes.
   mới đã rename.
 - Writer lấy cùng flock discipline với log — một writer tại một thời điểm.
 
-### 4.5 Identity: persistent boundary + durable review queue + un-merge (sửa D7)
+### 4.5 Identity: persistent PostgreSQL indexes + durable review queue + un-merge (sửa D7)
 
 - Registry tiếp tục là projection của log (ADR-0010) nhưng có **store boundary**:
-  interface `IdentityStore` với backend mặc định in-memory-rebuilt-from-log;
-  backend SQLite/graph-db thay vào sau không đổi `IdentityService`.
+  interface `IdentityStore` có backend in-memory cho test và
+  `PostgresIdentityStore` cho operational mode. Alias/token, source-record,
+  cannot-link, merge redirect và external-id indexes đều nằm trong PostgreSQL;
+  namespace không unique giữ multimap semantics.
+- Projector worker cập nhật identity, assertion/relation indexes và checkpoint
+  trong cùng transaction. `tools/project_events.py --rebuild` xóa projection
+  PostgreSQL rồi replay theo luồng; nó không sửa event log.
 - **Review queue thành first-class**: mọi rejection/ambiguous (kèm payload,
   candidates, reason) append vào log bằng event `ResolutionReviewQueued` —
   review được replay, thống kê được, không mất khi process chết. Merge CLI đọc

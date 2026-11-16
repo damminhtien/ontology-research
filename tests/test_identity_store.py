@@ -20,6 +20,7 @@ from foundry.events import (
     make_event,
 )
 from foundry.identity import (
+    IdentityEvidence,
     IdentityService,
     InMemoryIdentityStore,
 )
@@ -27,6 +28,7 @@ from foundry.merge import rebuild_identity
 
 SURVIVOR = "urn:world:entity:" + "a" * 32
 DUPLICATE = "urn:world:entity:" + "b" * 32
+SAME_ENTITY_EVIDENCE = IdentityEvidence("test:merge", "fixture", "explicit", "pytest")
 
 
 class RecordingStore(InMemoryIdentityStore):
@@ -83,7 +85,7 @@ def _exercise(svc: IdentityService) -> dict[str, object]:
     svc.add_external_id(b, "wikidata", "Q2")
     out["lookup_external"] = svc.lookup(external_source="wikidata", external_id="Q2")
     out["lookup_alias"] = svc.lookup(name="alpha unit", entity_type="Platform")
-    out["merge"] = svc.merge_entities(a, b)
+    out["merge"] = svc.merge_entities(a, b, same_entity_evidence=SAME_ENTITY_EVIDENCE)
     # a third party re-claims the external id while b is merged away
     svc.add_external_id(b, "wikidata", "Q2")
     out["split"] = svc.split_entity(
@@ -152,7 +154,7 @@ def test_merge_and_split_route_through_the_store():
     a = svc.resolve(name="Alpha", entity_type="Platform").canonical_id
     b = svc.resolve(name="Beta", entity_type="Platform").canonical_id
     svc.add_external_id(b, "wikidata", "Q1")
-    outcome = svc.merge_entities(a, b)
+    outcome = svc.merge_entities(a, b, same_entity_evidence=SAME_ENTITY_EVIDENCE)
     assert f"merge:{b}->{a}" in store.calls
     assert f"detach:{b}" in store.calls
     assert store.merge_redirects() == {b: a}
@@ -240,7 +242,7 @@ def test_rebuild_identity_uses_the_in_memory_backend(tmp_path):
     manual.register(entity_id=SURVIVOR, entity_type="Platform", aliases=["Alpha Unit"])
     manual.register(entity_id=DUPLICATE, entity_type="Platform", aliases=["Beta Unit"])
     manual.add_external_id(DUPLICATE, "wikidata", "Q2")
-    manual.merge_entities(SURVIVOR, DUPLICATE)
+    manual.merge_entities(SURVIVOR, DUPLICATE, same_entity_evidence=SAME_ENTITY_EVIDENCE)
     assert rebuilt.identity(SURVIVOR) == manual.identity(SURVIVOR)
     assert rebuilt.identity(DUPLICATE) == manual.identity(DUPLICATE)
     assert rebuilt.merged_into(DUPLICATE) == SURVIVOR

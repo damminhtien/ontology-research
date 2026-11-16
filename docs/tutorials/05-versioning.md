@@ -58,8 +58,8 @@ Luồng release chuẩn khi có thay đổi hợp lệ:
 .venv/bin/python tools/manage_ontology.py release core --dry-run
 # 4. preflight: lặp --data cho mọi nguồn dữ liệu authoritative
 .venv/bin/python tools/manage_ontology.py migrate core \
-    --data data/production.jsonl \
-    --data data/lake
+    --data "$HOME/Data/ontology-research/data/production.jsonl" \
+    --data "$HOME/Data/ontology-research/data/lake"
 # Review both generated files before applying the migration.
 # 5. ghi release (MAJOR bắt buộc migration note; script phải có report khớp)
 MIGRATION_SCRIPT="migrations/core/2.0.0_to_3.0.0.rq" # example; thay bằng path migrate đã in

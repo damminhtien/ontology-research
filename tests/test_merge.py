@@ -7,7 +7,7 @@ from dataclasses import replace
 import pytest
 
 from foundry.events import EventLog, make_event
-from foundry.identity import IdentityService
+from foundry.identity import IdentityDecision, IdentityEvidence, IdentityService
 from foundry.lake import persist_events
 from foundry.merge import merge_entities, rebuild_identity, split_entities
 from foundry.projector import replay_log
@@ -17,6 +17,9 @@ E1 = "urn:world:entity:" + "a" * 32
 E2 = "urn:world:entity:" + "b" * 32
 LOC_A = "https://data.example/entity/loc-da-nang"
 LOC_B = "https://data.example/entity/loc-cam-ranh"
+SAME_ENTITY_EVIDENCE = IdentityEvidence(
+    "test:reviewed-merge", "test-fixture", "explicit-confirmation", "pytest"
+)
 
 
 def _undermerged_service() -> tuple[IdentityService, str, str]:
@@ -51,14 +54,15 @@ def _undermerged_service() -> tuple[IdentityService, str, str]:
 class TestIdentityMerge:
     def test_merge_moves_bindings_to_survivor(self):
         svc, survivor, duplicate = _undermerged_service()
-        outcome = svc.merge_entities(survivor, duplicate)
+        outcome = svc.merge_entities(survivor, duplicate, same_entity_evidence=SAME_ENTITY_EVIDENCE)
 
         assert "Bach Khoa Hanoi" in outcome.moved_aliases
         assert ("wikidata", "Q2000002") in outcome.moved_external_ids
         _, aliases, external_ids = svc.identity(duplicate)
         assert aliases == frozenset() and external_ids == {}
         resolved = svc.resolve(name="Bach Khoa Hanoi", entity_type="Organization")
-        assert resolved.canonical_id == survivor
+        assert resolved.decision == IdentityDecision.REVIEW
+        assert resolved.candidates == (survivor,)
         assert (
             svc.resolve(
                 external_source="wikidata",
@@ -79,7 +83,7 @@ class TestIdentityMerge:
         person = svc.resolve(name="Some Person", entity_type="Person").canonical_id
         with pytest.raises(ValueError, match="type conflict"):
             svc.merge_entities(person, duplicate)
-        svc.merge_entities(survivor, duplicate)
+        svc.merge_entities(survivor, duplicate, same_entity_evidence=SAME_ENTITY_EVIDENCE)
         with pytest.raises(ValueError, match="already been merged"):
             svc.merge_entities(survivor, duplicate)
 
@@ -91,15 +95,15 @@ class TestIdentityMerge:
             external_id="Q3000003",
             entity_type="Organization",
         ).canonical_id
-        svc.merge_entities(third, duplicate)
-        svc.merge_entities(survivor, third)
+        svc.merge_entities(third, duplicate, same_entity_evidence=SAME_ENTITY_EVIDENCE)
+        svc.merge_entities(survivor, third, same_entity_evidence=SAME_ENTITY_EVIDENCE)
         assert svc.merged_into(duplicate) == survivor
         assert svc.merged_into(third) == survivor
 
     def test_fuzzy_index_consistent_after_unbind(self):
         svc, survivor, duplicate = _undermerged_service()
         before = sorted(svc._fuzzy_candidates("bach khoa hanoi"))
-        svc.merge_entities(survivor, duplicate)
+        svc.merge_entities(survivor, duplicate, same_entity_evidence=SAME_ENTITY_EVIDENCE)
         after = sorted(svc._fuzzy_candidates("bach khoa hanoi"))
         assert before != []  # sanity: the alias was a candidate before the merge
         assert after == [(survivor, before[0][1])]
@@ -114,6 +118,7 @@ class TestMergeEvent:
             log=log,
             survivor_id=survivor,
             duplicate_id=duplicate,
+            same_entity_evidence=SAME_ENTITY_EVIDENCE,
             reason="duplicate QID pair",
         )
 
@@ -137,6 +142,7 @@ class TestMergeEvent:
                 log=log,
                 survivor_id=survivor,
                 duplicate_id="urn:world:entity:missing",
+                same_entity_evidence=SAME_ENTITY_EVIDENCE,
             )
         assert log.read_all() == []
 
@@ -173,11 +179,18 @@ class TestRebuildIdentity:
                 },
             )
         )
-        merge_entities(identity=svc, log=log, survivor_id=survivor, duplicate_id=duplicate)
+        merge_entities(
+            identity=svc,
+            log=log,
+            survivor_id=survivor,
+            duplicate_id=duplicate,
+            same_entity_evidence=SAME_ENTITY_EVIDENCE,
+        )
 
         rebuilt = rebuild_identity(log)
         resolved = rebuilt.resolve(name="Bach Khoa Hanoi", entity_type="Organization")
-        assert resolved.canonical_id == survivor
+        assert resolved.decision == IdentityDecision.REVIEW
+        assert resolved.candidates == (survivor,)
         assert rebuilt.merged_into(duplicate) == survivor
         with pytest.raises(ValueError, match="already been merged"):
             rebuilt.merge_entities(survivor, duplicate)
@@ -256,7 +269,9 @@ class TestRebuildIdentity:
             )
         )
         rebuilt = rebuild_identity(log)
-        assert rebuilt.resolve(name="Legacy Vessel", entity_type="Platform").canonical_id == E1
+        legacy = rebuilt.resolve(name="Legacy Vessel", entity_type="Platform")
+        assert legacy.decision == IdentityDecision.REVIEW
+        assert legacy.candidates == (E1,)
 
 
 def _sequenced_event(seq: int, event_type: str, payload: dict):
@@ -401,6 +416,7 @@ class TestUnmerge:
             log=log,
             survivor_id=survivor,
             duplicate_id=duplicate,
+            same_entity_evidence=SAME_ENTITY_EVIDENCE,
             reason="looked like a duplicate",
         )
         assert svc.merged_into(duplicate) == survivor
@@ -421,10 +437,9 @@ class TestUnmerge:
         _, dup_aliases, dup_ext = svc.identity(duplicate)
         assert dup_ext["wikidata"] == frozenset({"Q2000002"})
         assert "Bach Khoa Hanoi" in dup_aliases
-        assert (
-            svc.resolve(name="Bach Khoa Hanoi", entity_type="Organization").canonical_id
-            == duplicate
-        )
+        resolved = svc.resolve(name="Bach Khoa Hanoi", entity_type="Organization")
+        assert resolved.decision == IdentityDecision.REVIEW
+        assert resolved.candidates == (duplicate,)
         assert (
             svc.resolve(
                 external_source="wikidata", external_id="Q2000002", entity_type="Organization"
@@ -476,7 +491,13 @@ class TestUnmerge:
                 },
             )
         )
-        merge_entities(identity=svc, log=log, survivor_id=survivor, duplicate_id=duplicate)
+        merge_entities(
+            identity=svc,
+            log=log,
+            survivor_id=survivor,
+            duplicate_id=duplicate,
+            same_entity_evidence=SAME_ENTITY_EVIDENCE,
+        )
         split_entities(identity=svc, log=log, survivor_id=survivor, duplicate_id=duplicate)
 
         rebuilt = rebuild_identity(log)

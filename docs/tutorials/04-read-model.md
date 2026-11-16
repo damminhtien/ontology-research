@@ -10,12 +10,14 @@ Event log (write) ──► Projector ──► ReadModel (read)
    correctness            fold          speed
 ```
 
-- **Write model** (`data/events.jsonl` cho demo; `data/production.jsonl` cho
-  production): append-only, đầy đủ provenance.
+- **Write model** (`~/Data/ontology-research/data/events.jsonl` cho demo;
+  `~/Data/ontology-research/data/production.jsonl` cho production): append-only,
+  đầy đủ provenance.
 - **Projector** (`foundry/projector.py`): fold log thành read model; replay
   theo `sequence`, checkpointed và idempotent theo từng event.
-- **ReadModel** (`foundry/readmodel.py`): in-memory indexes trả lời query nóng
-  không đụng ontology/SPARQL ([ADR-0004](../adr/ADR-0004-cqrs-read-model.md)).
+- **ReadModelStore**: PostgreSQL indexes trả lời query nóng trong operational
+  mode; `ReadModel` in-memory vẫn dùng cho tests và offline demos. Cả hai không
+  gọi ontology/SPARQL ([ADR-0004](../adr/ADR-0004-cqrs-read-model.md)).
 
 Ba hot query của read model:
 
@@ -37,12 +39,15 @@ query latency, peak process RSS and event-log bytes, then writes
 committed query SLO baseline is in `benchmarks/baseline.json`.
 
 !!! note "Đọc số liệu đúng cách"
-    Event log và projector đọc theo luồng, nhưng identity/read-model indexes vẫn
-    in-memory. Synthetic ingest tính cả tạo event và ghi log (không qua SHACL);
-    đây không phải tốc độ production. Recovery trong report là full replay vào
-    model mới, không phải thời gian restore snapshot. Chỉ so RSS giữa các lần
-    chạy riêng process. Query p95 là percentile của các probe trung bình 100 lần
-    gọi warm; baseline SLO dùng cùng phép đo.
+    Benchmark tổng hợp giữ in-memory model để so sánh với baseline lịch sử;
+    đây không phải phép đo PostgreSQL. Synthetic ingest tính cả tạo event và
+    ghi log (không qua SHACL). Recovery trong report là full replay vào model
+    mới. Chỉ so RSS giữa các lần chạy riêng process. Query p95 là percentile
+    của các probe trung bình 100 lần gọi warm; baseline SLO dùng cùng phép đo.
+
+Operational setup uses an external PostgreSQL worker and data root; see the
+[PostgreSQL guide](../guides/postgres-readmodel.md) for migration, catch-up,
+rebuild, and restart checks.
 
 Tăng scale để stress test (không commit kết quả — `build/` đã gitignore):
 

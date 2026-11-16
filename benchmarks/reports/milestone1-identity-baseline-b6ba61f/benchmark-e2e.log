@@ -1,0 +1,34 @@
+{
+  "ingest": {
+    "count": 643,
+    "seconds": 3.2924,
+    "events_per_second": 195.3,
+    "accepted": 643,
+    "rejected": 0,
+    "pending": 10
+  },
+  "lake_persist": {
+    "count": 620,
+    "seconds": 0.0647,
+    "events_per_second": 9585.5
+  },
+  "projector": {
+    "count": 103540,
+    "seconds": 0.5022,
+    "events_per_second": 206186.6,
+    "entities": 300,
+    "events_per_pass": 620,
+    "replay_passes": 167,
+    "warmup_passes": 1,
+    "minimum_measure_seconds": 0.5
+  },
+  "lake_query": {
+    "count": 3,
+    "seconds": 0.2823,
+    "events_per_second": 10.6,
+    "p50_ms": 8.141,
+    "p95_ms": 8.914,
+    "runs": 30
+  }
+}
+report written to /Users/macbook/Desktop/workspace/ontology-research/build/benchmark-e2e-report.json

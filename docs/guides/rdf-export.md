@@ -51,7 +51,7 @@ without an existing RDF mapper are skipped and listed by the CLI.
 
 ```bash
 .venv/bin/python tools/export_rdf.py \
-  --event-log data/events.jsonl \
+  --event-log "$HOME/Data/ontology-research/data/events.jsonl" \
   --profile interop-v1 \
   --output build/events.trig \
   --geometry data/location-geometry.csv \

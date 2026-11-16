@@ -11,7 +11,8 @@ with its own stable id, generic provenance and bi-temporal timestamps:
     object                            {kind: entity|location|literal, value, ...}
     valid_from / valid_until          half-open valid-time interval
     source_ids[]                      normalized provenance Source references
-    confidence                        optional 0..1
+    recorded_at                       event record-time, separate from valid time
+    model_score / evidence_quality    independent, non-probabilistic metadata
 
 ``predicate_iri`` is what the RDF mapping needs: the relation is a node in the
 graph, so ``locatedAt`` and ``memberOf`` about the same subject and object are
@@ -27,7 +28,7 @@ A literal object keeps its type: the payload carries ``datatype_iri`` or
 does not silently become a string in RDF and a Vietnamese label keeps its tag.
 
 Validation is split in two layers: :func:`build_assertion` checks *syntax*
-(absolute IRIs, well-formed object, timestamp, confidence) and the ingestion
+(absolute IRIs, well-formed object, time bounds, model score) and the ingestion
 pipeline checks the *semantic* contract (``is_known_predicate`` against the
 registered ontology); SHACL then enforces the structural RDF constraints.
 
@@ -44,9 +45,13 @@ and :func:`assertion_to_rdf` maps the events onto that model.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Collection
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
+from pyshacl import validate
 from rdflib import BNode, Graph, Literal, URIRef
 from rdflib.collection import Collection as RDFCollection
 from rdflib.namespace import OWL, RDF, RDFS, XSD
@@ -67,10 +72,9 @@ from foundry.namespaces import (
     DEFAULT_LITERAL_DATATYPE,
     IDENTITY_MIDDLE_NS,
     new_assertion_id,
-    new_document_id,
     require_absolute_iri,
 )
-from foundry.provenance import normalize_evidence
+from foundry.provenance import SourceRecord, content_sha256, normalize_evidence
 from foundry.readmodel import parse_instant
 
 OBJECT_KINDS = ("entity", "location", "literal")
@@ -83,31 +87,69 @@ def register_document(
     title: str,
     source_system: str,
     content_ref: str | None = None,
+    record_id: str | None = None,
+    content: str | bytes | None = None,
+    content_hash: str | None = None,
 ) -> SemanticEvent:
-    """Record a provenance source document.
+    """Validate and durably register one source document version.
+
+    ``record_id`` is stable across versions; ``content_hash`` distinguishes
+    versions. Replaying the same record and bytes returns its original event.
 
     Raises:
         ValueError: On empty uri, title or source_system.
     """
-    if not uri.strip():
-        raise ValueError("document uri must be non-empty")
+    uri = require_absolute_iri(uri, "document uri")
     if not title.strip():
         raise ValueError("document title must be non-empty")
     if not source_system.strip():
         raise ValueError("source_system must be non-empty")
-    event = make_event(
-        EVENT_TYPE_DOCUMENT_REGISTERED,
-        {
-            "document_id": new_document_id(),
-            "uri": uri,
-            "title": title,
-            "source_system": source_system,
-            "content_ref": content_ref,
-            "registered_at": utc_now_iso(),
-        },
+    stable_record_id = record_id.strip() if record_id is not None else uri.strip()
+    if content_hash is None:
+        if content is None:
+            raise ValueError("document content or an explicit content_hash is required")
+        content_hash = content_sha256(content)
+    elif content is not None and content_hash != content_sha256(content):
+        raise ValueError("content_hash does not match the supplied document content")
+    source_record = SourceRecord(source_system, stable_record_id, content_hash)
+    document_id = "urn:doc:" + content_sha256(f"{source_record.key}\0{source_record.content_hash}")
+    payload = {
+        "document_id": document_id,
+        "uri": uri.strip(),
+        "title": title.strip(),
+        "source_system": source_system.strip(),
+        "source_id": source_record.source_id,
+        "source_record_id": source_record.record_id,
+        "source_record_key": source_record.key,
+        "content_hash": source_record.content_hash,
+        "content_ref": content_ref,
+    }
+    event = make_event(EVENT_TYPE_DOCUMENT_REGISTERED, payload)
+    event = replace(event, payload={**event.payload, "recorded_at": event.occurred_at})
+
+    graph = Graph()
+    document_to_rdf(graph, event)
+    shape_path = Path(__file__).resolve().parent.parent / "shapes" / "assertion_shapes.ttl"
+    shapes = Graph().parse(shape_path.as_posix(), format="turtle")
+    conforms, _, report = validate(
+        data_graph=graph,
+        shacl_graph=shapes,
+        inference="none",
+        advanced=True,
     )
-    log.append(event)
-    return event
+    if not conforms:
+        raise ValueError(f"DocumentRegistered SHACL violation: {report.strip()}")
+
+    stable_request = {key: value for key, value in payload.items() if key != "document_id"}
+    fingerprint = content_sha256(
+        json.dumps(stable_request, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    )
+    result = log.commit(
+        [event],
+        idempotency_key=f"document:{source_record.key}:{source_record.content_hash}",
+        request_fingerprint=fingerprint,
+    )
+    return result.events[0]
 
 
 def _find_assertion_event(log: EventLog, assertion_id: str) -> SemanticEvent | None:
@@ -121,10 +163,16 @@ def _find_assertion_event(log: EventLog, assertion_id: str) -> SemanticEvent | N
 
 
 def is_superseded(log: EventLog, assertion_id: str) -> bool:
-    """True when the log records an ``AssertionSuperseded`` for this id."""
+    """Return whether retraction or replacement has ended this assertion."""
     return any(
-        event.event_type == EVENT_TYPE_ASSERTION_SUPERSEDED
-        and event.payload.get("assertion_id") == assertion_id
+        (
+            event.event_type == EVENT_TYPE_ASSERTION_SUPERSEDED
+            and event.payload.get("assertion_id") == assertion_id
+        )
+        or (
+            event.event_type == EVENT_TYPE_ASSERTION_MADE
+            and event.payload.get("supersedes") == assertion_id
+        )
         for event in log.read_all()
     )
 
@@ -141,6 +189,8 @@ def build_assertion(
     valid_until: str | None = None,
     evidence: list[dict[str, object]] | None = None,
     confidence: float | None = None,
+    model_score: float | None = None,
+    evidence_quality: str = "unknown",
     supersedes: str | None = None,
     literal_datatype_iri: str | None = None,
     literal_language: str | None = None,
@@ -172,7 +222,10 @@ def build_assertion(
             the source references).
         valid_until: Exclusive end of the half-open interval.
         evidence: Inline source-local locator/span references.
-        confidence: Optional 0..1.
+        confidence: Deprecated alias for ``model_score``. Neither field is a
+            probability that the assertion is true.
+        model_score: Optional extractor/system score in [0,1].
+        evidence_quality: Categorical evidence assessment independent of score.
         supersedes: Assertion id this statement replaces.
         literal_datatype_iri: Datatype of a literal object. Mutually exclusive
             with ``literal_language``; defaults to ``xsd:string``. Forbidden
@@ -186,7 +239,7 @@ def build_assertion(
     Raises:
         ValueError: On malformed input (relative predicate IRI, unknown object
             kind, a datatype/language tag on an IRI object, both a datatype and
-            a language tag on a literal, a malformed timestamp, confidence
+            a language tag on a literal, a malformed timestamp, a model score
             outside ``[0, 1]``), an unknown subject, or a ``supersedes`` target
             that is not in ``known_assertions``.
     """
@@ -206,8 +259,21 @@ def build_assertion(
     parse_instant(valid_from)  # validates the xsd:dateTime form
     if valid_until is not None and parse_instant(valid_until) <= parse_instant(valid_from):
         raise ValueError("valid_until must be later than valid_from (half-open interval)")
-    if confidence is not None and not 0.0 <= confidence <= 1.0:
-        raise ValueError(f"confidence {confidence} outside [0, 1]")
+    if confidence is not None and model_score is not None:
+        raise ValueError("supply model_score; confidence is a deprecated alias")
+    score = model_score if model_score is not None else confidence
+    if score is not None and (
+        isinstance(score, bool)
+        or not isinstance(score, (int, float))
+        or not math.isfinite(score)
+        or not 0.0 <= score <= 1.0
+    ):
+        raise ValueError(f"model_score {score} outside [0, 1]")
+    if not isinstance(evidence_quality, str):
+        raise ValueError("evidence_quality must be a string")
+    evidence_quality = evidence_quality.strip().lower()
+    if evidence_quality not in {"direct", "corroborated", "indirect", "weak", "unknown"}:
+        raise ValueError(f"unsupported evidence_quality {evidence_quality!r}")
     if subject_id and subject_ref is not None:
         raise ValueError("supply exactly one canonical subject_id or subject_ref")
     if not subject_id and subject_ref is None:
@@ -232,7 +298,7 @@ def build_assertion(
         raise ValueError(f"supersedes target {supersedes!r} is not a recorded assertion")
 
     normalized_source_ids, evidence_refs = normalize_evidence(source_ids, evidence)
-    return make_event(
+    event = make_event(
         EVENT_TYPE_ASSERTION_MADE,
         {
             "assertion_id": new_assertion_id(),
@@ -244,10 +310,14 @@ def build_assertion(
             "valid_until": valid_until,
             "source_ids": list(normalized_source_ids),
             "evidence": list(evidence_refs),
-            "confidence": confidence,
+            "recorded_at": None,
+            "status": "asserted",
+            "model_score": score,
+            "evidence_quality": evidence_quality,
             "supersedes": supersedes,
         },
     )
+    return replace(event, payload={**event.payload, "recorded_at": event.occurred_at})
 
 
 def _literal_object(
@@ -309,10 +379,13 @@ def make_assertion(
     valid_until: str | None = None,
     evidence: list[dict[str, object]] | None = None,
     confidence: float | None = None,
+    model_score: float | None = None,
+    evidence_quality: str = "unknown",
     supersedes: str | None = None,
     literal_datatype_iri: str | None = None,
     literal_language: str | None = None,
     identity: IdentityService | None = None,
+    idempotency_key: str | None = None,
 ) -> SemanticEvent:
     """Record one statement about the world as a reified assertion.
 
@@ -329,7 +402,10 @@ def make_assertion(
         valid_until: Exclusive end of the half-open validity interval.
         source_ids: Provenance references.
         evidence: Inline source-local locator/span references.
-        confidence: Optional 0..1.
+        confidence: Deprecated alias for model_score.
+        idempotency_key: Stable key for retrying this logical assertion.
+        model_score: Optional extractor/system score in [0,1], not a fact probability.
+        evidence_quality: Categorical evidence assessment independent of score.
         supersedes: Assertion id this statement replaces.
         literal_datatype_iri: Datatype of a literal object (default
             ``xsd:string``); mutually exclusive with ``literal_language``.
@@ -358,14 +434,28 @@ def make_assertion(
         valid_until=valid_until,
         evidence=evidence,
         confidence=confidence,
+        model_score=model_score,
+        evidence_quality=evidence_quality,
         supersedes=supersedes,
         literal_datatype_iri=literal_datatype_iri,
         literal_language=literal_language,
         identity=identity,
         known_assertions=known,
     )
-    log.append(event)
-    return event
+    operation_key = f"assertion-status:{supersedes}" if supersedes is not None else idempotency_key
+    fingerprint = assertion_request_fingerprint(event)
+    if operation_key is not None:
+        prior = log.find_idempotency(operation_key, request_fingerprint=fingerprint)
+        if prior is not None:
+            return prior.events[0]
+    if supersedes is not None and is_superseded(log, supersedes):
+        raise ValueError(f"supersedes target {supersedes!r} is already superseded")
+    if operation_key is None:
+        log.append(event)
+        return event
+    return log.commit(
+        [event], idempotency_key=operation_key, request_fingerprint=fingerprint
+    ).events[0]
 
 
 def supersede_assertion(*, log: EventLog, assertion_id: str, reason: str = "") -> SemanticEvent:
@@ -374,6 +464,20 @@ def supersede_assertion(*, log: EventLog, assertion_id: str, reason: str = "") -
     Raises:
         ValueError: If the assertion was never made, or is already superseded.
     """
+    key = f"assertion-status:{assertion_id}"
+    fingerprint = content_sha256(
+        json.dumps(
+            {"operation": "retract", "assertion_id": assertion_id, "reason": reason},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    prior = log.find_idempotency(key)
+    if prior is not None:
+        if prior.events[0].event_type == EVENT_TYPE_ASSERTION_SUPERSEDED:
+            return log.find_idempotency(key, request_fingerprint=fingerprint).events[0]
+        raise ValueError(f"assertion {assertion_id!r} is already superseded")
     if _find_assertion_event(log, assertion_id) is None:
         raise ValueError(f"unknown assertion {assertion_id!r}")
     if is_superseded(log, assertion_id):
@@ -386,8 +490,7 @@ def supersede_assertion(*, log: EventLog, assertion_id: str, reason: str = "") -
             "superseded_at": utc_now_iso(),
         },
     )
-    log.append(event)
-    return event
+    return log.commit([event], idempotency_key=key, request_fingerprint=fingerprint).events[0]
 
 
 def load_assertions(log: EventLog) -> dict[str, dict[str, Any]]:
@@ -396,11 +499,16 @@ def load_assertions(log: EventLog) -> dict[str, dict[str, Any]]:
     for event in log.read_all():
         payload = event.payload
         if event.event_type == EVENT_TYPE_ASSERTION_MADE:
-            ledger[payload["assertion_id"]] = {**payload, "status": "asserted"}
+            assertion_id = payload["assertion_id"]
+            ledger[assertion_id] = {**payload, "status": "asserted"}
+            superseded_id = payload.get("supersedes")
+            if superseded_id in ledger:
+                ledger[superseded_id]["status"] = "superseded"
+                ledger[superseded_id]["superseded_by"] = assertion_id
         elif event.event_type == EVENT_TYPE_ASSERTION_SUPERSEDED:
             entry = ledger.get(payload["assertion_id"])
             if entry is not None:
-                entry["status"] = "superseded"
+                entry["status"] = "retracted"
                 entry["superseded_reason"] = payload.get("reason", "")
     return ledger
 
@@ -410,6 +518,28 @@ def dump_assertions(ledger: dict[str, dict[str, Any]]) -> str:
     return "\n".join(
         json.dumps({**entry, "assertion_id": assertion_id}, ensure_ascii=False, sort_keys=True)
         for assertion_id, entry in sorted(ledger.items())
+    )
+
+
+def assertion_request_fingerprint(event: SemanticEvent) -> str:
+    """Hash assertion identity without generated or model-scored metadata.
+
+    A retry for the same evidence and asserted statement must remain
+    idempotent if an extractor's score drifts between runs. The first durable
+    score remains part of the event; callers need a new idempotency key to
+    record a separate assessment.
+    """
+    payload = dict(event.payload)
+    payload.pop("assertion_id", None)
+    payload.pop("recorded_at", None)
+    payload.pop("model_score", None)
+    return content_sha256(
+        json.dumps(
+            {"event_type": event.event_type, "payload": payload},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
     )
 
 
@@ -549,7 +679,7 @@ def document_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
     """Add the RDF mapping of one ``DocumentRegistered`` event; returns its node.
 
     The document is an ``assertion:Document`` (a subclass of ``core:Source``)
-    carrying its title as ``core:name``.
+    carrying its title, source-record key, content hash and record time.
     """
     if event.event_type != EVENT_TYPE_DOCUMENT_REGISTERED:
         raise ValueError(f"expected DocumentRegistered, got {event.event_type}")
@@ -557,10 +687,34 @@ def document_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
     node = URIRef(payload["document_id"])
     graph.add((node, RDF.type, URIRef(ASSERTION_NS + "Document")))
     graph.add((node, URIRef(CORE_NS + "name"), Literal(payload["title"], datatype=XSD.string)))
+    for field, local_name in (
+        ("uri", "documentUri"),
+        ("source_system", "sourceSystem"),
+        ("source_record_id", "sourceRecordId"),
+        ("source_record_key", "sourceRecordKey"),
+        ("content_hash", "contentHash"),
+    ):
+        value = payload.get(field)
+        if value is not None:
+            graph.add(
+                (node, URIRef(ASSERTION_NS + local_name), Literal(value, datatype=XSD.string))
+            )
+    graph.add(
+        (
+            node,
+            URIRef(CORE_NS + "recordedAt"),
+            Literal(payload.get("recorded_at", event.occurred_at), datatype=XSD.dateTime),
+        )
+    )
     return node
 
 
-def assertion_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
+def assertion_to_rdf(
+    graph: Graph,
+    event: SemanticEvent,
+    *,
+    status_override: str | None = None,
+) -> URIRef:
     """Add the RDF mapping of one ``AssertionMade`` event; returns its node.
 
     Mapping (ontology/middle/assertion.ttl): the relation is a node in the
@@ -568,9 +722,10 @@ def assertion_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
     statements differing only in their relation are different RDF), subject via
     ``core:describes``, object via ``assertion:hasObject`` (entity/location) or
     ``assertion:literalValue`` (literal, carrying its datatype or language tag),
-    valid time via ``core:validFrom``/``core:validUntil``, provenance via
-    ``core:hasSource`` (cited Documents), optional ``core:hasConfidence`` and
-    the correction link ``assertion:supersedes``.
+    valid time via ``core:validFrom``/``core:validUntil``, recorded time via
+    ``core:recordedAt``, provenance via ``core:hasSource`` and exact evidence,
+    a non-probabilistic ``assertion:modelScore`` plus categorical evidence
+    quality, and the correction link ``assertion:supersedes``.
 
     Raises:
         ValueError: On a non-AssertionMade event, an unknown object kind, a
@@ -632,6 +787,13 @@ def assertion_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
             Literal(payload["valid_from"], datatype=XSD.dateTime),
         )
     )
+    graph.add(
+        (
+            node,
+            URIRef(CORE_NS + "recordedAt"),
+            Literal(payload.get("recorded_at", event.occurred_at), datatype=XSD.dateTime),
+        )
+    )
     valid_until = payload.get("valid_until", payload.get("valid_to"))
     if valid_until is not None:
         graph.add(
@@ -679,15 +841,37 @@ def assertion_to_rdf(graph: Graph, event: SemanticEvent) -> URIRef:
                     Literal(span["unit"], datatype=XSD.string),
                 )
             )
-    confidence = payload.get("confidence")
-    if confidence is not None:
+            if span.get("exact_text") is not None:
+                graph.add(
+                    (
+                        evidence_node,
+                        URIRef(ASSERTION_NS + "exactText"),
+                        Literal(span["exact_text"], datatype=XSD.string),
+                    )
+                )
+    model_score = payload.get("model_score", payload.get("confidence"))
+    if model_score is not None:
         graph.add(
             (
                 node,
-                URIRef(CORE_NS + "hasConfidence"),
-                Literal(str(confidence), datatype=XSD.decimal),
+                URIRef(ASSERTION_NS + "modelScore"),
+                Literal(str(model_score), datatype=XSD.decimal),
             )
         )
+    graph.add(
+        (
+            node,
+            URIRef(ASSERTION_NS + "evidenceQuality"),
+            Literal(payload.get("evidence_quality", "unknown"), datatype=XSD.string),
+        )
+    )
+    graph.add(
+        (
+            node,
+            URIRef(ASSERTION_NS + "status"),
+            Literal(status_override or payload.get("status", "asserted"), datatype=XSD.string),
+        )
+    )
     if payload.get("supersedes") is not None:
         graph.add((node, URIRef(ASSERTION_NS + "supersedes"), URIRef(payload["supersedes"])))
     return node

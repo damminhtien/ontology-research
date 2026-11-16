@@ -17,6 +17,7 @@ same gate.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -26,28 +27,34 @@ from rdflib import RDF, Graph, Literal, URIRef
 from rdflib.namespace import OWL
 
 from foundry.assertions import (
+    assertion_request_fingerprint,
     assertion_to_rdf,
     build_assertion,
     document_to_rdf,
     is_known_predicate,
+    is_superseded,
     predicate_compatibility,
     register_document,
 )
 from foundry.events import (
     EVENT_TYPE_ASSERTION_MADE,
     EVENT_TYPE_DOCUMENT_REGISTERED,
+    EVENT_TYPE_ENTITY_CREATED,
+    EVENT_TYPE_SOURCE_RECORD_MATCHED,
     EventLog,
     SemanticEvent,
     make_event,
 )
 from foundry.extraction import Extractor, PatternExtractor
-from foundry.identity import IdentityService
+from foundry.identity import IdentityDecision, IdentityService, SourceRecordIdentity
+from foundry.identity_rdf import entity_identity_to_rdf
 from foundry.namespaces import (
     CORE_LOCATED_AT,
+    IDENTITY_MIDDLE_NS,
     new_fact_iri,
     pending_reference_iri,
 )
-from foundry.provenance import normalize_evidence
+from foundry.provenance import content_sha256, normalize_evidence, stable_source_record_key
 from foundry.readmodel import parse_instant
 
 CORE = "https://damminhtien.github.io/ontology-research/ontology/core#"
@@ -86,6 +93,7 @@ class IngestResult:
     event: SemanticEvent | None = None
     is_new: bool = False
     pending: bool = False
+    replayed: bool = False
 
 
 def _reject(canonical_id: str, reason: str, event: SemanticEvent | None = None) -> IngestResult:
@@ -93,7 +101,13 @@ def _reject(canonical_id: str, reason: str, event: SemanticEvent | None = None) 
     return IngestResult(accepted=False, canonical_id=canonical_id, reason=reason, event=event)
 
 
-def _accept(canonical_id: str, event: SemanticEvent, *, is_new: bool = True) -> IngestResult:
+def _accept(
+    canonical_id: str,
+    event: SemanticEvent,
+    *,
+    is_new: bool = True,
+    replayed: bool = False,
+) -> IngestResult:
     """Build an acceptance receipt."""
     return IngestResult(
         accepted=True,
@@ -101,6 +115,7 @@ def _accept(canonical_id: str, event: SemanticEvent, *, is_new: bool = True) -> 
         event_id=event.event_id if event is not None else None,
         event=event,
         is_new=is_new,
+        replayed=replayed,
     )
 
 
@@ -181,98 +196,213 @@ class IngestionPipeline:
         name: str,
         entity_type: str,
         source_id: str,
+        record_id: str | None = None,
         external_source: str | None = None,
         external_id: str | None = None,
         aliases: list[str] | None = None,
     ) -> IngestResult:
         """Ingest one slowly-changing structured entity record.
 
-        ``aliases`` are bound to the resolved canonical identity so future
-        references by alternate names resolve exactly instead of fuzzily, and
-        are persisted on the emitted ``EntityCreated`` event as ``name_aliases``
-        so downstream projections (read model, lake) can serve bilingual data.
+        ``source_id`` and ``record_id`` identify this source record. Aliases
+        generate candidates but never establish a cross-source identity match.
+        State changes are applied only after the corresponding event commits.
 
         Raises:
             ValueError: On malformed input (empty name/source).
         """
-        if not name.strip():
+        if not isinstance(name, str) or not name.strip():
             raise ValueError("entity name must be non-empty")
-        if not source_id:
+        if not isinstance(source_id, str) or not source_id.strip():
             raise ValueError("source_id is required")
+        if (external_source is None) != (external_id is None):
+            raise ValueError("external_source and external_id must be supplied together")
+        if external_source is not None and (not external_source.strip() or not external_id.strip()):
+            raise ValueError("external_source and external_id must be non-empty")
         if entity_type not in ALLOWED_ENTITY_TYPES:
             return _reject("", f"entity_type {entity_type!r} is not an ingestible core type")
+
+        source_record = SourceRecordIdentity(
+            source_id, record_id if record_id is not None else source_id
+        )
+        source_id = source_record.source_id
+        external_source = external_source.strip() if external_source is not None else None
+        external_id = external_id.strip() if external_id is not None else None
+        normalized_aliases = [
+            alias.strip()
+            for alias in aliases or []
+            if alias.strip() and alias.strip() != name.strip()
+        ]
+        external_ids = (
+            [{"source": external_source, "external_id": external_id}]
+            if external_source and external_id
+            else []
+        )
+        command = {
+            "source_id": source_id,
+            "record_id": source_record.record_id,
+            "name": name.strip(),
+            "entity_type": entity_type,
+            "name_aliases": normalized_aliases,
+            "external_ids": external_ids,
+        }
+        command_hash = content_sha256(
+            json.dumps(command, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        )
+        command_fingerprint = content_sha256(
+            json.dumps(
+                {"event_type": EVENT_TYPE_ENTITY_CREATED, "command": command},
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        operation_key = (
+            f"entity-record:{stable_source_record_key(source_id, source_record.record_id)}"
+            f":{command_hash}"
+        )
+        prior = self._log.find_idempotency(
+            operation_key,
+            request_fingerprint=command_fingerprint,
+        )
+        if prior is not None:
+            event = prior.events[0]
+            self._apply_entity_event(event, source_record)
+            return _accept(
+                event.payload["entity_id"],
+                event,
+                is_new=False,
+                replayed=True,
+            )
 
         resolution = self._identity.resolve(
             name=name,
             external_source=external_source,
             external_id=external_id,
             entity_type=entity_type,
+            source_record=source_record,
+            prepare_only=True,
         )
-        if resolution.method == "review":
+        if resolution.decision in {IdentityDecision.REVIEW, IdentityDecision.CONFLICT}:
+            reason = resolution.reason or "candidate evidence needs human review"
+            if "human review" not in reason.casefold():
+                reason = f"{reason}; needs human review"
             queue_event = self._queue_review(
                 reference_name=name,
                 external_source=external_source,
                 external_id=external_id,
                 entity_type=entity_type,
                 candidates=resolution.candidates,
-                reason=f"name matches candidate entities {resolution.candidates} "
-                f"(score={resolution.confidence}); needs human review before merge",
+                reason=reason,
             )
-            return _reject(
-                "",
-                f"name matches candidate entities {resolution.candidates} "
-                f"(score={resolution.confidence}); needs human review before merge",
-                event=queue_event,
-            )
+            return _reject(resolution.canonical_id, reason, event=queue_event)
 
-        if aliases:
-            self._identity.register(
-                entity_id=resolution.canonical_id,
-                entity_type=entity_type,
-                aliases=[a for a in aliases if a != name],
-            )
-
-        if resolution.is_new:
+        if resolution.decision == IdentityDecision.MATCH:
             event = make_event(
-                "EntityCreated",
+                EVENT_TYPE_SOURCE_RECORD_MATCHED,
                 {
                     "entity_id": resolution.canonical_id,
-                    "entity_type": entity_type,
-                    "name": name,
-                    "name_aliases": [a for a in aliases if a != name] if aliases else [],
-                    "external_ids": (
-                        [{"source": external_source, "external_id": external_id}]
-                        if external_source and external_id
-                        else []
+                    "source_id": source_record.source_id,
+                    "record_id": source_record.record_id,
+                    "source_record_key": stable_source_record_key(
+                        source_record.source_id, source_record.record_id
                     ),
-                    "source_id": source_id,
-                    "confidence": resolution.confidence,
+                    "content_hash": command_hash,
+                    "name": name.strip(),
+                    "name_aliases": normalized_aliases,
+                    "external_ids": external_ids,
+                    "identity_evidence": dict(resolution.evidence or {}),
                 },
             )
-            self._log.append(event)
-            return _accept(resolution.canonical_id, event)
+            self._validate_identity_event(event)
+            committed = self._log.commit(
+                [event],
+                idempotency_key=operation_key,
+                request_fingerprint=command_fingerprint,
+            ).events[0]
+            self._apply_entity_event(committed, source_record)
+            return _accept(resolution.canonical_id, committed, is_new=False)
 
-        # Resolved by exact alias while the caller supplied an external id that
-        # missed: bind the trusted id to the existing entity and record the
-        # binding as a first-class fact (ExternalIdBound) so restarts recover
-        # it from the log instead of re-deriving it every run.
-        if resolution.method == "alias" and external_source and external_id:
-            _, _, bound = self._identity.identity(resolution.canonical_id)
-            if external_id not in bound.get(external_source, frozenset()):
-                self._identity.add_external_id(
-                    resolution.canonical_id, external_source, external_id
-                )
-                binding_event = make_event(
-                    "ExternalIdBound",
-                    {
-                        "entity_id": resolution.canonical_id,
-                        "source": external_source,
-                        "external_id": external_id,
-                    },
-                )
-                self._log.append(binding_event)
-                return _accept(resolution.canonical_id, binding_event, is_new=False)
-        return _accept(resolution.canonical_id, event=None, is_new=False)
+        event = make_event(
+            EVENT_TYPE_ENTITY_CREATED,
+            {
+                "entity_id": resolution.canonical_id,
+                "entity_type": entity_type,
+                "name": name.strip(),
+                "name_aliases": normalized_aliases,
+                "external_ids": external_ids,
+                "source_id": source_record.source_id,
+                "source_record_id": source_record.record_id,
+                "source_record_key": stable_source_record_key(
+                    source_record.source_id, source_record.record_id
+                ),
+                "content_hash": command_hash,
+                "identity_evidence": dict(resolution.evidence or {}),
+            },
+        )
+        self._validate_identity_event(event)
+        committed = self._log.commit(
+            [event],
+            idempotency_key=operation_key,
+            request_fingerprint=command_fingerprint,
+        ).events[0]
+        self._apply_entity_event(committed, source_record)
+        return _accept(committed.payload["entity_id"], committed, is_new=True)
+
+    def _apply_entity_event(
+        self, event: SemanticEvent, source_record: SourceRecordIdentity
+    ) -> None:
+        """Apply a committed entity/source-record event to the identity projection."""
+        with self._identity.store.transaction():
+            self._apply_entity_event_transactional(event, source_record)
+
+    def _apply_entity_event_transactional(
+        self, event: SemanticEvent, source_record: SourceRecordIdentity
+    ) -> None:
+        """Perform the binding writes inside the caller's store transaction."""
+        payload = event.payload
+        entity_id = payload["entity_id"]
+        if event.event_type == EVENT_TYPE_ENTITY_CREATED:
+            self._identity.register(
+                entity_id=entity_id,
+                entity_type=payload["entity_type"],
+                aliases=[payload["name"], *(payload.get("name_aliases") or [])],
+            )
+            for binding in payload.get("external_ids") or ():
+                self._identity.add_external_id(entity_id, binding["source"], binding["external_id"])
+        elif event.event_type == EVENT_TYPE_SOURCE_RECORD_MATCHED:
+            self._identity.replay_source_record_match(
+                source_record=source_record,
+                entity_id=entity_id,
+                aliases=[payload.get("name", ""), *(payload.get("name_aliases") or [])],
+                external_ids=(
+                    (binding["source"], binding["external_id"])
+                    for binding in payload.get("external_ids") or ()
+                ),
+            )
+        else:
+            raise ValueError(f"cannot apply identity event {event.event_type!r}")
+        if self._identity.store.source_record_owner(source_record) is None:
+            self._identity.store.bind_source_record(source_record, entity_id)
+
+    def _validate_identity_event(self, event: SemanticEvent) -> None:
+        """Apply the shared SHACL contract to every entity identity write."""
+        graph = Graph()
+        entity_identity_to_rdf(graph, event)
+        graph.add(
+            (
+                URIRef(event.payload["entity_id"]),
+                RDF.type,
+                URIRef(IDENTITY_MIDDLE_NS + "CanonicalEntityWriteCandidate"),
+            )
+        )
+        conforms, _, report = validate(
+            data_graph=graph,
+            shacl_graph=self._shapes,
+            inference="none",
+            advanced=True,
+        )
+        if not conforms:
+            raise ValueError(f"{event.event_type} SHACL violation: {report.strip()}")
 
     # -- high-rate observations ---------------------------------------------
 
@@ -287,6 +417,8 @@ class IngestionPipeline:
         valid_until: str | None = None,
         evidence: list[dict[str, object]] | None = None,
         confidence: float | None = None,
+        model_score: float | None = None,
+        evidence_quality: str = "unknown",
     ) -> IngestResult:
         """Ingest a location claim through the generic AssertionMade lane.
 
@@ -295,7 +427,7 @@ class IngestionPipeline:
         unambiguous identity event appears.
 
         Raises:
-            ValueError: On malformed timestamps, empty sources or bad confidence.
+            ValueError: On malformed timestamps, empty sources or an invalid score.
         """
         if not source_ids and not evidence:
             raise ValueError("at least one source_id is required")
@@ -303,8 +435,9 @@ class IngestionPipeline:
             parse_instant(valid_from)
         except ValueError as exc:
             raise ValueError(f"invalid valid_from timestamp {valid_from!r}") from exc
-        if confidence is not None and not 0.0 <= confidence <= 1.0:
-            raise ValueError(f"confidence {confidence} outside [0, 1]")
+        if confidence is not None and model_score is not None:
+            raise ValueError("supply model_score; confidence is a deprecated alias")
+        score = model_score if model_score is not None else confidence
         from foundry.namespaces import require_absolute_iri
 
         require_absolute_iri(location_uri, "location_uri")
@@ -361,7 +494,8 @@ class IngestionPipeline:
             valid_until=valid_until,
             source_ids=list(normalized_sources),
             evidence=list(normalized_evidence),
-            confidence=confidence,
+            model_score=score,
+            evidence_quality=evidence_quality,
             known_assertions=frozenset(self._assertion_events),
         )
         data_graph = self._build_assertion_graph(event)
@@ -386,6 +520,9 @@ class IngestionPipeline:
         title: str,
         source_system: str,
         content_ref: str | None = None,
+        record_id: str | None = None,
+        content: str | bytes | None = None,
+        content_hash: str | None = None,
     ) -> SemanticEvent:
         """Record a provenance source document and remember it for the gate."""
         event = register_document(
@@ -394,6 +531,9 @@ class IngestionPipeline:
             title=title,
             source_system=source_system,
             content_ref=content_ref,
+            record_id=record_id,
+            content=content,
+            content_hash=content_hash,
         )
         self._remember_context_event(event)
         return event
@@ -410,6 +550,9 @@ class IngestionPipeline:
         valid_until: str | None = None,
         evidence: list[dict[str, object]] | None = None,
         confidence: float | None = None,
+        model_score: float | None = None,
+        evidence_quality: str = "unknown",
+        idempotency_key: str | None = None,
         supersedes: str | None = None,
         literal_datatype_iri: str | None = None,
         literal_language: str | None = None,
@@ -479,6 +622,9 @@ class IngestionPipeline:
         if compatibility_error:
             return _reject(subject_id, compatibility_error)
         self._load_assertion_context()
+        if confidence is not None and model_score is not None:
+            raise ValueError("supply model_score; confidence is a deprecated alias")
+        score = model_score if model_score is not None else confidence
         event = build_assertion(
             subject_id=subject_id,
             predicate_iri=predicate_iri,
@@ -488,7 +634,8 @@ class IngestionPipeline:
             valid_until=valid_until,
             source_ids=source_ids,
             evidence=evidence,
-            confidence=confidence,
+            model_score=score,
+            evidence_quality=evidence_quality,
             supersedes=supersedes,
             literal_datatype_iri=literal_datatype_iri,
             literal_language=literal_language,
@@ -503,9 +650,32 @@ class IngestionPipeline:
         )
         if not conforms:
             return _reject(subject_id, f"SHACL violation: {results_text.strip()}")
-        self._log.append(event)
-        self._remember_context_event(event)
-        return _accept(subject_id, event)
+        operation_key = (
+            f"assertion-status:{supersedes}" if supersedes is not None else idempotency_key
+        )
+        fingerprint = assertion_request_fingerprint(event)
+        if operation_key is not None:
+            prior = self._log.find_idempotency(
+                operation_key,
+                request_fingerprint=fingerprint,
+            )
+            if prior is not None:
+                committed = prior.events[0]
+                self._remember_context_event(committed)
+                return _accept(subject_id, committed, is_new=False, replayed=True)
+        if supersedes is not None and is_superseded(self._log, supersedes):
+            return _reject(subject_id, f"supersedes target {supersedes!r} is already superseded")
+        if operation_key is not None:
+            committed = self._log.commit(
+                [event],
+                idempotency_key=operation_key,
+                request_fingerprint=fingerprint,
+            ).events[0]
+        else:
+            self._log.append(event)
+            committed = event
+        self._remember_context_event(committed)
+        return _accept(subject_id, committed)
 
     # -- unstructured documents (Phase 2 — LLM chỉ đề xuất) -------------------
 
@@ -517,6 +687,7 @@ class IngestionPipeline:
         source_system: str,
         text: str,
         content_ref: str | None = None,
+        record_id: str | None = None,
         extractor: Extractor | None = None,
     ) -> DocumentIngestResult:
         """Register a document, extract candidate facts, gate every one of them.
@@ -532,11 +703,16 @@ class IngestionPipeline:
           queued; unresolved object references never become fake entities;
         - location objects must arrive as absolute IRIs because this lane has no
           canonical location-name registry;
-        - accepted candidates become low-confidence assertions whose provenance
-          is the citing document.
+        - accepted candidates cite the document and preserve their exact text
+          span when the extractor can provide it.
         """
         document_event = self.register_document(
-            uri=uri, title=title, source_system=source_system, content_ref=content_ref
+            uri=uri,
+            title=title,
+            source_system=source_system,
+            content_ref=content_ref,
+            record_id=record_id,
+            content=text,
         )
         document_id = document_event.payload["document_id"]
         extractor = extractor if extractor is not None else PatternExtractor()
@@ -596,6 +772,62 @@ class IngestionPipeline:
                 queued += 1
                 continue
 
+            evidence_item: dict[str, object] = {"source_id": document_id, "locator": uri}
+            if candidate.evidence_span is not None:
+                span = dict(candidate.evidence_span)
+                if span.get("unit", "character") == "character":
+                    start, end = span.get("start"), span.get("end")
+                    if (
+                        isinstance(start, bool)
+                        or isinstance(end, bool)
+                        or not isinstance(start, int)
+                        or not isinstance(end, int)
+                        or start < 0
+                        or end < start
+                        or end > len(text)
+                    ):
+                        self._queue_review(
+                            reference_name=candidate.subject_name,
+                            external_source=None,
+                            external_id=None,
+                            entity_type="",
+                            candidates=(found.canonical_id,),
+                            reason=f"extracted evidence span is outside document {document_id}",
+                        )
+                        queued += 1
+                        continue
+                    exact_text = text[start:end]
+                    supplied_text = span.get("exact_text")
+                    if supplied_text is not None and supplied_text != exact_text:
+                        self._queue_review(
+                            reference_name=candidate.subject_name,
+                            external_source=None,
+                            external_id=None,
+                            entity_type="",
+                            candidates=(found.canonical_id,),
+                            reason=f"extracted evidence text does not match document {document_id}",
+                        )
+                        queued += 1
+                        continue
+                    span["unit"] = "character"
+                    span["exact_text"] = exact_text
+                evidence_item["span"] = span
+            candidate_fingerprint = content_sha256(
+                json.dumps(
+                    {
+                        "subject_id": found.canonical_id,
+                        "predicate_iri": candidate.predicate_iri,
+                        "object_kind": object_kind,
+                        "object_value": object_value,
+                        "valid_from": candidate.valid_from,
+                        "evidence": evidence_item,
+                        "evidence_quality": "indirect",
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
             results.append(
                 self.ingest_assertion(
                     subject_id=found.canonical_id,
@@ -604,7 +836,10 @@ class IngestionPipeline:
                     object_value=object_value,
                     valid_from=candidate.valid_from,
                     source_ids=[document_id],
-                    confidence=candidate.confidence,
+                    evidence=[evidence_item],
+                    model_score=candidate.model_score,
+                    evidence_quality="indirect",
+                    idempotency_key=f"document-assertion:{document_id}:{candidate_fingerprint}",
                 )
             )
         asserted = sum(1 for r in results if r.accepted)
@@ -638,22 +873,34 @@ class IngestionPipeline:
             raise ValueError("sensor_id must be non-empty")
         if not name.strip():
             raise ValueError("sensor name must be non-empty")
+        if not platform_name.strip():
+            raise ValueError("platform_name must be non-empty")
+        if not source_id.strip():
+            raise ValueError("source_id must be non-empty")
 
         sensor = self._identity.resolve(
             name=name,
             external_source="sensor-registry",
             external_id=sensor_id,
             entity_type="Artifact",
+            prepare_only=True,
         )
-        # Keep every name recorded on SensorRegistered available as an alias
-        # after both this run and a registry rebuild from the event log.
-        self._identity.register(
-            entity_id=sensor.canonical_id,
-            entity_type="Artifact",
-            aliases=[name],
-            external_ids={"sensor-registry": sensor_id},
-        )
-        platform = self._identity.resolve(name=platform_name, entity_type="Platform")
+        if sensor.decision not in {IdentityDecision.NEW, IdentityDecision.MATCH}:
+            reason = sensor.reason or "sensor identity needs human review"
+            return _reject(sensor.canonical_id, reason)
+
+        platform = self._identity.lookup(name=platform_name, entity_type="Platform")
+        if platform.method not in {"alias", "external_id"}:
+            reason = "platform reference is missing or ambiguous; resolve it before sensor ingest"
+            queue_event = self._queue_review(
+                reference_name=platform_name,
+                external_source=None,
+                external_id=None,
+                entity_type="Platform",
+                candidates=platform.candidates,
+                reason=reason,
+            )
+            return _reject("", reason, event=queue_event)
 
         from foundry.tracking import sensor_event, sensor_to_rdf
 
@@ -675,8 +922,16 @@ class IngestionPipeline:
         if not conforms:
             return _reject(sensor.canonical_id, f"SHACL violation: {results_text.strip()}")
         self._log.append(event)
+        # Apply only after the event is durable. A failed append leaves the
+        # identity projection untouched; a restart rebuilds it from this event.
+        self._identity.register(
+            entity_id=sensor.canonical_id,
+            entity_type="Artifact",
+            aliases=[name],
+            external_ids={"sensor-registry": sensor_id},
+        )
         self._sensor_events[sensor.canonical_id] = event
-        return _accept(sensor.canonical_id, event)
+        return _accept(sensor.canonical_id, event, is_new=sensor.decision == IdentityDecision.NEW)
 
     def ingest_observation(
         self,
@@ -890,15 +1145,15 @@ class IngestionPipeline:
         graph = Graph()
         graph.parse(self._ontology_path.as_posix(), format="turtle")
 
-        stack: list[SemanticEvent] = [event]
+        stack: list[tuple[SemanticEvent, str | None]] = [(event, None)]
         visited: set[str] = set()
         while stack:
-            current = stack.pop()
+            current, status_override = stack.pop()
             assertion_id = current.payload["assertion_id"]
             if assertion_id in visited:
                 continue
             visited.add(assertion_id)
-            assertion_to_rdf(graph, current)
+            assertion_to_rdf(graph, current, status_override=status_override)
             self._type_and_name(graph, current)
             for source_id in current.payload.get("source_ids") or ():
                 document = self._documents.get(source_id)
@@ -906,7 +1161,7 @@ class IngestionPipeline:
                     document_to_rdf(graph, document)
             target_id = current.payload.get("supersedes")
             if target_id is not None and target_id in self._assertion_events:
-                stack.append(self._assertion_events[target_id])
+                stack.append((self._assertion_events[target_id], "superseded"))
 
         materialize_type_closure(graph)
         return graph

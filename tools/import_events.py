@@ -6,8 +6,9 @@ between logs re-assigns them (this is what saved the split-log incident of
 they are the stable identity used by the lake and read-model dedup.
 
 Usage:
-    .venv/bin/python tools/import_events.py --src data/events.jsonl \
-        --dst data/production.jsonl [--skip N] [--dry-run]
+    .venv/bin/python tools/import_events.py \
+        --src ~/Data/ontology-research/data/events.jsonl \
+        --dst ~/Data/ontology-research/data/production.jsonl [--skip N] [--dry-run]
 
 ``--skip N`` drops the first N source events (e.g. seed records that must not
 enter the production log).
