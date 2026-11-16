@@ -1,4 +1,4 @@
-.PHONY: setup validate dag align test lint fmt check conformance quality ontology-design oxigraph-test oxigraph-eval splink-test splink-fetch splink-eval rdf-export-eval postgres-test query-adapter-eval project-events project-events-follow project-events-rebuild project-events-verify clean docs-setup docs-sync docs-serve docs-build
+.PHONY: setup validate dag align test lint fmt ci-check check conformance quality ontology-design oxigraph-test oxigraph-eval splink-test splink-fetch splink-eval rdf-export-eval postgres-test query-adapter-eval project-events project-events-follow project-events-rebuild project-events-verify clean docs-setup docs-sync docs-serve docs-build
 
 PY := .venv/bin/python
 DATABASE_URL ?= postgresql:///ontology_research
@@ -67,7 +67,9 @@ quality:
 ontology-design:
 	$(PY) tools/check_ontology_design.py --output build/ontology-design.json
 
-check: lint ontology-design quality versions align validate dag test slo
+ci-check: lint ontology-design quality versions align validate dag test
+
+check: ci-check slo
 
 conformance:
 	$(PY) tools/check_conformance.py

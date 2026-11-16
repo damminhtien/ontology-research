@@ -4,12 +4,20 @@ on:
   push:
     branches: [main]
     paths:
-      - "**"
-      - "!docs/**"
-      - "!mkdocs.yml"
-      - "!requirements-docs.txt"
-      - "!**.md"
-      - "requirements/competency_questions.md"
+      - ".github/workflows/**"
+      - "Makefile"
+      - "VERSION"
+      - "CHANGELOG-DATA.md"
+      - "pyproject.toml"
+      - "requirements.txt"
+      - "benchmarks/**"
+      - "foundry/**"
+      - "ontology/**"
+      - "registry/**"
+      - "requirements/**"
+      - "shapes/**"
+      - "tests/**"
+      - "tools/**"
   pull_request:
     branches: [main]
 
@@ -18,37 +26,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ontology-conformance:
-    runs-on: ubuntu-latest
-    env:
-      ONTOLOGY_CONFORMANCE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "25"
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
-          cache: pip
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install Python dependencies
-        run: make setup
-
-      - name: Verify independent ontology and RDF conformance
-        run: make conformance
-
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -63,43 +43,5 @@ jobs:
       - name: Dependency consistency
         run: .venv/bin/pip check
 
-      - name: Full check (ontology design, quality, lint, versions, SHACL, DAG, tests, SLO)
-        run: make check
-
-      - name: Upload ontology design report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ontology-design
-          path: build/ontology-design.json
-          if-no-files-found: ignore
-          retention-days: 90
-
-      - name: Upload ontology quality report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ontology-quality
-          path: build/ontology-quality.json
-          if-no-files-found: ignore
-          retention-days: 90
-
-      - name: Benchmark (default scale)
-        run: .venv/bin/python tools/benchmark.py --out build
-
-      - name: Render benchmark summary
-        run: |
-          {
-            echo "## Benchmark report"
-            echo ""
-            echo '```json'
-            cat build/benchmark-report.json
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload benchmark artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-report
-          path: build/benchmark-report.json
-          retention-days: 90
+      - name: Run fast correctness checks
+        run: make ci-check

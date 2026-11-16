@@ -79,6 +79,7 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 | Target | Bao gồm |
 |--------|---------|
 | `make setup` | Tạo `.venv` + cài `requirements.txt` |
-| `make check` | `lint` + ontology design + quality + versions + alignment + SHACL validation + DAG + tests + SLO |
+| `make ci-check` | `lint` + ontology design + quality + versions + alignment + SHACL validation + DAG + tests; gate nhanh dùng trong GitHub CI |
+| `make check` | `make ci-check` + SLO và benchmark timing; gate đầy đủ để chạy local |
 | `make conformance` | OWL 2 DL và consistency của ontology closure (TBox) với ROBOT/HermiT; Jena/pySHACL trên canonical và interop fixtures tốt/xấu; 41 CQ và W3C RDFC-1.0. Chạy độc lập với `make check` |
 | `make fmt` | `ruff check --fix` + `ruff format` |
