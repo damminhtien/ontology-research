@@ -5,7 +5,7 @@ Báo cáo này tổng hợp kết quả từ `tools/manage_ontology.py stats`, `
 `benchmarks/queries`. Chạy `make quality` để tạo lại các phép đo schema, focus
 node của SHACL và kết quả CQ; xem [phương pháp đánh giá](ontology-quality.md).
 
-## 1. Inventory: 7 module, 31 lớp, 78 thuộc tính
+## 1. Inventory: 7 module, 31 lớp, 79 thuộc tính
 
 | Module | Version | Classes | Object properties | Datatype properties | Dùng bởi production code |
 |--------|-----|--------:|----------:|-----------:|--------------------------|
@@ -13,7 +13,7 @@ node của SHACL và kết quả CQ; xem [phương pháp đánh giá](ontology-q
 | middle/assertion | 1 | 3 | 7 | 15 | `foundry/assertions.py`, `ingestion.py` |
 | middle/identity | 1 | 2 | 1 | 3 | `foundry/identity_rdf.py` (Identifier, unresolved references) |
 | middle/location | 1 | 2 | 0 | 0 | Country, AdministrativeRegion |
-| middle/organization | 1 | 0 | 1 | 0 | membership mapping (chưa có lane) |
+| middle/organization | 1 | 0 | 2 | 0 | `foundry/public_sources.py` (`subsidiaryOf`) |
 | domain/sensor | 2 | 1 | 2 | 0 | `foundry/tracking.py` |
 | domain/tracking | 2 | 2 | 7 | 8 | `foundry/tracking.py`, `readmodel.py` |
 
@@ -91,11 +91,9 @@ có 41 câu bắt buộc trên workload cố định; xem
 
 ## 5. Gaps & hành động
 
-1. **organization.ttl chỉ có 1 thuộc tính (`memberOf`), 0 class** — membership
-   lane chưa có data source; giữ nguyên tới khi Phase 7 VN profile cần.
-2. **Reserved terms (21)** — đánh dấu trong report này thay vì xoá; reviewed
+1. **Reserved terms (21)** — đánh dấu trong report này thay vì xoá; reviewed
    lại mỗi Phase 6/7 milestone.
-3. **`core:externalId` chưa được dùng** — giá trị theo nguồn được biểu diễn
+2. **`core:externalId` chưa được dùng** — giá trị theo nguồn được biểu diễn
    thành tài nguyên `identity:Identifier`, thay vì literal trực tiếp trên
    entity; RDF mapper tạo chúng từ `EntityCreated` và `ExternalIdBound`. Giữ
    thuộc tính core dự trữ cho tới khi có quyết định tương thích rõ ràng.

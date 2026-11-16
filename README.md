@@ -35,7 +35,7 @@ theo hợp đồng identity và SHACL tương ứng trước khi ghi event.
 roadmap.md                     # Kế hoạch + snapshot đồng bộ mã nguồn
 VERSION + CHANGELOG-DATA.md    # Phiên bản hợp đồng dữ liệu (không hardcode trong code)
 requirements/                  # Engineering contract (CQ, SLO, scale targets)
-ontology/                      # 7 modules: 31 classes and 78 properties total
+ontology/                      # 7 modules: 31 classes and 79 properties total
 shapes/                        # 4 SHACL shape files (core/domain/assertion/identity)
 foundry/                       # Events, identity, ingestion, PostgreSQL read model,
                                #   QueryService, assertions, extraction, tracking,

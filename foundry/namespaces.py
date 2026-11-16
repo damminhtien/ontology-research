@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 ONTOLOGY_BASE = "https://damminhtien.github.io/ontology-research/ontology"
 CORE_ONTOLOGY_NS = f"{ONTOLOGY_BASE}/core#"
 LOCATION_MIDDLE_NS = f"{ONTOLOGY_BASE}/middle/location#"
+ORGANIZATION_MIDDLE_NS = f"{ONTOLOGY_BASE}/middle/organization#"
 ASSERTION_MIDDLE_NS = f"{ONTOLOGY_BASE}/middle/assertion#"
 TRACKING_DOMAIN_NS = f"{ONTOLOGY_BASE}/domain/tracking#"
 IDENTITY_MIDDLE_NS = f"{ONTOLOGY_BASE}/middle/identity#"
@@ -38,6 +39,9 @@ CORE_LOCATED_AT = f"{CORE_ONTOLOGY_NS}locatedAt"
 
 #: ``core:memberOf`` — the entity is part of the referenced entity.
 CORE_MEMBER_OF = f"{CORE_ONTOLOGY_NS}memberOf"
+
+#: ``organization:subsidiaryOf`` — corporate ownership relationship.
+ORGANIZATION_SUBSIDIARY_OF = f"{ORGANIZATION_MIDDLE_NS}subsidiaryOf"
 
 #: Datatype of a literal object given without an explicit datatype: the event
 #: contract says "datatype XOR language tag, default xsd:string". Spelled out

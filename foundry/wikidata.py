@@ -39,6 +39,11 @@ QID_TO_ENTITY_TYPE: dict[str, str] = {
     "Q5": "Person",  # human
     "Q43229": "Organization",  # organization
     "Q4830453": "Organization",  # business
+    "Q783794": "Organization",  # company
+    "Q1058914": "Organization",  # software company
+    "Q18388277": "Organization",  # technology company
+    "Q891723": "Organization",  # public company
+    "Q1126006": "Organization",  # public broadcaster
     "Q79913": "Organization",  # non-governmental organization
     "Q176799": "Organization",  # military unit
     "Q3918": "Organization",  # university

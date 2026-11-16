@@ -95,6 +95,7 @@ class IdentifierPolicy:
 # such as MMSI and generic registry numbers.
 DEFAULT_IDENTIFIER_POLICIES: Mapping[str, IdentifierPolicy] = {
     "wikidata": IdentifierPolicy(unique_authoritative=True, confidence=1.0),
+    "gleif-lei": IdentifierPolicy(unique_authoritative=True, confidence=1.0),
     "usn-hull": IdentifierPolicy(unique_authoritative=True, confidence=1.0),
     "sensor-registry": IdentifierPolicy(unique_authoritative=True, confidence=1.0),
     "ais-mmsi": IdentifierPolicy(unique_authoritative=False, confidence=0.55),

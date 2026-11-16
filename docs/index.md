@@ -47,6 +47,7 @@ Nếu gặp lỗi, bắt đầu với [Tutorial 01 — Getting started](tutorial
 | Hiểu kiến trúc hiện tại và các vấn đề đã xử lý | [Kiến trúc hệ thống](architecture.md) |
 | Hiểu cách hệ thống chạy end-to-end | [Tutorials 01–06](tutorials/01-getting-started.md) |
 | Nạp dữ liệu thật từ Wikidata vào lake | [Tutorial 03 — Ingestion](tutorials/03-ingestion.md) |
+| Chạy thử Wikidata, GLEIF và tài liệu Wikipedia qua connector | [OSINT source adapters](guides/osint-ingestion.md) |
 | Chạy các luồng sửa dữ liệu và data lanes | [Workflows guide](guides/workflows.md) |
 | Tra cứu lệnh CLI | [CLI reference](guides/cli-reference.md) |
 | Xem trạng thái triển khai và backlog | [Roadmap](generated/roadmap.md) |

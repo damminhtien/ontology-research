@@ -35,7 +35,7 @@ class TestOntologyEndpoints:
     def test_model_counts_match_kernel(self, client):
         model = client.get("/api/ontology/model").json()
         assert len(model["classes"]) == 31
-        assert len(model["properties"]) == 78
+        assert len(model["properties"]) == 79
 
     def test_tree_roots_at_entity(self, client):
         tree = client.get("/api/ontology/tree").json()["tree"]

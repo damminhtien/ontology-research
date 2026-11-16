@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "id": "wikidata",
+      "identifier": "https://www.wikidata.org",
+      "record_schema": "Wikidata wbgetentities JSON API; schema 1",
+      "license": "CC0-1.0; operator-confirmed authorization",
+      "storage_policy": "Store raw responses as content-addressed snapshots outside the repository.",
+      "redistribution_policy": "Redistribution is permitted under CC0; retain source attribution in manifests.",
+      "freshness_policy": "Fetch on demand; use entity revision IDs and create a new run to refresh.",
+      "identifier_rules": "Wikidata QID is exact source identity. P1278 is a LEI crosswalk candidate and is bound only after checksum and ownership checks.",
+      "mapping_rules": "Map allowlisted P31 classes to core entity types. Labels and aliases generate lookup candidates only.",
+      "data_quality_checks": [
+        "QID must match Q followed by digits.",
+        "Entity must have a non-empty English or Vietnamese label.",
+        "Unknown P31 classes are skipped rather than guessed.",
+        "LEI crosswalks must pass ISO 17442 check-digit validation."
+      ]
+    },
+    {
+      "id": "gleif",
+      "identifier": "https://www.gleif.org",
+      "record_schema": "GLEIF API v1 JSON:API LEI record; schema 1",
+      "license": "CC0-1.0; operator-confirmed authorization",
+      "storage_policy": "Store raw responses as content-addressed snapshots outside the repository.",
+      "redistribution_policy": "Redistribution is permitted under CC0; do not imply GLEIF endorsement.",
+      "freshness_policy": "The API reports Golden Copy publication time; fetch on demand and refresh in a new run.",
+      "identifier_rules": "A valid LEI is the exact authoritative identifier namespace gleif-lei; names are candidate labels only.",
+      "mapping_rules": "Map legal name and other names to an Organization record; do not infer ownership from names.",
+      "data_quality_checks": [
+        "Response LEI must match the requested LEI and pass ISO 17442 check-digit validation.",
+        "Legal name must be non-empty.",
+        "Entity status must be present and retained without filtering historical status semantics."
+      ]
+    },
+    {
+      "id": "wikipedia-en",
+      "identifier": "https://en.wikipedia.org",
+      "record_schema": "MediaWiki Action API extracts and revisions JSON; schema 1",
+      "license": "CC BY-SA 4.0; operator-confirmed authorization",
+      "storage_policy": "Store raw responses and extracted text as content-addressed snapshots outside the repository.",
+      "redistribution_policy": "When redistributing derived content, preserve attribution and applicable share-alike terms.",
+      "freshness_policy": "Use the latest returned revision; record page ID, revision ID and revision timestamp.",
+      "identifier_rules": "Page ID plus revision ID identifies a document version; title matching never establishes entity identity.",
+      "mapping_rules": "Extract only explicit subsidiary-of statements into organization:subsidiaryOf; resolve the page subject by its Wikidata pageprops QID and the object through a unique exact alias. Use revision time as the earliest supported valid time for present-tense statements.",
+      "data_quality_checks": [
+        "Page ID, revision ID, timestamp, title and non-empty text are required.",
+        "Assertion evidence span must equal the exact substring in the archived document text.",
+        "Unresolved or ambiguous subjects and objects are routed to review by the canonical pipeline."
+      ]
+    }
+  ]
+}

@@ -59,12 +59,14 @@ nav:
       - 04. Read model & benchmark: tutorials/04-read-model.md
       - 05. Versioning & governance: tutorials/05-versioning.md
       - 06. Console UI: tutorials/06-console.md
+      - 07. OSINT source adapters: guides/osint-ingestion.md
   - Guides:
       - Kiến trúc hệ thống: architecture.md
       - Ontology status: guides/ontology-status.md
       - Ontology design: guides/ontology-design.md
       - Ontology quality: guides/ontology-quality.md
       - Data & correction workflows: guides/workflows.md
+      - OSINT source adapters: guides/osint-ingestion.md
       - CLI reference: guides/cli-reference.md
       - Offline RDF export: guides/rdf-export.md
       - Oxigraph snapshot evaluation: guides/oxigraph-evaluation.md
