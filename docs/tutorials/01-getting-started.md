@@ -30,11 +30,13 @@ make setup
 make check
 ```
 
-`make check` chạy 7 bước tuần tự — bước nào đỏ dừng ngay tại đó:
+`make check` chạy các gate dưới đây theo thứ tự khai báo; gate lỗi sẽ dừng lệnh:
 
 | Bước | Lệnh bên dưới | Kiểm tra gì |
 |------|---------------|-------------|
-| `lint` | `ruff check . && ruff format --check .` | Code style senior chuẩn repo |
+| `lint` | `ruff check . && ruff format --check .` | Lint và định dạng code |
+| `ontology-design` | `tools/check_ontology_design.py` | Phân cấp lớp và tham chiếu giữa các module |
+| `quality` | `tools/check_ontology_quality.py` | Schema, SHACL và CQ trên fixture |
 | `versions` | `tools/manage_ontology.py check-versions` | SemVer của mọi module khớp release registry |
 | `align` | `tools/manage_ontology.py align check` | Semantic alignments còn hợp lệ với ontology hiện tại |
 | `validate` | `tools/validate.py --shapes ... --data ...` | Seed data conform SHACL contracts |
@@ -67,6 +69,9 @@ tools/                     # CLI quản lý và đo lường
 registry/                  # release registry cho SemVer enforcement
 ```
 
+Số thuộc tính trong sơ đồ trên là từ snapshot cũ. Hiện `core.ttl` có 19 lớp và
+34 thuộc tính; tổng bảy module có 31 lớp và 78 thuộc tính.
+
 ## Bước 4 — Chạy thử pipeline thật
 
 ```bash
@@ -77,11 +82,10 @@ make console        # mở console UI
 Mở trình duyệt tại <http://127.0.0.1:8787> — bạn sẽ thấy Dashboard với các
 health cards. Dừng server bằng `Ctrl+C`.
 
-## Điều gì vừa xảy ra
+## Kết quả
 
-Bạn vừa đi qua toàn bộ quality stack của platform: ontology validation (SHACL),
-dependency invariant (DAG), version governance (SemVer registry) và performance
-contract (SLO gate). Đó là nền tảng cho mọi tutorial tiếp theo.
+`make check` xác nhận các contract về ontology, dependency DAG, SemVer, tests và
+performance. Các tutorial tiếp theo giải thích từng phần của chuỗi kiểm tra.
 
 ## Tiếp theo
 

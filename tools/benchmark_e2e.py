@@ -1,4 +1,4 @@
-"""End-to-end benchmark: measures every production stage, not just the hot path.
+"""Benchmark throughput and latency for each end-to-end pipeline stage.
 
 Architecture §4.8: the microbenchmark (tools/benchmark.py) measures in-memory
 structures; this tool runs the *full* pipeline on a representative synthetic

@@ -9,7 +9,7 @@
 
 Phase 4 introduces the first domain vertical:
 `Observation → Track → Entity → Organization → Location`.
-The pivotal modeling question is what a **Track** fundamentally *is*:
+The modeling question is what a **Track** represents:
 
 1. `core:Event` — something that happens in the world;
 2. `core:InformationObject` — derived data produced by a system;

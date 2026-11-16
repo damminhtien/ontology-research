@@ -100,14 +100,14 @@ organization         stability=1.0     (breaking 0/1) [ok]
 3 module(s) below their stability threshold.
 ```
 
-Snapshot hiện tại (2026-11-12): `core`, `assertion` và `identity` đang dưới
-ngưỡng sau các breaking releases đã ghi nhận; các module còn lại đạt ngưỡng.
-Chạy lại lệnh để đọc trạng thái mới nhất.
+Snapshot ngày 2026-11-16: `core`, `assertion` và `identity` dưới ngưỡng sau các
+breaking releases đã ghi nhận; bốn module còn lại đạt ngưỡng. Chạy lại lệnh để
+xem trạng thái sau các release tiếp theo.
 
 $$Stability(m) = 1 - \frac{N_{breaking}}{N_{releases}}$$
 
-Target roadmap: **core ≥ 0.99**, domain ≥ 0.95. Mỗi MAJOR release kéo stability
-xuống — metric này làm "đau" hữu hình cho mọi breaking change.
+Target roadmap: **core ≥ 0.99**, domain ≥ 0.95. Mỗi MAJOR release ảnh hưởng
+trực tiếp tới stability của module.
 
 ## Bước 5 — Changelog
 
@@ -122,10 +122,10 @@ liệu kèm timeline và diff giữa hai phiên bản bất kỳ.
    (**Revert toàn bộ thay đổi sau khi hoàn thành** — đây là thực hành, không release thật.)
 2. Vì sao migration note bắt buộc ở MAJOR nhưng không ở MINOR?
 
-## Điều gì vừa xảy ra
+## Kết quả
 
-Bạn đã nắm đủ bộ governance: SemVer enforcement trong CI, release flow có preview,
-migration gate cho MAJOR, blast radius trước khi đổi, stability để theo dõi dài hạn.
+Quy trình release gồm kiểm tra SemVer, preview diff, migration gate cho MAJOR,
+blast-radius review và theo dõi stability.
 
 ## Tiếp theo
 

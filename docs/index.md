@@ -1,24 +1,26 @@
 # Semantic Foundry
 
-**Production-first semantic platform** — nơi ontology là một phần của kiến trúc,
-không phải toàn bộ dự án. Nguyên tắc xuyên suốt:
+Semantic Foundry ghi tri thức chuẩn vào event log chỉ ghi nối tiếp. Ontology
+Turtle/OWL và các SHACL shape định nghĩa, kiểm tra mô hình; các read model phục
+vụ truy vấn theo nhu cầu.
 
 !!! quote "Quy tắc duy nhất"
-    **Never make the operational query path pay for semantic complexity it does not need.**
-    Ontology bảo đảm *meaning*; materialized data models bảo đảm *speed*;
-    modularity + versioning bảo đảm *evolution*.
+    Đường truy vấn vận hành dùng read model có index. Đường truy vấn ngữ nghĩa
+    dùng ontology và SPARQL.
 
 ## Hệ thống hiện có
 
 | Lớp | Thành phần | Điểm vào |
 |-----|------------|----------|
-| **Ontology kernel** | 7 modules / 31 classes / 68 properties, SHACL contracts, usage-tracked | `ontology/` · [Ontology status](guides/ontology-status.md) |
-| **Ingestion** | Append-only event log, identity resolution precision-first, SHACL gate | `foundry/` |
-| **Read model** | CQRS projector + query latency benchmark với SLO gate | `foundry/projector.py` |
-| **Governance** | SemVer registry, migration gate cho MAJOR, blast radius, stability | `registry/` |
+| **Ontology kernel** | 7 module / 31 lớp / 78 thuộc tính; bốn nhóm SHACL canonical và interop profile | `ontology/` · [Trạng thái ontology](guides/ontology-status.md) |
+| **Ingestion** | Event log chỉ ghi nối tiếp; identity resolution và SHACL gate | `foundry/` |
+| **Read model** | PostgreSQL indexes cho identity, assertion và relation; replay có checkpoint | `foundry/projector.py` · `foundry/postgres_readmodel.py` |
+| **Query service** | Truy vấn vận hành có phân trang, timeout và giới hạn traversal | `foundry/query_service.py` · [OSINT query contract](https://github.com/damminhtien/ontology-research/blob/main/requirements/osint_queries.md) |
+| **Semantic queries** | 41 CQ regression cases chạy qua RDFLib, Jena và Oxigraph trong các evaluation targets | `benchmarks/` · `make conformance` |
+| **Governance** | SemVer registry, migration preflight, blast radius và stability | `registry/` |
 | **Console UI** | Dashboard / Explorer / Versions / Impact / Monitor / Projection / provenance-scoped reads / token-gated Admin | `make console` |
 
-## Quickstart — 5 phút tới trạng thái xanh
+## Bắt đầu
 
 ```bash
 git clone https://github.com/damminhtien/ontology-research.git
@@ -47,7 +49,7 @@ Nếu gặp lỗi, bắt đầu với [Tutorial 01 — Getting started](tutorial
 | Nạp dữ liệu thật từ Wikidata vào lake | [Tutorial 03 — Ingestion](tutorials/03-ingestion.md) |
 | Chạy các luồng sửa dữ liệu và data lanes | [Workflows guide](guides/workflows.md) |
 | Tra cứu lệnh CLI | [CLI reference](guides/cli-reference.md) |
-| Biết kế hoạch 12 tháng | [Roadmap](generated/roadmap.md) |
+| Xem trạng thái triển khai và backlog | [Roadmap](generated/roadmap.md) |
 | Hiểu các quyết định kiến trúc | [ADRs 0001–0010](adr/ADR-0001-polyglot-persistence.md) |
 | Xem SLO / targets | [Performance SLOs](generated/performance_slo.md) · [Scale targets](generated/scale_targets.md) |
 | Quy tắc đóng góp | [Coding conventions](generated/conventions.md) |
@@ -64,3 +66,7 @@ registry/           # release registry (SemVer enforcement)
 benchmarks/         # 41 executable competency queries + expected results + SLO baselines
 docs/               # bộ tài liệu này
 ```
+
+Sơ đồ cấu trúc trên chỉ minh họa các module chính. Event schema hiện tại là v6;
+PostgreSQL phục vụ identity và operational read model. Bốn shape file canonical
+được bổ sung bằng `shapes/interop_shapes.ttl` cho kiểm tra profile liên thông.

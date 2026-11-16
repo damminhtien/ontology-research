@@ -73,6 +73,9 @@ Chỉ dùng Console write operations khi đã trỏ tới log phù hợp.
 - Biểu đồ D3: p95 latency vs SLO (xanh/vàng theo ngưỡng)
 - Bảng p50/p95/p99 đầy đủ từ `build/benchmark-report.json`
   (chạy `make benchmark` nếu chưa có)
+- Operational query API gọi `QueryService` qua adapter PostgreSQL; xem
+  [OSINT query contract](https://github.com/damminhtien/ontology-research/blob/main/requirements/osint_queries.md) để biết 10 query
+  paths và các giới hạn.
 
 ## Khám phá REST API
 
@@ -82,9 +85,8 @@ Mọi view đều gọi REST endpoint — dùng trực tiếp được:
 curl -s http://127.0.0.1:8787/api/projection
 ```
 
-Response fields include projection existence, entity/location counts, lag and
-the most recent event time. Values depend on the configured event log and
-current runtime state.
+Response gồm trạng thái projection, số entity/location, projection lag và thời
+điểm event gần nhất. Giá trị phụ thuộc event log và trạng thái runtime hiện tại.
 
 ```bash
 curl -s 'http://127.0.0.1:8787/api/projection/lookup?name=Patrol+Vessel+01'
@@ -95,8 +97,8 @@ match thay đổi theo event log.
 
 ## Quyền xem provenance
 
-Read API vẫn cho phép query dữ liệu projection công khai; provenance bị ẩn nếu
-request không có token được cấp. Cấu hình riêng `FOUNDRY_PROVENANCE_TOKENS` là
+Read API trả dữ liệu projection; provenance bị ẩn khi request không có token
+được cấp. Cấu hình riêng `FOUNDRY_PROVENANCE_TOKENS` là
 JSON map từ bearer token tới source IDs được xem:
 
 ```bash
@@ -121,14 +123,12 @@ Swagger đầy đủ tại <http://127.0.0.1:8787/api/docs>.
 
 ## Bài tập
 
-1. Trong tab Projection, điều gì xảy ra nếu xóa log mà `$FOUNDRY_EVENT_LOG`
-   trỏ tới rồi reload?
-   (Gợi ý: read model rebuild từ log — log mất thì read model mất.)
+1. Theo [hướng dẫn PostgreSQL](../guides/postgres-readmodel.md), restart
+   projector rồi xác nhận checkpoint và projection bắt kịp event log.
 2. Dùng endpoint `/api/projection/entities/{id}/location/as-of?at=...` để hỏi
    "Vessel 01 ở đâu trước khi được quan sát lần đầu?"
 
-## Điều gì vừa xảy ra
+## Kết quả
 
-Bạn đã đi qua toàn bộ console — từ health monitoring đến query read model — và thấy
-mọi thứ là projection của cùng một logic đã test. Đó là nguyên tắc thiết kế:
-**UI không có nguồn chân lý riêng**.
+Console hiển thị trạng thái ontology, event log và read projection. Write
+operations ghi event vào cùng event log; view không giữ một nguồn tri thức riêng.

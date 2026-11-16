@@ -71,8 +71,8 @@ def load_benchmark_graph(
     """Load the full graph the CQs run against.
 
     Defaults to every registered ontology module (core, middle, domain) plus
-    every dataset under benchmarks/datasets — the CQ suite must exercise the
-    whole vertical, not just the kernel.
+    every dataset under benchmarks/datasets. The CQ suite covers the complete
+    domain model built on the kernel.
     """
     ontology_paths = ontology if ontology is not None else find_module_files()
     data_paths = (

@@ -40,23 +40,26 @@ Lần chạy độc lập ngày **2026-11-12** dùng
 | Query p95: Q1 / current location / Q4 | 0.0013 / 0.1293 / 0.1570 ms |
 | Process peak RSS / event-log bytes / segments | 805,044,224 / 448,412,434 bytes / 14 |
 
-Synthetic ingest includes event creation, JSON serialization, segmented log writes
-and fsync. Query p95 uses 200 warm entity probes, each averaging 100 calls; it is
-not an individual-call latency percentile. RSS is a process high-water mark, so
-scale runs must use a standalone process. The log reader and projector stream
-records, but identity and read-model indexes remain in memory. This probe has
-100K entities and 1M location observations; it does not reach the 10M entity /
-100M edge target or measure distributed recovery. The scale ladder remains open;
-the next requirement is a persistent identity and read-model backend, with index
-build and snapshot recovery measured separately.
+Synthetic ingest gồm tạo event, JSON serialization, ghi segmented log và fsync.
+Query p95 lấy từ 200 warm entity probes, mỗi probe tính trung bình 100 lần gọi;
+đây không phải percentile của từng lần gọi. RSS là high-water mark của process,
+nên mỗi lượt scale cần chạy trong process riêng.
+
+Benchmark này dùng in-memory identity và read-model adapters; chưa đo
+PostgreSQL. Quy mô 100K entity và 1M location observation còn dưới target 10M
+entity / 100M edge, và chưa bao gồm distributed recovery. PostgreSQL operational
+backend đã được triển khai. Bước tiếp theo là đo durable projection, index
+build, restart và recovery ở 1M rồi 10M entity.
 
 ## Quy tắc kiến trúc liên quan scale
 
-- Không dùng một database cho mọi thứ — polyglot:
-  graph (traversal), relational/columnar (history/analytics), search (text/alias),
-  vector (candidate generation), stream (live events).
-- Federation > one huge KG: các domain KG riêng nhưng conform chung
-  `core + middle + semantic contracts`; query federation xử lý cross-domain.
+- Duy trì store theo workload: event log làm nguồn sự thật; PostgreSQL phục vụ
+  identity và operational queries; Parquet/DuckDB phục vụ history/analytics.
+  Đánh giá thêm Oxigraph cho SPARQL trước khi chọn làm semantic read store.
+- Federation là hướng mở rộng: mỗi domain KG tuân thủ `core + middle + semantic
+  contracts`; query federation cần có workload cụ thể trước khi triển khai.
+- PostgreSQL candidate/search indexes là bước hiện tại. Vector candidate
+  generation chỉ thêm khi đo được lợi ích cho review workload.
 - Global ID strategy ngay từ đầu: `urn:world:entity:<uuid>`;
   không dùng database auto-increment làm semantic identity.
   Mỗi entity có `canonical_id`, `external_ids[]`, `aliases[]`, `source_ids[]`.

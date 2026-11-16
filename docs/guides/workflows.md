@@ -42,25 +42,27 @@ Wikidata là **reference data**, không phải fact vận hành. Tách hai bư�
 .venv/bin/python tools/ingest_wikidata.py --from-lane --class Q3918
 ```
 
-Chạy lại bước 2 bao nhiêu lần cũng an toàn: registry derive từ log nên
-re-ingest là external-id hit (dedupe, không tạo entity mới).
+Chạy lại bước 2 an toàn. Nếu PostgreSQL chưa được cấu hình, ingestion dựng
+registry từ log. Khi dùng PostgreSQL, projector phải theo kịp event log trước
+khi ingest. Khóa ổn định của source record và external ID giúp nhận diện dữ
+liệu đã nạp.
 
 ## 2. Nạp feed tracking (sensor → observation → track)
 
 Feed AIS JSONL (`mmsi`, `name`, `sensor_id`, `track_id`, `position_uri`,
-`measurements`, `at_time`; old `location_uri` is accepted as an input alias):
+`measurements`, `at_time`; `location_uri` cũ vẫn được chấp nhận làm bí danh đầu vào):
 
 ```bash
 .venv/bin/python tools/ingest_tracking_feed.py --feed data/tracking-feed.jsonl
 ```
 
-Mapping: platform resolve/mint theo **MMSI** (trusted external id), sensor
-theo serial. `ObservationRecorded` represents the observation event; a separate
-`tracking:ObservationResult` preserves measured position, typed values, units
-and evidence. Neither event nor result creates a `core:locatedAt` world claim.
-`SensorRegistered`, `ObservationRecorded` and `TrackObserved` pass their SHACL
-contracts before entering the log. Read model giữ track store (`get_track` /
-`tracks_of`).
+Mapping: platform được resolve hoặc tạo mới theo **MMSI** (external ID có thẩm
+quyền), sensor theo serial. `ObservationRecorded` ghi sự kiện quan sát;
+`tracking:ObservationResult` riêng lưu vị trí, giá trị có kiểu dữ liệu, đơn vị
+và evidence. Event và result không tự tạo khẳng định thế giới
+`core:locatedAt`. `SensorRegistered`, `ObservationRecorded` và `TrackObserved`
+phải qua SHACL trước khi ghi vào log. Read model lưu track, truy cập qua
+`get_track` và `tracks_of`.
 
 ## 3. Trích xuất fact từ văn bản (LLM chỉ đề xuất)
 
@@ -83,17 +85,17 @@ from foundry.extraction import LlmExtractor
 result = pipeline.ingest_document(..., extractor=LlmExtractor(complete=my_llm_fn))
 ```
 
-Cam kết an toàn: candidate **không bao giờ tự mint entity** — subject phải
-resolve exact alias/external id, nếu không thì giữ bằng unresolved reference
-hoặc vào durable review queue khi ambiguous; confidence bị cap 0.7; provenance
-gắn về source/document; predicate phải được khai báo và tương thích với kiểu
-subject/object; mọi assertion qua SHACL.
+Candidate không tự mint entity. Subject phải resolve qua identity evidence;
+trường hợp chưa resolve được giữ unresolved reference hoặc vào durable review
+queue khi ambiguous. Extractor lưu `model_score` tối đa 0.7 và provenance tới
+source/document; score không phải xác suất fact đúng. Predicate phải được khai
+báo và tương thích với subject/object; mọi assertion qua SHACL.
 
 ## 4. Sửa dữ liệu: merge / split / backfill
 
 | Tình huống | Công cụ | Event |
 |---|---|---|
-| Hai canonical entity = một thực thể thật (under-merge, ADR-0006) | `tools/merge_entities.py --survivor ID --duplicate ID` | `EntityMerged` |
+| Hai canonical entity = một thực thể thật (under-merge, ADR-0006) | `tools/merge_entities.py --survivor ID --duplicate ID` cùng `--evidence-id`, `--evidence-source`, `--evidence-basis`, `--recorded-by` | `EntityMerged` |
 | Merge sai cần undo | `tools/split_entity.py --survivor ID --duplicate ID` | `EntitySplit` (restore set đọc từ `EntityMerged` — split không có merge record bị reject) |
 | QID binding khuyết trên log cũ (trước khi payload có `external_ids`) | `tools/backfill_external_ids.py` | `ExternalIdBound` (idempotent) |
 | Đưa events từ log khác vào production log | `tools/import_events.py --src … --dst …` | re-stamp sequence theo log nhận |
@@ -102,6 +104,8 @@ Bề mặt review queue: mọi rejection identity-stage được ghi thành
 `ResolutionReviewQueued` — đọc được, replay được, không mất khi process chết.
 Xử lý queue bằng cách resolve reference rồi thực hiện merge/import theo receipt;
 `POST /api/admin/review` chỉ liệt kê item, không xóa event khỏi append-only log.
+Khi dùng PostgreSQL, projector phải theo kịp event log trước khi chạy merge,
+split hoặc ingestion; correction CLI dùng persistent identity index.
 
 ## 5. Kiểm tra sức khoẻ sau mọi thao tác
 
@@ -109,9 +113,10 @@ Xử lý queue bằng cách resolve reference rồi thực hiện merge/import t
 make check   # lint + versions + alignment + SHACL(4 files) + DAG + tests + 2 SLO gates
 ```
 
-Log luôn tự validate toàn bộ (sequence discontinuity = corruption); lake
-manifest-authoritative (`verify()`); read model snapshot là cache — corrupt
-thì tự full replay, không bao giờ là nguồn sự thật.
+Log tự validate toàn bộ (sequence discontinuity = corruption); lake dùng manifest
+để xác định các file đã commit (`verify()`). PostgreSQL read model có thể được
+rebuild từ event log; `--rebuild` xóa projection và checkpoint trong database,
+giữ nguyên event log và lake.
 
 ## 6. Đổi ontology và chuẩn bị migration
 

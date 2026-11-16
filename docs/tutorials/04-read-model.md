@@ -19,6 +19,11 @@ Event log (write) ──► Projector ──► ReadModel (read)
   mode; `ReadModel` in-memory vẫn dùng cho tests và offline demos. Cả hai không
   gọi ontology/SPARQL ([ADR-0004](../adr/ADR-0004-cqrs-read-model.md)).
 
+`QueryService` gọi read model qua `OperationalQueryAdapter`; API dùng service
+này thay vì truy cập trực tiếp cấu trúc dữ liệu của adapter. SPARQL CQ chạy trên
+đường semantic riêng. Danh sách 10 operational OSINT queries và giới hạn từng
+query có trong [query contract](https://github.com/damminhtien/ontology-research/blob/main/requirements/osint_queries.md).
+
 Ba hot query của read model:
 
 | Query | Method | SLO p95 |
@@ -33,10 +38,10 @@ Ba hot query của read model:
 make benchmark
 ```
 
-The command reports synthetic ingest, exact alias lookup, streaming projection,
-query latency, peak process RSS and event-log bytes, then writes
-`build/benchmark-report.json`. Measurements depend on the machine and run; the
-committed query SLO baseline is in `benchmarks/baseline.json`.
+Lệnh này đo synthetic ingest, exact alias lookup, streaming projection, query
+latency, peak process RSS và event-log bytes, rồi ghi
+`build/benchmark-report.json`. Kết quả phụ thuộc máy và lượt chạy; query SLO
+baseline đã commit nằm ở `benchmarks/baseline.json`.
 
 !!! note "Đọc số liệu đúng cách"
     Benchmark tổng hợp giữ in-memory model để so sánh với baseline lịch sử;
@@ -45,9 +50,9 @@ committed query SLO baseline is in `benchmarks/baseline.json`.
     mới. Chỉ so RSS giữa các lần chạy riêng process. Query p95 là percentile
     của các probe trung bình 100 lần gọi warm; baseline SLO dùng cùng phép đo.
 
-Operational setup uses an external PostgreSQL worker and data root; see the
-[PostgreSQL guide](../guides/postgres-readmodel.md) for migration, catch-up,
-rebuild, and restart checks.
+Operational setup dùng PostgreSQL worker và data root bên ngoài worktree. Xem
+[hướng dẫn PostgreSQL](../guides/postgres-readmodel.md) để migrate, catch up,
+rebuild và kiểm tra sau restart.
 
 Tăng scale để stress test (không commit kết quả — `build/` đã gitignore):
 
@@ -68,8 +73,9 @@ Gate này chạy trong `make check`: fail nếu bất kỳ query nào vượt **
 hoặc **SLO tuyệt đối**. Baseline nằm ở `benchmarks/baseline.json` (median của 5 lần
 chạy để giảm nhiễu). Cập nhật baseline sau khi thay đổi hợp lệ:
 
-`make check` cũng chạy `tools/benchmark_e2e.py --check` để kiểm tra các ngưỡng
-ingest, lake persist, projector và lake query theo stage.
+`make check` cũng chạy `tools/benchmark_e2e.py --check` để kiểm tra floor tuyệt
+đối và giữ throughput của ingest, lake persist, projector ở mức ít nhất 1/1.5
+baseline. Lake query được gate theo latency SLO riêng.
 
 ```bash
 .venv/bin/python tools/check_slo.py --generate-baseline
@@ -77,20 +83,19 @@ ingest, lake persist, projector và lake query theo stage.
 
 ## Bước 3 — Xem trong Console
 
-The read model builds location history from generic `AssertionMade` records
-whose predicate is `core:locatedAt`. Validity uses a half-open interval
-`[valid_from, valid_until)`. A replacement assertion marks the referenced
-assertion corrected; `AssertionSuperseded` retracts a claim. Both operations
-refresh the current location index during event application. If multiple
-non-superseded locations are valid at the same instant, the model reports a
-conflict and does not pick a winner based on event order.
+Read model tạo location history từ `AssertionMade` có predicate
+`core:locatedAt`. Validity dùng khoảng nửa mở `[valid_from, valid_until)`. Khi
+replacement assertion được áp dụng, assertion cũ chuyển sang trạng thái
+superseded; `AssertionSuperseded` rút lại claim. Cả hai cập nhật location index.
+Nếu nhiều location assertion còn hiệu lực cùng lúc, model trả conflict thay vì
+chọn theo thứ tự event.
 
-The general assertion ledger also supports time varying relationships.
-`assertions_as_of(subject_id, instant, predicate_iri)` filters any predicate by
-the same half-open interval. For example, membership can end at one instant and
-a new membership can begin at that exact boundary without overwriting history.
-Projection statistics count only entities with one unique active location;
-expired or conflicting claims do not count as a current location.
+Assertion ledger cũng hỗ trợ quan hệ thay đổi theo thời gian.
+`assertions_as_of(subject_id, instant, predicate_iri)` lọc mọi predicate theo
+cùng khoảng thời gian. Ví dụ, membership cũ có thể kết thúc đúng lúc membership
+mới bắt đầu mà không ghi đè history. Projection statistics chỉ đếm entity có
+một location duy nhất đang hiệu lực; claim hết hạn hoặc conflict không được tính
+là current location.
 
 Mở tab **Projection** tại <http://127.0.0.1:8787/#/projection>:
 
@@ -107,10 +112,11 @@ Card **Projection** trên Dashboard hiển thị projection lag so với SLO 5s.
 2. Đọc `foundry/projector.py`: chuyện gì xảy ra với event type chưa biết? Vì sao
    thiết kế "skip, không fatal" lại quan trọng cho forward compatibility?
 
-## Điều gì vừa xảy ra
+## Kết quả
 
-Bạn đã đo được ba tầng hiệu năng: ghi log, replay projection, và query latency —
-với SLO gate bảo vệ mọi release tương lai khỏi performance regression.
+Benchmark này đo event log, projection replay và query latency cho đường
+in-memory. PostgreSQL và Oxigraph được đánh giá riêng trên workload chung; thời
+gian đo ở mỗi adapter bao gồm các tầng xử lý khác nhau.
 
 ## Tiếp theo
 

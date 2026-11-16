@@ -7,6 +7,8 @@
   [ADR-0007](ADR-0007-under-merge-repair-via-append-only-merge-events.md);
   binding external id bây giờ là fact bền vững trên log
   ([ADR-0010](ADR-0010-registry-as-log-projection.md)).
+- Amendment (2026-11-15): chỉ namespace được khai báo unique và authoritative
+  mới được dùng để tự resolve; tên và identifier namespace khác chỉ tạo candidate.
 
 ## Context
 
@@ -17,7 +19,7 @@ chứng merge. Khi nạp 8.741 tổ chức Wikidata thật, 62.2% bị review ch
 các cơ quan hành chính giống nhau — dữ liệu thật bị chặn khỏi lake dù danh
 tính đã được nguồn khẳng định qua external id.
 
-## Decision
+## Initial decision (2026-08-30)
 
 Trong `foundry/identity.py`, khi caller cung cấp `external_id` (assertion
 danh tính bên ngoài) và external id miss:
@@ -27,13 +29,22 @@ danh tính bên ngoài) và external id miss:
 - Không có external id → giữ nguyên behavior ADR-0003: fuzzy ≥ 0.50 →
   `review`, không bao giờ auto-merge.
 
-Lookup order không đổi: external id hit → exact alias → fuzzy → new. Không có
-luồng nào auto-merge hai canonical entity.
+Trong policy ban đầu, lookup order là external ID hit → exact alias → fuzzy →
+new. Không có luồng nào tự gộp hai canonical entity.
+
+### Current policy
+
+Namespace policy được định nghĩa trong `foundry/identity.py`. Chỉ external ID
+trong namespace có uniqueness và authority đã khai báo mới được dùng làm bằng
+chứng `MATCH`. Nếu ID đó chưa có owner, resolver có thể tạo canonical entity
+mới dù tên tạo candidate. Alias, fuzzy match và identifier từ namespace không
+unique chỉ tạo `REVIEW` candidate; conflict về owner hoặc entity type trả
+`CONFLICT`. Resolver score mô tả identity evidence, không phải xác suất fact.
 
 ## Consequences
 
-- (+) Dữ liệu thật từ nguồn có định danh không bị kẹt review queue; KPI
-  `unresolved_rate` tiệm cận 0 cho nguồn đó.
+- (+) Record có external ID authoritative chưa được đăng ký có thể được ingest;
+  unresolved rate vẫn cần đo theo từng lượt và nguồn dữ liệu.
 - (+) Không có auto-merge: lỗi đắt nhất theo ADR-0003 vẫn không xảy ra.
 - ~~(-) Hai QID mô tả cùng một thực thể thật (duplicate hiếm của chính nguồn)
   cho hai canonical entity — under-merge, rẻ hơn false-merge; gộp dồn xử lý

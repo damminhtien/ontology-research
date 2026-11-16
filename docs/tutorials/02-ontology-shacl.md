@@ -6,8 +6,8 @@
 ## Kernel là gì?
 
 `ontology/core/core.ttl` là **semantic kernel** — bộ từ vựng tối thiểu, cực ổn định,
-dùng chung cho mọi domain. Thiết kế giữ budget chặt: **15–25 classes, 30–50 predicates**
-(hiện tại: 19 / 33). Test `tests/test_ontology.py` chặn mọi vi phạm budget.
+dùng chung cho mọi domain. Thiết kế giữ budget chặt: **15–25 classes, 30–50 properties**
+(hiện tại: 19 / 34). Test `tests/test_ontology.py` chặn mọi vi phạm budget.
 
 ```bash
 .venv/bin/python tools/manage_ontology.py stats
@@ -18,6 +18,9 @@ module                       classes obj-props data-props
 ontology/core/core.ttl            19        24          9
 TOTAL                             19                            33 properties
 ```
+
+Output trên là từ snapshot cũ. Hiện core có 19 lớp, 24 object-property và 10
+data-property, tổng cộng 34 thuộc tính.
 
 ## Quy tắc thêm term vào kernel
 
@@ -49,6 +52,9 @@ tra observation event và named entities/locations/sources. Assertions, identity
 references, identifiers và tracking results có shape riêng trong module tương
 ứng:
 
+Bên cạnh bốn nhóm shape canonical, `interop_shapes.ttl` kiểm tra export PROV-O,
+SOSA và GeoSPARQL trong `make conformance`.
+
 - `AssertionShape` — đúng một canonical subject hoặc unresolved reference,
   predicate và object tương thích, valid-time `[validFrom, validUntil)`, source.
 - `ObservationResultShape` — ít nhất có measured position hoặc measurement;
@@ -68,6 +74,9 @@ references, identifiers và tracking results có shape riêng trong module tươ
 ```text
 RESULT: PASS (32 subclass-closure triples materialized)
 ```
+
+Output trong khung là từ snapshot cũ; lệnh hiện tại materialize 54
+subclass-closure triples.
 
 Bây giờ thử dữ liệu vi phạm — observation thiếu `atTime` và `hasSource`:
 
@@ -106,6 +115,9 @@ Kernel không được import module khác; middle/domain chỉ được import 
 Dependency DAG check PASSED (7 files, 6 import edges, no upward deps, no cycles).
 ```
 
+Output trên ghi nhận trạng thái trước đó. DAG hiện có 7 file ontology và 7
+import edge.
+
 ## Bài tập
 
 1. Thử nạp một assertion dùng `core:currentLocation`, thuộc tính được đánh dấu
@@ -114,10 +126,10 @@ Dependency DAG check PASSED (7 files, 6 import edges, no upward deps, no cycles)
    Xác nhận cả hai trường hợp conform `ObservationResultShape` mà không sinh
    `core:locatedAt`.
 
-## Điều gì vừa xảy ra
+## Kết quả
 
-Bạn đã thấy hai lớp bảo vệ của kernel: **budget test** giữ ontology nhỏ và ổn định,
-**SHACL gate** ép dữ liệu tuân thủ semantic contract trước khi vào hệ thống.
+Test budget giữ kernel trong giới hạn đã định. SHACL gate kiểm tra dữ liệu theo
+contract trước khi ingestion ghi event.
 
 ## Tiếp theo
 

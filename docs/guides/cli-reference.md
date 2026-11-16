@@ -33,7 +33,7 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 | `.venv/bin/python tools/check_slo.py` | SLO regression gate (1.2× baseline + SLO tuyệt đối) |
 | `.venv/bin/python tools/check_slo.py --generate-baseline` | Cập nhật `benchmarks/baseline.json` |
 | `.venv/bin/python tools/benchmark_e2e.py [--entities N] [--iterations N]` | E2E benchmark theo stage (ingest qua SHACL → lake → projector → lake query) → `build/benchmark-e2e-report.json` |
-| `.venv/bin/python tools/benchmark_e2e.py --check` | Gate e2e: floor tuyệt đối từng stage + 1/1.2× baseline (`benchmarks/baseline-e2e.json`) |
+| `.venv/bin/python tools/benchmark_e2e.py --check` | Gate E2E: floor tuyệt đối theo stage + floor tỷ lệ 1/1.5 so với baseline (`benchmarks/baseline-e2e.json`) |
 | `.venv/bin/python tools/benchmark_e2e.py --generate-baseline` | Cập nhật baseline e2e (cùng `--entities` với gate) |
 
 ## Data plane
@@ -41,17 +41,18 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 | Lệnh | Chức năng |
 |------|-----------|
 | `.venv/bin/python tools/seed_console_data.py [--force]` | Seed event log demo qua ingestion pipeline thật |
-| `.venv/bin/python tools/ingest_wikidata.py [--class QID] [--limit N] [--timeout S] [--from-lane] [--log PATH] [--lake PATH] [--no-lake]` | Nạp entity thật từ Wikidata: mặc định fetch SPARQL trực tiếp, hoặc `--from-lane` đọc snapshot Parquet từ reference lane. Registry derive từ log nên chạy lặp lại là dedupe |
+| `.venv/bin/python tools/ingest_wikidata.py [--class QID] [--limit N] [--timeout S] [--from-lane] [--log PATH] [--lake PATH] [--no-lake]` | Nạp entity từ Wikidata: mặc định fetch SPARQL trực tiếp hoặc đọc snapshot Parquet với `--from-lane`. Không có PostgreSQL thì registry dựng từ log; có PostgreSQL thì projector phải theo kịp log trước khi ingest. Stable source-record key và external ID giúp dedupe khi chạy lại |
 | `.venv/bin/python tools/ingest_tracking_feed.py --feed feed.jsonl [--log PATH] [--lake PATH]` | Nạp feed AIS JSONL vào tracking vertical: platform resolve theo MMSI, sensor theo serial, observation/track qua domain SHACL |
 | `.venv/bin/python tools/build_reference_lane.py --class QID [--pages N]` | Fetch Wikidata (cursor paging theo QID) → snapshot typed Parquet versioned trong reference lane |
 | `.venv/bin/python tools/measure_wikidata.py [--counts QID,...] [--batches QID:LIMIT,...] [--delay S] [--out PATH]` | Đo số lượng / kích thước batch Wikidata; cần network tới Wikidata |
-| `.venv/bin/python tools/merge_entities.py --survivor ID --duplicate ID [--reason TEXT] [--log PATH] [--lake PATH]` | Repair under-merge: append `EntityMerged` sau khi validate trên registry rebuild từ log; exit 1 không ghi gì nếu bị từ chối |
+| `.venv/bin/python tools/merge_entities.py --survivor ID --duplicate ID --evidence-id EVIDENCE_ID --evidence-source SOURCE --evidence-basis BASIS --recorded-by ACTOR [--reason TEXT] [--log PATH] [--lake PATH]` | Ghi correction `EntityMerged` cho hai canonical entity đã xác minh bằng same-entity evidence. PostgreSQL projector phải theo kịp log trước khi chạy. Exit 1 nếu merge bị từ chối |
 | `.venv/bin/python tools/split_entity.py --survivor ID --duplicate ID [--reason TEXT]` | Undo một merge đã ghi: restore set đọc từ `EntityMerged`; append `EntitySplit` |
 | `.venv/bin/python tools/backfill_external_ids.py [--log PATH] [--no-lake]` | Khôi phục QID binding của log cũ (quy ước `source_id: wikidata:QID`) thành `ExternalIdBound` events; idempotent |
 | `.venv/bin/python tools/import_events.py --src PATH --dst PATH [--skip N] [--dry-run]` | Copy events giữa hai log, re-stamp sequence theo log nhận (event_id giữ nguyên) |
 | `.venv/bin/python tools/export_rdf.py --event-log PATH --profile {canonical-v1,interop-v1} --output PATH [--geometry CSV] [--context-index PATH]` | Stream offline event log thành TriG với SQLite reference index; xem [RDF export profiles](rdf-export.md) |
 | `make oxigraph-test` | Kiểm tra atomic publication, read-only reopen và full rebuild trong môi trường riêng |
-| `make oxigraph-eval` | So sánh 41 CQ, đo engine Oxigraph/TDB2 và service Fuseki riêng ở 10K, 100K entity; xem [Oxigraph snapshot evaluation](oxigraph-evaluation.md) |
+| `make oxigraph-eval` | So sánh 41 CQ; đo query engine Oxigraph/TDB2 và HTTP service Fuseki thành hai nhóm riêng ở 10K, 100K entity; xem [Oxigraph snapshot evaluation](oxigraph-evaluation.md) |
+| `make query-adapter-eval QUERY_ADAPTER_ARGS="--event-log PATH --snapshot-root PATH"` | So sánh kết quả operational lookup, as-of relationship và provenance giữa PostgreSQL `QueryService` và Oxigraph trên cùng workload; xem [OSINT query contract](https://github.com/damminhtien/ontology-research/blob/main/requirements/osint_queries.md) |
 | `make rdf-export-eval` | Đo bounded-memory TriG export ở 1M và 10M events; xem [RDF export profiles](rdf-export.md) |
 | `make splink-fetch` | Tải hai file FEBRL4 theo revision và SHA-256 đã pin vào `build/` |
 | `make splink-test` | Chạy test đánh giá resolver/Splink trong môi trường Splink 5 riêng |
@@ -78,6 +79,6 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 | Target | Bao gồm |
 |--------|---------|
 | `make setup` | Tạo `.venv` + cài `requirements.txt` |
-| `make check` | `lint` + `versions` + `validate` + `dag` + `test` + `slo` |
-| `make conformance` | ROBOT/HermiT trên ontology closure (TBox), Jena/pySHACL trên canonical và interop SHACL, 41 CQ và W3C RDFC-1.0; chạy độc lập với `make check` |
+| `make check` | `lint` + ontology design + quality + versions + alignment + SHACL validation + DAG + tests + SLO |
+| `make conformance` | OWL 2 DL và consistency của ontology closure (TBox) với ROBOT/HermiT; Jena/pySHACL trên canonical và interop fixtures tốt/xấu; 41 CQ và W3C RDFC-1.0. Chạy độc lập với `make check` |
 | `make fmt` | `ruff check --fix` + `ruff format` |

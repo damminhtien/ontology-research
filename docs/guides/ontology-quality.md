@@ -43,22 +43,27 @@ chiều vùng, thời gian và triển khai OLAP cần bằng chứng riêng.
 
 ## Đọc kết quả và bổ sung bằng chứng
 
-Snapshot checked 2026-11-12: 28 classes, **68/68** properties have domain and
-range, all **9/9** class-target shapes have focus nodes, and the combined
-corpus conforms. The fixture includes assertion, document/source, unresolved
-reference, Identifier, ObservationResult, Sensor and Track records.
+Snapshot ngày 2026-11-16 có **31 lớp** và **78/78 thuộc tính** đã khai báo
+domain và range. Fixture có focus node cho **9 trong 15 shape target theo
+class**; combined corpus conform. Fixture gồm assertion, document/source,
+unresolved reference, Identifier, ObservationResult, Sensor và Track.
 
-**41/41** competency questions match their expected rows across the baseline
-datasets and the dedicated semantic workload. The added cases exercise
+Cả **41 câu CQ bắt buộc** đều trả đúng expected rows trên baseline datasets và
+semantic workload. Các case bao gồm
 half-open time boundaries, correction and retraction, conflicting location
 claims, normalized sources and inline evidence, unresolved identity,
 scheme-scoped identifiers, observation-result/measurement separation and track
 provenance. See the [CQ contract](../generated/competency_questions.md) and
 `benchmarks/expected_results/` for exact cases.
 
-Kết quả đo được mức phù hợp với khai báo, shape và ví dụ trong repo. Chúng
-không chứng minh ontology nhất quán theo OWL DL, dữ liệu thực đầy đủ, hoặc
-các sự kiện có thật. Chạy [đánh giá thiết kế](ontology-design.md) để kiểm tra
+`make conformance` kiểm tra OWL 2 DL và consistency của ontology closure (TBox)
+bằng ROBOT/HermiT. Nó không kiểm tra consistency của toàn bộ production ABox.
+Hai validator pySHACL và Jena đối chiếu canonical và interop fixtures hợp lệ
+và không hợp lệ.
+
+Các phép đo trong báo cáo cho biết mức phù hợp với schema, shape và ví dụ trong
+repo. Chúng không xác minh rằng dữ liệu thực đầy đủ hoặc các sự kiện có thật.
+Chạy [đánh giá thiết kế](ontology-design.md) để kiểm tra
 phân cấp lớp và tham chiếu giữa các module. Để đo độ chính xác trên dữ liệu
 thực, cần một mẫu đã được chuyên gia xác minh với nguồn và mốc thời gian rõ
 ràng; đo precision và recall theo từng loại sự kiện hoặc quan hệ trên tập
