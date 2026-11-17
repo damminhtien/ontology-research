@@ -34,6 +34,8 @@ from foundry.osint_public_sources import (
 )
 from foundry.osint_sources import (
     VIETNAM_SCS,
+    AdsbPositionMapper,
+    AdsbSnapshotConnector,
     AisReportRecord,
     AisStreamConnector,
     AisStreamMapper,
@@ -62,6 +64,8 @@ def main() -> int:
         choices=(
             "all",
             "opensky",
+            "adsb-lol",
+            "adsb-fi",
             "gdelt",
             "aisstream",
             "openstreetmap",
@@ -71,7 +75,7 @@ def main() -> int:
             "gdacs",
         ),
         default="all",
-        help="source to collect; all runs the eight regional sources when configured",
+        help="source to collect; all runs the ten regional sources when configured",
     )
     parser.add_argument(
         "--run-id",
@@ -122,6 +126,8 @@ def main() -> int:
     requested = (
         (
             "opensky",
+            "adsb-lol",
+            "adsb-fi",
             "gdelt-events",
             "aisstream",
             "openstreetmap",
@@ -179,14 +185,25 @@ def main() -> int:
             }
             continue
         try:
-            if source_id == "opensky":
-                connector = OpenSkyConnector(contract=contracts[source_id], http=http)
-                mapper = OpenSkyMapper(max_records=args.max_records)
+            if source_id in {"opensky", "adsb-lol", "adsb-fi"}:
+                if source_id == "opensky":
+                    connector = OpenSkyConnector(contract=contracts[source_id], http=http)
+                    mapper = OpenSkyMapper(max_records=args.max_records)
+                else:
+                    connector = AdsbSnapshotConnector(
+                        contract=contracts[source_id], http=http, region=VIETNAM_SCS
+                    )
+                    mapper = AdsbPositionMapper(max_records=args.max_records)
                 counts = {"entities": 0, "positions": 0, "reviews": 0, "skipped": 0}
 
-                def ingest_positions(_raw, positions, _archived, counts=counts) -> None:
+                def ingest_positions(
+                    _raw, positions, _archived, counts=counts, current_source_id=source_id
+                ) -> None:
                     payload = json.loads(_raw.body)
-                    source_rows = payload.get("states") or []
+                    if current_source_id == "opensky":
+                        source_rows = payload.get("states") or []
+                    else:
+                        source_rows = payload.get("ac") or []
                     counts["skipped"] += max(0, len(source_rows) - len(positions))
                     for position in positions:
                         entity = pipeline.ingest_entity(
@@ -203,7 +220,8 @@ def main() -> int:
                                 counts["reviews"] += 1
                                 continue
                             raise SourceAdapterError(
-                                f"OpenSky entity {position.source_record_id} was not committed"
+                                f"{position.source_id} entity {position.source_record_id} "
+                                "was not committed"
                             )
                         counts["entities"] += int(entity.is_new)
                         assertion = pipeline.ingest_assertion(
@@ -224,7 +242,8 @@ def main() -> int:
                         )
                         if not assertion.accepted:
                             raise SourceAdapterError(
-                                f"OpenSky position {position.position_record_id} rejected: "
+                                f"{position.source_id} position "
+                                f"{position.position_record_id} rejected: "
                                 f"{assertion.reason}"
                             )
                         counts["positions"] += int(not assertion.replayed)

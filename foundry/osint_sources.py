@@ -17,7 +17,7 @@ import urllib.parse
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from foundry.provenance import content_sha256
@@ -30,6 +30,10 @@ from foundry.source_adapters import (
 )
 
 OPENSKY_STATES_URL = "https://opensky-network.org/api/states/all"
+ADSB_FEED_URLS = {
+    "adsb-lol": "https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{radius}",
+    "adsb-fi": "https://opendata.adsb.fi/api/v3/lat/{lat}/lon/{lon}/dist/{radius}",
+}
 GDELT_LASTUPDATE_URL = "https://data.gdeltproject.org/gdeltv2/lastupdate.txt"
 GDELT_EVENTS_URL_PATTERN = re.compile(
     r"https?://[^\s]+/gdeltv2/(?P<timestamp>\d{14})\.export\.CSV\.zip\Z"
@@ -303,6 +307,174 @@ class OpenSkyMapper:
                     latitude=latitude,
                     longitude=longitude,
                     identity_content_hash=source_record_hash(identity_payload),
+                    measurements=tuple(measurements),
+                )
+            )
+            if len(results) >= self.max_records:
+                break
+        return tuple(results)
+
+
+class AdsbSnapshotConnector:
+    """Fetch one ADS-B snapshot from a bounded 250 NM regional query."""
+
+    def __init__(
+        self,
+        *,
+        contract: SourceContract,
+        http,
+        region: GeoBounds = VIETNAM_SCS,
+        latitude: float = 12.5,
+        longitude: float = 110.0,
+        radius_nm: int = 250,
+    ) -> None:
+        """Configure a source-specific endpoint and the central SCS search circle."""
+        if contract.id not in ADSB_FEED_URLS:
+            raise ValueError(f"unsupported ADS-B source {contract.id!r}")
+        if not region.contains(latitude, longitude):
+            raise ValueError("ADS-B search center must be inside the configured region")
+        if not 1 <= radius_nm <= 250:
+            raise ValueError("ADS-B search radius must be in [1, 250] nautical miles")
+        self.contract = contract
+        self._http = http
+        self._url = ADSB_FEED_URLS[contract.id].format(
+            lat=f"{latitude:g}", lon=f"{longitude:g}", radius=radius_nm
+        )
+        self.request_fingerprint = content_sha256(
+            json.dumps(
+                {
+                    "url": self._url,
+                    "region": region.name,
+                    "center": [latitude, longitude],
+                    "radius_nm": radius_nm,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+
+    def fetch_page(self, cursor: str | None) -> ConnectorPage:
+        """Fetch and preserve one source response for the central SCS circle."""
+        if cursor is not None:
+            raise SourceAdapterError("ADS-B snapshots do not accept a cursor")
+        body, payload = self._http.get_json(self._url)
+        snapshot_time_ms = _parse_adsb_snapshot_time(payload.get("now"))
+        aircraft = payload.get("ac")
+        if not isinstance(aircraft, list):
+            raise SourceAdapterError("ADS-B response must contain an aircraft list in 'ac'")
+        record = RawRecord(
+            source_id=self.contract.id,
+            record_id=f"snapshot:{snapshot_time_ms}",
+            source_uri=self._url,
+            schema_version=self.contract.record_schema,
+            body=body,
+            retrieved_at=datetime.now(UTC).isoformat(),
+        )
+        return ConnectorPage((record,), None, True)
+
+
+class AdsbPositionMapper:
+    """Map recent in-region ADS-B positions without merging provider identities."""
+
+    mapping_version = "1"
+
+    def __init__(
+        self,
+        *,
+        region: GeoBounds = VIETNAM_SCS,
+        max_position_age_seconds: int = 3600,
+        max_records: int = 500,
+    ) -> None:
+        """Set the AOI and maximum accepted source-position age."""
+        if max_position_age_seconds < 0:
+            raise ValueError("max_position_age_seconds must be non-negative")
+        if max_records < 1:
+            raise ValueError("max_records must be positive")
+        self.region = region
+        self.max_position_age_seconds = max_position_age_seconds
+        self.max_records = max_records
+        self.mapping_version = (
+            f"1|region={region.name}|max_position_age={max_position_age_seconds}"
+            f"|max_records={max_records}"
+        )
+
+    def map(self, record: RawRecord) -> tuple[PositionRecord, ...]:
+        """Keep only complete, fresh positions with a documented relative age."""
+        try:
+            payload = json.loads(record.body)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SourceAdapterError("ADS-B snapshot is not valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise SourceAdapterError("ADS-B snapshot must be a JSON object")
+        snapshot_time_ms = _parse_adsb_snapshot_time(payload.get("now"))
+        aircraft = payload.get("ac")
+        if not isinstance(aircraft, list):
+            raise SourceAdapterError("ADS-B snapshot must contain an aircraft list in 'ac'")
+
+        results: list[PositionRecord] = []
+        seen_addresses: set[str] = set()
+        snapshot_id = str(snapshot_time_ms)
+        snapshot_seconds = snapshot_time_ms / 1000
+        for row in aircraft:
+            parsed = _parse_adsb_aircraft(row)
+            if parsed is None:
+                continue
+            icao24, position_age, latitude, longitude = parsed
+            if (
+                icao24 in seen_addresses
+                or not self.region.contains(latitude, longitude)
+                or position_age < 0
+                or position_age > self.max_position_age_seconds
+            ):
+                continue
+            seen_addresses.add(icao24)
+            position_time = snapshot_seconds - position_age
+            observed_at = datetime.fromtimestamp(position_time, UTC)
+            locator = f"{record.source_uri}#icao24={icao24}"
+            measurements: list[dict[str, object]] = [
+                _measurement("latitude", latitude, "degree"),
+                _measurement("longitude", longitude, "degree"),
+            ]
+            for name, value, unit in (
+                ("barometric_altitude", row.get("alt_baro"), "ft"),
+                ("geometric_altitude", row.get("alt_geom"), "ft"),
+                ("ground_speed", row.get("gs"), "knot"),
+                ("heading", row.get("track"), "degree"),
+                ("vertical_rate", row.get("baro_rate"), "ft/min"),
+            ):
+                number = parse_finite_float(value)
+                if number is not None:
+                    measurements.append(_measurement(name, number, unit))
+            for name, key in (
+                ("callsign", "flight"),
+                ("registration", "r"),
+                ("aircraft_type", "t"),
+                ("category", "category"),
+                ("squawk", "squawk"),
+            ):
+                value = row.get(key)
+                if isinstance(value, str) and value.strip():
+                    measurements.append(_measurement(name, value.strip(), None))
+
+            provider_label = {
+                "adsb-lol": "AdsbLol",
+                "adsb-fi": "AdsbFi",
+            }.get(record.source_id, "Adsb")
+            results.append(
+                PositionRecord(
+                    source_id=record.source_id,
+                    source_record_id=icao24,
+                    position_record_id=f"{snapshot_id}:{icao24}",
+                    source_uri=record.source_uri,
+                    locator=locator,
+                    entity_name=f"Aircraft{provider_label}{icao24}",
+                    external_namespace=f"{record.source_id}-icao24",
+                    external_id=icao24,
+                    observed_at=observed_at.isoformat(),
+                    valid_until=(observed_at + timedelta(seconds=1)).isoformat(),
+                    latitude=latitude,
+                    longitude=longitude,
+                    identity_content_hash=source_record_hash({"icao24": icao24}),
                     measurements=tuple(measurements),
                 )
             )
@@ -671,6 +843,30 @@ def _parse_opensky_state(
         return None
     callsign = state[1].strip() if isinstance(state[1], str) else ""
     return icao24.casefold(), callsign, position_time, latitude, longitude, tuple(state[2:])
+
+
+def _parse_adsb_snapshot_time(value: object) -> int:
+    """Validate readsb-compatible snapshot time expressed as Unix milliseconds."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SourceAdapterError("ADS-B response has no integer Unix-millisecond 'now'")
+    if not 946_684_800_000 <= value < 4_102_444_800_000:
+        raise SourceAdapterError("ADS-B snapshot 'now' is outside the Unix-millisecond range")
+    return value
+
+
+def _parse_adsb_aircraft(row: object) -> tuple[str, float, float, float] | None:
+    """Validate one readsb aircraft row with a real ICAO address and position age."""
+    if not isinstance(row, dict):
+        return None
+    address = row.get("hex")
+    if not isinstance(address, str) or not re.fullmatch(r"[0-9a-fA-F]{6}", address):
+        return None
+    position_age = parse_finite_float(row.get("seen_pos"))
+    latitude = parse_finite_float(row.get("lat"))
+    longitude = parse_finite_float(row.get("lon"))
+    if position_age is None or latitude is None or longitude is None:
+        return None
+    return address.casefold(), position_age, latitude, longitude
 
 
 def _parse_gdelt_manifest(manifest: str) -> tuple[str, str, str] | None:

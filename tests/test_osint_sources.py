@@ -32,6 +32,8 @@ from foundry.osint_public_sources import (
 )
 from foundry.osint_sources import (
     VIETNAM_SCS,
+    AdsbPositionMapper,
+    AdsbSnapshotConnector,
     AisStreamConnector,
     AisStreamMapper,
     GdeltConnector,
@@ -90,6 +92,33 @@ def _opensky_state(
         False,
         0,
     ]
+
+
+def _adsb_aircraft(
+    icao24: str = "abc123",
+    *,
+    longitude: float = 110.0,
+    latitude: float = 16.0,
+    seen_pos: float | None = 1.5,
+) -> dict[str, object]:
+    row: dict[str, object] = {
+        "hex": icao24,
+        "flight": "VN123 ",
+        "lat": latitude,
+        "lon": longitude,
+        "alt_baro": 12000,
+        "alt_geom": 12200,
+        "gs": 250.5,
+        "track": 91.0,
+        "baro_rate": -128,
+        "r": "VN-A123",
+        "t": "A321",
+        "category": "A3",
+        "squawk": "1234",
+    }
+    if seen_pos is not None:
+        row["seen_pos"] = seen_pos
+    return row
 
 
 def _gdelt_row(
@@ -186,6 +215,98 @@ def test_opensky_connector_requests_only_the_configured_area():
     assert "lomax=122.0" in http.url
     assert page.records[0].body == body
     assert page.records[0].record_id == "states:1700000030"
+
+
+@pytest.mark.parametrize(
+    ("source_id", "expected_url"),
+    [
+        ("adsb-lol", "https://api.adsb.lol/v2/lat/12.5/lon/110/dist/250"),
+        (
+            "adsb-fi",
+            "https://opendata.adsb.fi/api/v3/lat/12.5/lon/110/dist/250",
+        ),
+    ],
+)
+def test_adsb_connector_uses_bounded_provider_endpoint(source_id, expected_url):
+    body = b'{"ac":[],"now":1700000030000}'
+
+    class FakeHttp:
+        url = ""
+
+        def get_json(self, url: str):
+            self.url = url
+            return body, {"ac": [], "now": 1_700_000_030_000}
+
+    http = FakeHttp()
+    connector = AdsbSnapshotConnector(contract=_contract(source_id), http=http)
+    page = connector.fetch_page(None)
+
+    assert http.url == expected_url
+    assert page.complete and page.next_cursor is None
+    assert page.records[0].body == body
+    assert page.records[0].record_id == "snapshot:1700000030000"
+
+
+def test_adsb_mapper_requires_recent_source_timed_positions_and_preserves_units():
+    body = json.dumps(
+        {
+            "now": 1_700_000_030_000,
+            "ac": [
+                _adsb_aircraft(),
+                _adsb_aircraft("def456", seen_pos=3601),
+                _adsb_aircraft("789abc", latitude=27.0),
+                _adsb_aircraft("bad789", seen_pos=None),
+                _adsb_aircraft("bad_id"),
+            ],
+        }
+    ).encode()
+    positions = AdsbPositionMapper().map(_raw_record("adsb-lol", body))
+
+    assert len(positions) == 1
+    position = positions[0]
+    assert position.external_namespace == "adsb-lol-icao24"
+    assert position.external_id == "abc123"
+    assert position.entity_name == "AircraftAdsbLolabc123"
+    assert position.observed_at == "2023-11-14T22:13:48.500000+00:00"
+    assert position.valid_until == "2023-11-14T22:13:49.500000+00:00"
+    measurements = {item["name"]: item for item in position.measurements}
+    assert measurements["barometric_altitude"]["unit"] == "ft"
+    assert measurements["ground_speed"]["unit"] == "knot"
+    assert measurements["vertical_rate"]["unit"] == "ft/min"
+    assert measurements["registration"]["value"] == "VN-A123"
+
+
+def test_adsb_mapper_rejects_unversioned_snapshot_time():
+    body = json.dumps({"now": 1_700_000_030.0, "ac": [_adsb_aircraft()]}).encode()
+
+    with pytest.raises(SourceAdapterError, match="integer Unix-millisecond"):
+        AdsbPositionMapper().map(_raw_record("adsb-fi", body))
+
+
+def test_adsb_providers_do_not_auto_merge_the_same_icao24(tmp_path):
+    body = json.dumps({"now": 1_700_000_030_000, "ac": [_adsb_aircraft()]}).encode()
+    log = EventLog(tmp_path / "events.jsonl")
+    pipeline = IngestionPipeline(
+        identity=IdentityService(), log=log, ontology_path=CORE_ONTOLOGY, shapes_path=SHAPES_FILE
+    )
+
+    entities = []
+    for source_id in ("adsb-lol", "adsb-fi"):
+        position = AdsbPositionMapper().map(_raw_record(source_id, body))[0]
+        entity = pipeline.ingest_entity(
+            name=position.entity_name,
+            entity_type="Platform",
+            source_id=position.source_id,
+            record_id=position.source_record_id,
+            external_source=position.external_namespace,
+            external_id=position.external_id,
+            content_hash=position.identity_content_hash,
+        )
+        assert entity.accepted and entity.is_new
+        entities.append(entity.canonical_id)
+
+    assert len(set(entities)) == 2
+    assert [event.event_type for event in log.read_all()] == ["EntityCreated", "EntityCreated"]
 
 
 def test_opensky_positions_ingest_as_idempotent_source_assertions(tmp_path):

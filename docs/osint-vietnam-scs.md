@@ -1,11 +1,10 @@
 # Nạp OSINT quanh Việt Nam và Biển Đông
 
-`tools/ingest_osint_region.py` chạy các adapter theo vùng. Registry hiện có 11
-nguồn từ 11 đơn vị cung cấp: ba nguồn tham chiếu/định danh đang chạy qua các
-tool riêng và tám nguồn theo vùng dưới đây. Thêm GDACS để có một public feed
-thảm họa đã xác nhận phản hồi trực tiếp trong khi Overpass đang không ổn định.
+`tools/ingest_osint_region.py` chạy mười adapter theo vùng. Registry có 13
+nguồn từ 13 đầu mối: ba nguồn tham chiếu/định danh chạy qua tool riêng và mười
+nguồn khu vực bên dưới.
 
-## Danh mục 10 nguồn
+## Danh mục 13 nguồn
 
 | Nguồn | Dữ liệu dùng trong MVP | Truy cập |
 | --- | --- | --- |
@@ -13,6 +12,8 @@ thảm họa đã xác nhận phản hồi trực tiếp trong khi Overpass đan
 | GLEIF | Legal Entity Identifier và tên pháp lý | Không cần key; `ingest_osint_sample.py` |
 | Wikipedia tiếng Anh | Revision tài liệu và câu quan hệ công ty tường minh | Không cần key; `ingest_osint_sample.py` |
 | [OpenSky Network](https://opensky-network.org/data/api) | Snapshot vị trí aircraft | Công khai; chạy `--source opensky` |
+| [ADSB.lol](https://api.adsb.lol/docs) | Vị trí ADS-B trong vòng 250 hải lý quanh trung tâm Biển Đông | Không cần key cho feed công khai; chạy `--source adsb-lol` |
+| [adsb.fi](https://github.com/adsbfi/opendata) | Vị trí ADS-B qua API v3 trong vòng 250 hải lý | API công khai; chạy `--source adsb-fi` |
 | [GDELT 2.0 Events](https://www.gdeltproject.org/data.html#documentation) | Sự kiện báo chí đã mã hóa và ActionGeo | Công khai; chạy `--source gdelt` |
 | [AISStream](https://aisstream.io/documentation) | PositionReport trực tiếp | Cần `AISSTREAM_API_KEY` |
 | [OpenStreetMap Overpass](https://wiki.openstreetmap.org/wiki/Overpass_API) | Feature cảng/harbour có tag phù hợp | Công khai; chạy `--source openstreetmap` |
@@ -21,11 +22,12 @@ thảm họa đã xác nhận phản hồi trực tiếp trong khi Overpass đan
 | [Global Fishing Watch](https://globalfishingwatch.org/our-apis/documentation/) | Fishing events trong polygon và cửa sổ ngày | Cần `GFW_API_ACCESS_TOKEN` và quyền dataset |
 | [GDACS](https://www.gdacs.org/gdacsapi/swagger/index.html) | GeoJSON alert episodes được truy vấn theo polygon WKT | Public API, mặc định 4 ngày; chạy `--source gdacs` |
 
-Đây là các nhà cung cấp/đầu mối dữ liệu riêng, không khẳng định có cùng số
-phép đo độc lập. Chẳng hạn AISStream và Global Fishing Watch có thể cùng dựa
-trên AIS; GFW và GDACS còn là sản phẩm phân tích tổng hợp. Giữ nguồn, thời gian
-và cách tạo dữ liệu trong provenance để đối chiếu, không đếm chúng như xác
-nhận độc lập của cùng một sự kiện.
+Đây là các đầu mối dữ liệu riêng, không khẳng định có cùng số phép đo độc lập.
+OpenSky, ADSB.lol và adsb.fi đều phân phối trạng thái aircraft từ mạng thu ADS-B
+nên có thể cùng báo cáo một máy bay hoặc dùng các đầu thu chồng lặp. AISStream
+và Global Fishing Watch cũng có thể dựa trên AIS; GFW và GDACS là sản phẩm phân
+tích tổng hợp. Giữ provider, thời gian và cách tạo dữ liệu trong provenance;
+không xem các feed này là xác nhận độc lập của cùng một sự kiện.
 
 ## Vùng thu thập
 
@@ -35,7 +37,7 @@ Mapper kiểm tra tọa độ lại sau khi nhận response.
 
 ## Cách dùng
 
-Chạy tất cả tám adapter vùng có thể dùng trong môi trường hiện tại:
+Chạy mười adapter vùng có thể dùng trong môi trường hiện tại:
 
 ```bash
 .venv/bin/python tools/ingest_osint_region.py \
@@ -52,7 +54,7 @@ export FIRMS_MAP_KEY='...'
 export GFW_API_ACCESS_TOKEN='...'
 ```
 
-Chạy một nguồn riêng bằng `--source opensky`, `gdelt`, `aisstream`,
+Chạy một nguồn riêng bằng `--source opensky`, `adsb-lol`, `adsb-fi`, `gdelt`, `aisstream`,
 `openstreetmap`, `usgs-earthquakes`, `nasa-firms` hoặc `global-fishing-watch`.
 Có thể chọn thêm `gdacs` để lấy public event feed hiện tại.
 GFW lấy cửa sổ 7 ngày, kết thúc trước ba ngày gần nhất; NASA FIRMS lấy một
@@ -70,6 +72,12 @@ AISStream cần WebSocket client tùy chọn:
 - **OpenSky:** Chỉ vector hợp lệ, mới, có ICAO24 và `time_position` tạo
   assertion vị trí theo khoảng nửa mở một giây. ICAO24/callsign không tự merge
   identity khác nguồn.
+- **ADSB.lol / adsb.fi:** Mỗi adapter lấy một vòng tròn 250 hải lý quanh
+  12.5°N, 110°E rồi lọc lại theo AOI. `seen_pos` (giây trước `now`, Unix ms)
+  xác định valid time; thiếu thời gian, tọa độ hoặc ICAO24 hợp lệ thì bỏ qua.
+  ICAO24 được tách namespace theo provider; callsign, registration và loại tàu
+  bay chỉ là metadata. Hai feed này có thể trùng OpenSky hoặc nhau, không phải
+  bằng chứng merge hay xác nhận độc lập.
 - **GDELT:** Tải export mới nhất theo `lastupdate.txt` và kiểm tra MD5. ActionGeo
   là vị trí do GDELT geocode; GlobalEventID/CAMEO/SOURCEURL được lưu thành
   source report, không phải sự kiện đã xác minh.
@@ -93,8 +101,9 @@ AISStream cần WebSocket client tùy chọn:
   độ centroid do nhà cung cấp báo cáo. API lọc event theo giao cắt vùng; mapper
   chỉ nhận centroid trong AOI. Alert không xác nhận độc lập mức độ tác động.
 
-Tất cả nguồn mới ngoài OpenSky đều đăng ký `DocumentRegistered`; chúng không
-tạo fact assertions hoặc merge identity. Raw response, checkpoint, event log,
+OpenSky, ADSB.lol và adsb.fi tạo location assertion có source/time sau khi qua
+kiểm tra vùng và freshness. Các nguồn còn lại đăng ký `DocumentRegistered`;
+chúng không tạo fact assertions hoặc merge identity. Raw response, checkpoint, event log,
 `run-config.json` và `summary.json` ghi ngoài repo dưới crawl root, mặc định:
 
 ```text

@@ -161,6 +161,8 @@ def test_source_registry_declares_storage_rights_freshness_and_quality() -> None
         "gleif",
         "wikipedia-en",
         "opensky",
+        "adsb-lol",
+        "adsb-fi",
         "aisstream",
         "gdelt-events",
         "openstreetmap",

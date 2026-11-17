@@ -26,6 +26,8 @@ identifier rules, mapping và quality checks của từng nguồn:
 | GLEIF | LEI hợp lệ là identifier authoritative trong namespace `gleif-lei`. Legal name và other names là label/alias, không phải bằng chứng merge. | API trả Golden Copy publication time; refresh bằng run mới. |
 | Wikipedia tiếng Anh | Page ID xác định document; revision ID và timestamp xác định version. Chỉ ánh xạ câu tường minh `subsidiary of` thành `organization:subsidiaryOf`; subject phải khớp pageprops Wikidata QID, còn object phải resolve bằng alias chính xác và duy nhất. | Lấy revision mới nhất và giữ revision metadata. |
 | OpenSky | State vector chỉ tạo vị trí assertion khi có ICAO24, tọa độ và `time_position` hợp lệ. ICAO24 thuộc source record OpenSky; callsign không dùng làm identity evidence. | Một state snapshot cho mỗi run; bỏ điểm quá cũ hoặc ngoài AOI. |
+| ADSB.lol | Readsb position có ICAO24 và `seen_pos`; ICAO24 namespace riêng, callsign/registration chỉ là metadata. Không dùng làm cross-source merge evidence. | Một snapshot 250 NM quanh 12.5°N, 110°E; lọc lại theo AOI và tuổi tối đa một giờ. |
+| adsb.fi | Readsb position từ API v3; ICAO24 namespace riêng, không tự nhập với aircraft từ OpenSky/ADSB.lol. | Một snapshot 250 NM quanh 12.5°N, 110°E; tuân thủ giới hạn công khai một request/giây. |
 | AISStream | MMSI là identifier có thể được tái sử dụng. Position reports được lưu nguyên nguồn; timestamp giây trong phút không thành valid time. | Cửa sổ live có giới hạn; cần `AISSTREAM_API_KEY`. |
 | GDELT Events | Giữ GlobalEventID, ngày, CAMEO và ActionGeo như metadata báo cáo. Không xem GDELT row hoặc URL bài báo là fact đã kiểm chứng. | Lấy export mới nhất, xác nhận MD5 rồi lọc theo vùng. |
 | OpenStreetMap | Object cảng/harbour được chọn theo tag, tọa độ và OSM type/ID. Không suy ra ownership hay operator. | Overpass quét bốn tile với checkpoint; `max_records` có thể dừng trước khi hết vùng. |
@@ -34,9 +36,10 @@ identifier rules, mapping và quality checks của từng nguồn:
 | Global Fishing Watch | Event id, type, thời gian, vị trí và vessel metadata; đây là kết quả phân tích hoạt động AIS-derived. | Cửa sổ ngày được ghim theo run; cần `GFW_API_ACCESS_TOKEN` và quyền dataset. |
 | GDACS | Feature GeoJSON cho alert episode, loại sự kiện, alert level và vị trí do GDACS tổng hợp. | Public API truy vấn theo polygon WKT trong 4 ngày gần nhất; có thể cấu hình tối đa 30 ngày. |
 
-Registry có mười một nhà cung cấp/đầu mối riêng tính cả Wikidata, GLEIF và
-Wikipedia. Chúng không tương đương mười tín hiệu độc lập; AISStream và Global
-Fishing Watch có thể dùng dữ liệu AIS chồng lặp. Xem [ingestion theo vùng
+Registry có mười ba nhà cung cấp/đầu mối riêng tính cả Wikidata, GLEIF và
+Wikipedia. Chúng không tương đương mười ba tín hiệu độc lập; các feed ADS-B
+có thể chồng lặp nhau, AISStream và Global Fishing Watch có thể dùng dữ liệu
+AIS chồng lặp. Xem [ingestion theo vùng
 Việt Nam và Biển Đông](../osint-vietnam-scs.md) để biết cách chạy, time window
 và giới hạn của từng adapter.
 

@@ -68,6 +68,40 @@
       ]
     },
     {
+      "id": "adsb-lol",
+      "identifier": "https://api.adsb.lol",
+      "record_schema": "ADSB.lol API v2 readsb-compatible aircraft response; schema 1",
+      "license": "Open Data Commons Open Database License 1.0",
+      "storage_policy": "Store the exact bounded-area response as a content-addressed snapshot outside the repository.",
+      "redistribution_policy": "Attribute ADSB.lol and retain ODbL 1.0 obligations for redistributed database extracts.",
+      "freshness_policy": "Fetch one current 250 nautical mile snapshot per run; derive position time from response now and seen_pos.",
+      "identifier_rules": "ICAO24 is scoped to this ADSB.lol source record; it is not identity evidence for merging aircraft reported by other providers.",
+      "mapping_rules": "Query a 250 nautical mile circle centered at 12.5N, 110E; map only recent positions revalidated inside the Vietnam-SCS AOI. Callsign and registration are reported metadata.",
+      "data_quality_checks": [
+        "Require an integer Unix-millisecond snapshot time and a readsb aircraft list.",
+        "Require a six-digit ICAO24 address, finite coordinates and numeric seen_pos age.",
+        "Skip positions older than one hour, future-dated positions and coordinates outside the AOI.",
+        "Treat output as an overlapping ADS-B provider feed, not an independent confirmation of OpenSky or ADSB.fi."
+      ]
+    },
+    {
+      "id": "adsb-fi",
+      "identifier": "https://opendata.adsb.fi",
+      "record_schema": "adsb.fi Open Data API v3 readsb-compatible aircraft response; schema 1",
+      "license": "Operator-authorized use; adsb.fi public endpoint terms apply",
+      "storage_policy": "Store the exact bounded-area response as a content-addressed snapshot outside the repository.",
+      "redistribution_policy": "Preserve adsb.fi attribution; do not publish raw data without verifying the applicable source terms.",
+      "freshness_policy": "Fetch one current 250 nautical mile snapshot per run; public endpoint pacing is at most one request per second.",
+      "identifier_rules": "ICAO24 is scoped to this adsb.fi source record; it is not identity evidence for merging aircraft reported by other providers.",
+      "mapping_rules": "Use the current v3 regional endpoint, centered at 12.5N, 110E with a 250 nautical mile radius; map only recent positions revalidated inside the Vietnam-SCS AOI.",
+      "data_quality_checks": [
+        "Require an integer Unix-millisecond snapshot time and a readsb aircraft list.",
+        "Require a six-digit ICAO24 address, finite coordinates and numeric seen_pos age.",
+        "Skip positions older than one hour, future-dated positions and coordinates outside the AOI.",
+        "Treat output as an overlapping ADS-B provider feed, not an independent confirmation of OpenSky or ADSB.lol."
+      ]
+    },
+    {
       "id": "aisstream",
       "identifier": "https://www.aisstream.io",
       "record_schema": "AISStream v0 WebSocket PositionReport; schema 1",
