@@ -7,6 +7,7 @@ import { renderImpact } from "./views/impact.js";
 import { renderMonitor } from "./views/monitor.js";
 import { renderProjection } from "./views/projection.js";
 import { renderAdmin } from "./views/admin.js";
+import { renderCrawler } from "./views/crawler.js";
 
 const routes = {
   dashboard: { title: "Dashboard", render: renderDashboard },
@@ -14,6 +15,7 @@ const routes = {
   versions: { title: "Versions & Releases", render: renderVersions },
   impact: { title: "Impact Analysis", render: renderImpact },
   monitor: { title: "Data Monitor", render: renderMonitor },
+  crawler: { title: "Crawl Control", render: renderCrawler },
   projection: { title: "Projection", render: renderProjection },
   admin: { title: "Admin (token-gated)", render: renderAdmin },
 };
@@ -31,6 +33,10 @@ function parseHash() {
 
 async function route() {
   const { view, params } = parseHash();
+  if (typeof viewEl._cleanup === "function") {
+    viewEl._cleanup();
+    delete viewEl._cleanup;
+  }
   document.querySelectorAll("#nav a").forEach((a) => {
     a.classList.toggle("active", a.dataset.view === view);
   });

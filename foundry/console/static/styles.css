@@ -53,6 +53,21 @@ input, select, button { font: inherit; padding: 7px 10px; border: 1px solid var(
 input:focus, select:focus { outline: 2px solid #bcd4ea; }
 button { cursor: pointer; }
 button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.link-button { padding: 0; border: 0; background: none; color: var(--info); font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+button.danger-button { color: var(--err); border-color: #f0b9b9; }
+button:disabled { cursor: wait; opacity: .55; }
+
+.crawl-token-row { margin-bottom: 14px; }
+.crawl-token-row input { min-width: 240px; }
+.crawl-config { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
+.crawl-config label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 12px; }
+.crawl-config select { min-width: 230px; }
+.crawl-config input { width: 150px; }
+.crawl-active-row { margin-top: 14px; }
+.crawl-details { max-width: 700px; padding: 8px 0; color: var(--muted); line-height: 1.5; white-space: normal; }
+.crawl-log-controls { margin-bottom: 8px; }
+.crawl-output { background: #101820; color: #d7e3ed; border-radius: var(--radius); padding: 12px; overflow: auto; max-height: 260px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.crawl-log { max-height: 380px; }
 
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
 .grid-2 { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 16px; align-items: start; }
@@ -69,3 +84,14 @@ button.primary { background: var(--accent); color: #fff; border-color: var(--acc
 
 .empty { color: var(--muted); font-style: italic; font-size: 13px; }
 .error-text { color: var(--err); font-size: 13px; }
+
+@media (max-width: 760px) {
+  #app { height: auto; min-height: 100vh; }
+  .sidebar { width: 150px; min-height: 100vh; padding: 14px 9px; }
+  #view { padding: 16px 12px; }
+  .crawl-token-row input { min-width: 160px; flex: 1; }
+  .crawl-config { align-items: stretch; flex-direction: column; }
+  .crawl-config select, .crawl-config input { width: 100%; }
+  table.data { font-size: 12px; }
+  table.data th, table.data td { padding: 7px 6px; }
+}

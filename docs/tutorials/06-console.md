@@ -53,6 +53,33 @@ applications bị ảnh hưởng.
 - SHACL validation gate trên ontology modules và benchmark datasets, qua mọi shape file
 - Competency queries: pass/fail từng query
 
+## Crawl Control — cấu hình và theo dõi ingest
+
+Tab **Crawl Control** chạy lại pipeline regional hiện có qua
+`tools/ingest_osint_region.py`; connector, mapper, checkpoint và raw archive
+không bị thay thế. Có thể chọn một trong 10 nguồn regional hoặc chạy lần lượt
+tất cả nguồn, rồi giới hạn số record mỗi nguồn và thời lượng AISStream.
+Trang tự làm mới trạng thái, log và kết quả từng nguồn mỗi 5 giây.
+
+Crawl root là `FOUNDRY_CRAWL_ROOT` nếu biến này được đặt; nếu không, service
+dùng `$FOUNDRY_DATA_ROOT/data/crawl-runs`, với data root mặc định
+`~/Data/ontology-research`. Cấu hình và log nằm trong
+`<crawl-root>/crawler-service/`; raw snapshots nằm trong
+`<crawl-root>/osint-vietnam-scs/`. Mỗi run có thư mục riêng và summary. Một
+run đang chạy sẽ chặn lệnh start tiếp theo; có thể dừng từ tab này hoặc khi
+console shutdown.
+
+`GET /api/crawler/state` chỉ trả trạng thái, hợp đồng nguồn và cờ cho biết
+credential đã cấu hình; nó không trả giá trị secret. Lưu cấu hình, start/stop
+run cần `FOUNDRY_CONSOLE_TOKEN`. Xem log cũng cần token. Đặt
+`AISSTREAM_API_KEY`, `FIRMS_MAP_KEY` và/hoặc `GFW_API_ACCESS_TOKEN` trong môi
+trường của tiến trình console khi dùng các nguồn tương ứng. Log được lọc các
+credential đã cấu hình trước khi ghi ra đĩa.
+
+Các connector hiện tại gọi API/feeds có cấu trúc và giữ mapping/provenance của
+repo. Chưa thêm framework crawler HTML riêng; Scrapy phù hợp khi cần spider các
+website, còn pipeline hiện tại không cần thay connector bằng nó.
+
 ## Admin — corrections có xác thực
 
 Tab **Admin** hỗ trợ xem review queue, merge/split entities và chạy external-id

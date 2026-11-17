@@ -178,11 +178,13 @@ def main() -> int:
     source_results: dict[str, dict[str, object]] = {}
 
     for source_id in requested:
+        _print_source_progress(source_id, "running")
         if source_id in credentials and not credentials[source_id]:
             source_results[source_id] = {
                 "status": "skipped",
                 "reason": f"credential for {source_id} is unset",
             }
+            _print_source_progress(source_id, "skipped")
             continue
         try:
             if source_id in {"opensky", "adsb-lol", "adsb-fi"}:
@@ -401,6 +403,7 @@ def main() -> int:
                 }
         except SourceAdapterError as exc:
             source_results[source_id] = {"status": "error", "error": str(exc)}
+        _print_source_progress(source_id, source_results[source_id])
 
     event_counts = Counter(event.event_type for event in log.iter_all())
     summary = {
@@ -425,6 +428,22 @@ def main() -> int:
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 1 if any(result.get("status") == "error" for result in source_results.values()) else 0
+
+
+def _print_source_progress(source_id: str, result: str | dict[str, object]) -> None:
+    """Write one compact progress record for the crawl service to follow."""
+    if isinstance(result, str):
+        progress: dict[str, object] = {"source": source_id, "status": result}
+    else:
+        progress = {
+            "source": source_id,
+            "status": result.get("status", "complete"),
+        }
+        for field in ("mapped_records", "documents", "entities", "positions", "reviews"):
+            count = result.get(field)
+            if isinstance(count, int):
+                progress[field] = count
+    print(json.dumps(progress, sort_keys=True), flush=True)
 
 
 def _register_gdelt_report(pipeline: IngestionPipeline, report: GdeltReportRecord) -> None:

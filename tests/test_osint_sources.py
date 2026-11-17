@@ -53,6 +53,22 @@ def _contract(source_id: str) -> SourceContract:
     return load_source_contracts(REGISTRY)[source_id]
 
 
+def test_crawl_cli_emits_compact_source_progress(capsys):
+    from ingest_osint_region import _print_source_progress
+
+    _print_source_progress(
+        "opensky",
+        {"status": "complete", "mapped_records": 12, "documents": 3, "error": "hidden"},
+    )
+
+    assert json.loads(capsys.readouterr().out) == {
+        "documents": 3,
+        "mapped_records": 12,
+        "source": "opensky",
+        "status": "complete",
+    }
+
+
 def _raw_record(
     source_id: str, body: bytes, *, uri: str = "https://example.org/snapshot"
 ) -> RawRecord:

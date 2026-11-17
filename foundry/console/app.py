@@ -14,6 +14,8 @@ Run locally (Uvicorn binds to localhost by default). Set
 from __future__ import annotations
 
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -29,6 +31,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from foundry.console.api import (  # noqa: E402
     admin,
+    crawler,
     impact,
     monitor,
     ontology,
@@ -36,6 +39,7 @@ from foundry.console.api import (  # noqa: E402
     projection,
     registry,
 )
+from foundry.console.crawl_control import shutdown_crawl_manager  # noqa: E402
 from foundry.query_service import QueryTimeoutError  # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -43,12 +47,22 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 def create_app() -> FastAPI:
     """Build the console application with all API routers and the SPA."""
+
+    @asynccontextmanager
+    async def lifespan(_application: FastAPI) -> AsyncIterator[None]:
+        """Stop crawl child processes when the console lifespan ends."""
+        try:
+            yield
+        finally:
+            shutdown_crawl_manager()
+
     application = FastAPI(
         title="Ontology Console",
         version="0.1.0",
         description=(
             "Read-only monitoring and token-gated, audited corrections for the semantic platform."
         ),
+        lifespan=lifespan,
     )
 
     @application.exception_handler(QueryTimeoutError)
@@ -65,6 +79,7 @@ def create_app() -> FastAPI:
         impact.router,
         projection.router,
         monitor.router,
+        crawler.router,
         admin.router,
     ):
         application.include_router(router, prefix="/api")
