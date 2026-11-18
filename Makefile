@@ -117,7 +117,7 @@ clean:
 	rm -rf .pytest_cache
 
 console:
-	FOUNDRY_DATABASE_URL=$${FOUNDRY_DATABASE_URL:-$(DATABASE_URL)} $(PY) -m uvicorn foundry.console.app:app --port 8787
+	FOUNDRY_DATABASE_URL=$${FOUNDRY_DATABASE_URL:-$(DATABASE_URL)} $(PY) tools/run_console.py --port 8787
 
 seed-console:
 	$(PY) tools/seed_console_data.py

@@ -5,10 +5,10 @@ registry, event log and read model, while token-gated admin routes append
 corrections to the production log. Query API provenance is source-scoped by
 ``FOUNDRY_PROVENANCE_TOKENS``; admin access uses a separate token.
 
-Run locally (Uvicorn binds to localhost by default). Set
-``FOUNDRY_CONSOLE_TOKEN`` to enable admin operations:
+Run locally with ``make console``. The local launcher persists a private
+``FOUNDRY_CONSOLE_TOKEN`` outside the repository and serves only on loopback:
 
-    .venv/bin/python -m uvicorn foundry.console.app:app --port 8787
+    make console
 """
 
 from __future__ import annotations

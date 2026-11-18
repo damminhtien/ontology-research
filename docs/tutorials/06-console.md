@@ -70,11 +70,21 @@ run đang chạy sẽ chặn lệnh start tiếp theo; có thể dừng từ tab
 console shutdown.
 
 `GET /api/crawler/state` chỉ trả trạng thái, hợp đồng nguồn và cờ cho biết
-credential đã cấu hình; nó không trả giá trị secret. Lưu cấu hình, start/stop
-run cần `FOUNDRY_CONSOLE_TOKEN`. Xem log cũng cần token. Đặt
+credential đã cấu hình; nó không trả giá trị secret. `make console` tự tạo
+`FOUNDRY_CONSOLE_TOKEN` ngẫu nhiên nếu chưa có, lưu file quyền `0600` tại
+`$FOUNDRY_DATA_ROOT/secrets/console-token` (mặc định
+`~/Data/ontology-research/secrets/console-token`) và chỉ bind vào loopback.
+Crawler UI tự nhận phiên browser qua cookie `HttpOnly`; token không được gửi về
+JavaScript. Có thể đặt `FOUNDRY_CONSOLE_TOKEN` trước khi chạy để dùng giá trị
+quản lý sẵn. API vẫn nhận bearer token cho các client trực tiếp. Đặt
 `AISSTREAM_API_KEY`, `FIRMS_MAP_KEY` và/hoặc `GFW_API_ACCESS_TOKEN` trong môi
 trường của tiến trình console khi dùng các nguồn tương ứng. Log được lọc các
 credential đã cấu hình trước khi ghi ra đĩa.
+
+Trang Crawl Control hiển thị mapped records, event count, tốc độ quan sát,
+thời lượng, exit code, trạng thái từng nguồn, số entity/document/position,
+review/skipped, snapshot hash, loại event và log của từng run. Tổng mapped
+records cộng theo nguồn; crawl lại có thể chứa record nguồn đã thấy trước đó.
 
 Các connector hiện tại gọi API/feeds có cấu trúc và giữ mapping/provenance của
 repo. Chưa thêm framework crawler HTML riêng; Scrapy phù hợp khi cần spider các
@@ -83,8 +93,9 @@ website, còn pipeline hiện tại không cần thay connector bằng nó.
 ## Admin — corrections có xác thực
 
 Tab **Admin** hỗ trợ xem review queue, merge/split entities và chạy external-id
-backfill. Trước khi khởi động Console, cấu hình `FOUNDRY_CONSOLE_TOKEN`; nếu
-chưa có token thì admin API trả `503`. Merge và split ghi actor trong event;
+backfill. `make console` luôn cấu hình token cho local service; nếu chạy app
+theo cách khác, phải cấu hình `FOUNDRY_CONSOLE_TOKEN` trước khi khởi động.
+Merge và split ghi actor trong event;
 backfill ghi `ExternalIdBound` events.
 
 Các thao tác Admin mặc định đọc và ghi `$FOUNDRY_ADMIN_LOG`, mặc định là

@@ -1,14 +1,20 @@
-"""Bearer-token-controlled crawl configuration and run monitoring."""
+"""Token-controlled crawl configuration and run monitoring."""
 
 from __future__ import annotations
 
+import os
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Cookie, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from foundry.console.api.admin import _check_token
 from foundry.console.crawl_control import CrawlRunManager, get_crawl_manager
+from foundry.console.local_auth import (
+    CONSOLE_SESSION_COOKIE,
+    CONSOLE_TOKEN_ENV,
+    is_local_same_origin_request,
+)
 
 router = APIRouter(prefix="/crawler", tags=["crawler"])
 
@@ -31,13 +37,39 @@ def crawler_state() -> dict:
     return _manager().state()
 
 
+@router.post("/session")
+def create_local_session(request: Request, response: Response) -> dict:
+    """Issue an HttpOnly browser session for the local loopback console."""
+    token = os.environ.get(CONSOLE_TOKEN_ENV, "").strip()
+    if not token:
+        raise HTTPException(
+            status_code=503,
+            detail=f"admin API disabled: {CONSOLE_TOKEN_ENV} is not configured",
+        )
+    if not is_local_same_origin_request(request):
+        raise HTTPException(status_code=403, detail="local same-origin request required")
+    response.set_cookie(
+        key=CONSOLE_SESSION_COOKIE,
+        value=token,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        path="/api",
+        max_age=8 * 60 * 60,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return {"authenticated": True}
+
+
 @router.put("/config")
 def save_crawler_config(
     request: CrawlConfigRequest,
+    http_request: Request,
     authorization: Annotated[str | None, Header()] = None,
+    session_token: Annotated[str | None, Cookie(alias=CONSOLE_SESSION_COOKIE)] = None,
 ) -> dict:
     """Save crawl settings after validating the source allowlist and limits."""
-    _check_token(authorization)
+    _check_token(authorization, session_token, http_request)
     try:
         config = _manager().save_config(
             source_id=request.source_id,
@@ -50,9 +82,13 @@ def save_crawler_config(
 
 
 @router.post("/runs")
-def start_crawler_run(authorization: Annotated[str | None, Header()] = None) -> dict:
+def start_crawler_run(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+    session_token: Annotated[str | None, Cookie(alias=CONSOLE_SESSION_COOKIE)] = None,
+) -> dict:
     """Launch the configured source through the existing ingestion CLI."""
-    _check_token(authorization)
+    _check_token(authorization, session_token, request)
     try:
         return _manager().start_run()
     except ValueError as exc:
@@ -75,10 +111,12 @@ def crawler_run(run_id: str) -> dict:
 @router.get("/runs/{run_id}/logs")
 def crawler_run_logs(
     run_id: str,
+    request: Request,
     authorization: Annotated[str | None, Header()] = None,
+    session_token: Annotated[str | None, Cookie(alias=CONSOLE_SESSION_COOKIE)] = None,
 ) -> dict:
     """Return a bounded run log after checking the console bearer token."""
-    _check_token(authorization)
+    _check_token(authorization, session_token, request)
     try:
         logs = _manager().logs(run_id)
     except KeyError as exc:
@@ -89,10 +127,12 @@ def crawler_run_logs(
 @router.post("/runs/{run_id}/stop")
 def stop_crawler_run(
     run_id: str,
+    request: Request,
     authorization: Annotated[str | None, Header()] = None,
+    session_token: Annotated[str | None, Cookie(alias=CONSOLE_SESSION_COOKIE)] = None,
 ) -> dict:
     """Request termination of an active crawl after checking the token."""
-    _check_token(authorization)
+    _check_token(authorization, session_token, request)
     run = _manager().stop_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="crawl run not found")

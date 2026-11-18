@@ -12,6 +12,11 @@ from fastapi.testclient import TestClient
 from foundry.console.api import crawler as crawler_api
 from foundry.console.app import app
 from foundry.console.crawl_control import CrawlRunManager
+from foundry.console.local_auth import (
+    CONSOLE_TOKEN_ENV,
+    console_token_path,
+    ensure_local_console_token,
+)
 
 
 class FakeProcess:
@@ -44,6 +49,29 @@ def test_config_is_persistent_and_source_ids_are_allowlisted(manager):
         manager.save_config(source_id="../../events", max_records=25, duration_seconds=45)
     with pytest.raises(ValueError, match="max_records"):
         manager.save_config(source_id="adsb-fi", max_records=1001, duration_seconds=45)
+
+
+def test_local_console_token_is_persisted_with_private_permissions(tmp_path, monkeypatch):
+    monkeypatch.setenv("FOUNDRY_DATA_ROOT", str(tmp_path))
+    monkeypatch.delenv(CONSOLE_TOKEN_ENV, raising=False)
+
+    first = ensure_local_console_token()
+    token_path = console_token_path()
+    assert first
+    assert token_path.read_text(encoding="utf-8").strip() == first
+    assert token_path.stat().st_mode & 0o777 == 0o600
+    assert token_path.parent.stat().st_mode & 0o777 == 0o700
+
+    monkeypatch.delenv(CONSOLE_TOKEN_ENV)
+    assert ensure_local_console_token() == first
+
+
+def test_configured_local_console_token_takes_precedence(tmp_path, monkeypatch):
+    monkeypatch.setenv("FOUNDRY_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv(CONSOLE_TOKEN_ENV, "configured-token")
+
+    assert ensure_local_console_token() == "configured-token"
+    assert not console_token_path().exists()
 
 
 def test_database_connection_context_closes_handle(manager):
@@ -152,6 +180,48 @@ def test_crawler_control_api_requires_token_for_configuration_and_runs(manager, 
     stopped = client.post(f"/api/crawler/runs/{run_id}/stop", json={}, headers=headers)
     assert stopped.status_code == 200
     assert stopped.json()["status"] == "stopping"
+
+
+def test_local_browser_session_uses_private_cookie_and_checks_origin(
+    manager, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(crawler_api, "get_crawl_manager", lambda: manager)
+    monkeypatch.setenv(CONSOLE_TOKEN_ENV, "console-secret")
+    monkeypatch.setenv("FOUNDRY_ADMIN_LOG", str(tmp_path / "production.jsonl"))
+    client = TestClient(
+        app,
+        base_url="http://127.0.0.1:8787",
+        client=("127.0.0.1", 54321),
+    )
+
+    rejected = client.post("/api/crawler/session", headers={"Origin": "https://attacker.example"})
+    assert rejected.status_code == 403
+    assert "set-cookie" not in rejected.headers
+
+    issued = client.post("/api/crawler/session", headers={"Origin": "http://127.0.0.1:8787"})
+    assert issued.status_code == 200
+    assert issued.json() == {"authenticated": True}
+    cookie = issued.headers["set-cookie"].lower()
+    assert "httponly" in cookie
+    assert "samesite=strict" in cookie
+    assert "console-secret" not in issued.text
+
+    config = client.put(
+        "/api/crawler/config",
+        headers={"Origin": "http://127.0.0.1:8787"},
+        json={"source_id": "adsb-fi", "max_records": 20, "duration_seconds": 15},
+    )
+    assert config.status_code == 200
+
+    review = client.post("/api/admin/review", headers={"Origin": "http://127.0.0.1:8787"})
+    assert review.status_code == 200
+
+    cross_origin_write = client.put(
+        "/api/crawler/config",
+        headers={"Origin": "https://attacker.example"},
+        json={"source_id": "adsb-lol", "max_records": 30, "duration_seconds": 15},
+    )
+    assert cross_origin_write.status_code == 403
 
 
 def test_crawler_state_does_not_return_credential_values(manager, monkeypatch):
