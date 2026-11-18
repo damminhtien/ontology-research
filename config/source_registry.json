@@ -58,7 +58,7 @@
       "storage_policy": "Store the exact bounded-area response as a content-addressed snapshot outside the repository.",
       "redistribution_policy": "Keep attribution and access conditions with the archived run manifest.",
       "freshness_policy": "Fetch one current snapshot per run; use time_position as valid time and retain snapshot time separately.",
-      "identifier_rules": "ICAO24 is scoped to the OpenSky source record and is candidate evidence only; never merge across sources on callsign or name.",
+      "identifier_rules": "ICAO24 is the shared aircraft identifier across OpenSky, ADSB.lol, and adsb.fi. Match only on the exact ICAO24 value; never merge across sources on callsign or name.",
       "mapping_rules": "Map valid, recent state vectors inside the Vietnam-SCS rectangular AOI to source-backed one-second location assertions. The AOI is not a political boundary.",
       "data_quality_checks": [
         "State vector must include a valid ICAO24 address, source position time and finite coordinates.",
@@ -75,7 +75,7 @@
       "storage_policy": "Store the exact bounded-area response as a content-addressed snapshot outside the repository.",
       "redistribution_policy": "Attribute ADSB.lol and retain ODbL 1.0 obligations for redistributed database extracts.",
       "freshness_policy": "Fetch one current 250 nautical mile snapshot per run; derive position time from response now and seen_pos.",
-      "identifier_rules": "ICAO24 is scoped to this ADSB.lol source record; it is not identity evidence for merging aircraft reported by other providers.",
+      "identifier_rules": "ICAO24 is the shared aircraft identifier across OpenSky, ADSB.lol, and adsb.fi. Match only on the exact ICAO24 value; never merge across sources on callsign or name.",
       "mapping_rules": "Query a 250 nautical mile circle centered at 12.5N, 110E; map only recent positions revalidated inside the Vietnam-SCS AOI. Callsign and registration are reported metadata.",
       "data_quality_checks": [
         "Require an integer Unix-millisecond snapshot time and a readsb aircraft list.",
@@ -92,7 +92,7 @@
       "storage_policy": "Store the exact bounded-area response as a content-addressed snapshot outside the repository.",
       "redistribution_policy": "Preserve adsb.fi attribution; do not publish raw data without verifying the applicable source terms.",
       "freshness_policy": "Fetch one current 250 nautical mile snapshot per run; public endpoint pacing is at most one request per second.",
-      "identifier_rules": "ICAO24 is scoped to this adsb.fi source record; it is not identity evidence for merging aircraft reported by other providers.",
+      "identifier_rules": "ICAO24 is the shared aircraft identifier across OpenSky, ADSB.lol, and adsb.fi. Match only on the exact ICAO24 value; never merge across sources on callsign or name.",
       "mapping_rules": "Use the current v3 regional endpoint, centered at 12.5N, 110E with a 250 nautical mile radius; map only recent positions revalidated inside the Vietnam-SCS AOI.",
       "data_quality_checks": [
         "Require an integer Unix-millisecond snapshot time and a readsb aircraft list.",

@@ -101,6 +101,15 @@ VIETNAM_SCS = GeoBounds(
     east=122.0,
 )
 
+ICAO24_NAMESPACE = "icao24"
+LEGACY_ICAO24_NAMESPACES = frozenset({"opensky-icao24", "adsb-lol-icao24", "adsb-fi-icao24"})
+
+
+def aircraft_identity_content_hash(icao24: str) -> str:
+    """Hash the stable source identity fields used for aircraft entity records."""
+    normalized_id = icao24.strip().lower()
+    return source_record_hash({"icao24": normalized_id, "name": f"Aircraft {normalized_id}"})
+
 
 @dataclass(frozen=True)
 class PositionRecord:
@@ -263,10 +272,6 @@ class OpenSkyMapper:
             record_id = f"{snapshot_id}:{icao24}"
             locator = f"{record.source_uri}#time={snapshot_id}&icao24={icao24}"
             origin_country = rest[0]
-            identity_payload = {
-                "icao24": icao24,
-                "origin_country": origin_country,
-            }
             measurements: list[dict[str, object]] = [
                 _measurement("latitude", latitude, "degree"),
                 _measurement("longitude", longitude, "degree"),
@@ -299,14 +304,14 @@ class OpenSkyMapper:
                     position_record_id=record_id,
                     source_uri=record.source_uri,
                     locator=locator,
-                    entity_name=f"Aircraft{icao24}",
-                    external_namespace="opensky-icao24",
+                    entity_name=f"Aircraft {icao24}",
+                    external_namespace=ICAO24_NAMESPACE,
                     external_id=icao24,
                     observed_at=observed_at,
                     valid_until=datetime.fromtimestamp(position_time + 1, UTC).isoformat(),
                     latitude=latitude,
                     longitude=longitude,
-                    identity_content_hash=source_record_hash(identity_payload),
+                    identity_content_hash=aircraft_identity_content_hash(icao24),
                     measurements=tuple(measurements),
                 )
             )
@@ -456,10 +461,6 @@ class AdsbPositionMapper:
                 if isinstance(value, str) and value.strip():
                     measurements.append(_measurement(name, value.strip(), None))
 
-            provider_label = {
-                "adsb-lol": "AdsbLol",
-                "adsb-fi": "AdsbFi",
-            }.get(record.source_id, "Adsb")
             results.append(
                 PositionRecord(
                     source_id=record.source_id,
@@ -467,14 +468,14 @@ class AdsbPositionMapper:
                     position_record_id=f"{snapshot_id}:{icao24}",
                     source_uri=record.source_uri,
                     locator=locator,
-                    entity_name=f"Aircraft{provider_label}{icao24}",
-                    external_namespace=f"{record.source_id}-icao24",
+                    entity_name=f"Aircraft {icao24}",
+                    external_namespace=ICAO24_NAMESPACE,
                     external_id=icao24,
                     observed_at=observed_at.isoformat(),
                     valid_until=(observed_at + timedelta(seconds=1)).isoformat(),
                     latitude=latitude,
                     longitude=longitude,
-                    identity_content_hash=source_record_hash({"icao24": icao24}),
+                    identity_content_hash=aircraft_identity_content_hash(icao24),
                     measurements=tuple(measurements),
                 )
             )

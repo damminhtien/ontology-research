@@ -86,6 +86,8 @@ def test_run_uses_allowlisted_cli_args_redacts_logs_and_blocks_parallel_runs(man
     monkeypatch.setenv("FIRMS_MAP_KEY", "hidden")
     monkeypatch.setenv("FOUNDRY_CONSOLE_TOKEN", "console-secret")
     monkeypatch.setenv("FOUNDRY_DATABASE_URL", "postgresql://user:pass@localhost/db")
+    canonical_log = manager.raw_root.parent / "production.jsonl"
+    monkeypatch.setenv("FOUNDRY_ADMIN_LOG", str(canonical_log))
     manager.save_config(source_id="nasa-firms", max_records=10, duration_seconds=30)
     spawned = []
 
@@ -100,6 +102,7 @@ def test_run_uses_allowlisted_cli_args_redacts_logs_and_blocks_parallel_runs(man
 
     assert run["status"] == "running"
     assert spawned[0].command[spawned[0].command.index("--source") + 1] == "nasa-firms"
+    assert spawned[0].command[spawned[0].command.index("--event-log") + 1] == str(canonical_log)
     assert "hidden" not in spawned[0].command
     assert "FIRMS_MAP_KEY" in spawned[0].kwargs["env"]
     assert "FOUNDRY_CONSOLE_TOKEN" not in spawned[0].kwargs["env"]
@@ -247,6 +250,8 @@ def test_summary_drops_filesystem_paths_and_raw_source_errors(manager):
                         "status": "error",
                         "error": "request failed with token=top-secret",
                         "mapped_records": 4,
+                        "entities_linked": 2,
+                        "documents_deduplicated": 1,
                     }
                 },
             }
@@ -257,7 +262,15 @@ def test_summary_drops_filesystem_paths_and_raw_source_errors(manager):
     summary = manager._read_summary("run-safe")
 
     assert summary == {
-        "sources": {"aisstream": {"status": "error", "mapped_records": 4}},
+        "sources": {
+            "aisstream": {
+                "status": "error",
+                "mapped_records": 4,
+                "entities_linked": 2,
+                "documents_deduplicated": 1,
+            }
+        },
         "event_counts": {"AssertionCreated": 3},
         "total_events": 3,
+        "deduplicated_records": 0,
     }

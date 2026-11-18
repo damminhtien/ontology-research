@@ -2,7 +2,18 @@
 import { badge, esc, get, post, put } from "../api.js";
 
 const TOKEN_KEY = "foundry.admin.token";
-const COUNT_FIELDS = ["mapped_records", "entities", "documents", "positions", "reviews", "skipped"];
+const COUNT_FIELDS = [
+  "mapped_records",
+  "entities",
+  "entities_linked",
+  "identities_reused",
+  "documents",
+  "documents_deduplicated",
+  "positions",
+  "positions_deduplicated",
+  "reviews",
+  "skipped",
+];
 let refreshTimer = null;
 
 function statusBadge(status) {
@@ -126,6 +137,7 @@ function renderRunDetails(run) {
     ${summary ? `<div class="crawl-stat-cards">
       <article><span>Mapped source records</span><strong>${number(mapped)}</strong><small>Sum across sources in this run</small></article>
       <article><span>Events</span><strong>${number(summary.total_events)}</strong><small>Canonical events written</small></article>
+      <article><span>Deduplicated</span><strong>${number(summary.deduplicated_records)}</strong><small>Repeated assertions and document versions</small></article>
       <article><span>Observed rate</span><strong>${rate}</strong><small>Mapped records / elapsed time</small></article>
       <article><span>Sources</span><strong>${number(Object.keys(sources).length)}</strong><small>${number(errors.length)} errors · ${number(skipped.length)} skipped</small></article>
     </div>
@@ -225,7 +237,7 @@ export async function renderCrawler(view) {
         <thead><tr><th>Run</th><th>Source</th><th>Status</th><th>Started</th><th>Mapped records</th><th>Events</th></tr></thead>
         <tbody>${renderRuns(state.runs)}</tbody>
       </table></div>
-      <p class="sub">Mapped-record totals sum source results; reruns may include the same source records.</p>
+      <p class="sub">New assertions and documents use the shared production event log. Repeated source records and document versions are counted as deduplicated.</p>
     </section>
 
     <section>

@@ -118,6 +118,19 @@ class TestImpactEndpoint:
 
 
 class TestMonitorEndpoints:
+    def test_monitor_uses_production_log_when_database_mode_is_configured(
+        self, tmp_path, monkeypatch
+    ):
+        from foundry.console.api.monitor import event_log_path
+        from foundry.paths import production_event_log_path
+
+        path = tmp_path / "production.jsonl"
+        monkeypatch.delenv("FOUNDRY_EVENT_LOG", raising=False)
+        monkeypatch.setenv("FOUNDRY_DATABASE_URL", "postgresql:///ontology_research")
+        monkeypatch.setenv("FOUNDRY_ADMIN_LOG", str(path))
+
+        assert event_log_path() == production_event_log_path() == path
+
     def test_event_stats_when_log_missing(self, tmp_path, monkeypatch, client):
         monkeypatch.setenv("FOUNDRY_EVENT_LOG", str(tmp_path / "none.jsonl"))
         data = client.get("/api/monitor/events/stats").json()

@@ -15,10 +15,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if REPO_ROOT.as_posix() not in sys.path:
     sys.path.insert(0, REPO_ROOT.as_posix())
 
-from foundry.events import EVENT_TYPE_REVIEW_QUEUED, EventLog
+from foundry.events import EventLog, SemanticEvent
 from foundry.ingestion import IngestionPipeline
 from foundry.merge import rebuild_identity
-from foundry.namespaces import CORE_LOCATED_AT
+from foundry.osint_consolidation import ingest_position
 from foundry.osint_public_sources import (
     FirmsAreaConnector,
     FirmsHotspotMapper,
@@ -45,7 +45,7 @@ from foundry.osint_sources import (
     OpenSkyConnector,
     OpenSkyMapper,
 )
-from foundry.paths import crawl_path
+from foundry.paths import crawl_path, production_event_log_path
 from foundry.source_adapters import (
     CheckpointStore,
     JsonHttpClient,
@@ -87,6 +87,12 @@ def main() -> int:
         type=Path,
         default=crawl_path() / "osint-vietnam-scs",
         help="external crawl root; defaults outside the repository",
+    )
+    parser.add_argument(
+        "--event-log",
+        type=Path,
+        default=production_event_log_path(),
+        help="shared canonical event log; defaults to the production log",
     )
     parser.add_argument(
         "--source-registry",
@@ -159,7 +165,8 @@ def main() -> int:
     run_root = args.root.expanduser() / args.run_id
     run_root.mkdir(parents=True, exist_ok=True)
     run_config = _load_or_create_run_config(run_root)
-    log = EventLog(run_root / "events.jsonl")
+    log = EventLog(args.event_log.expanduser())
+    start_sequence = log.last_sequence
     identity = rebuild_identity(log)
     pipeline = IngestionPipeline(
         identity=identity,
@@ -196,7 +203,15 @@ def main() -> int:
                         contract=contracts[source_id], http=http, region=VIETNAM_SCS
                     )
                     mapper = AdsbPositionMapper(max_records=args.max_records)
-                counts = {"entities": 0, "positions": 0, "reviews": 0, "skipped": 0}
+                counts = {
+                    "entities": 0,
+                    "entities_linked": 0,
+                    "identities_reused": 0,
+                    "positions": 0,
+                    "positions_deduplicated": 0,
+                    "reviews": 0,
+                    "skipped": 0,
+                }
 
                 def ingest_positions(
                     _raw, positions, _archived, counts=counts, current_source_id=source_id
@@ -208,47 +223,12 @@ def main() -> int:
                         source_rows = payload.get("ac") or []
                     counts["skipped"] += max(0, len(source_rows) - len(positions))
                     for position in positions:
-                        entity = pipeline.ingest_entity(
-                            name=position.entity_name,
-                            entity_type="Platform",
-                            source_id=position.source_id,
-                            record_id=position.source_record_id,
-                            external_source=position.external_namespace,
-                            external_id=position.external_id,
-                            content_hash=position.identity_content_hash,
-                        )
-                        if not entity.accepted:
-                            if entity.event and entity.event.event_type == EVENT_TYPE_REVIEW_QUEUED:
-                                counts["reviews"] += 1
-                                continue
-                            raise SourceAdapterError(
-                                f"{position.source_id} entity {position.source_record_id} "
-                                "was not committed"
-                            )
+                        entity, assertion = ingest_position(pipeline, position)
                         counts["entities"] += int(entity.is_new)
-                        assertion = pipeline.ingest_assertion(
-                            subject_id=entity.canonical_id,
-                            predicate_iri=CORE_LOCATED_AT,
-                            object_kind="location",
-                            object_value=position.location_iri,
-                            valid_from=position.observed_at,
-                            valid_until=position.valid_until,
-                            source_ids=[position.source_id],
-                            evidence=[
-                                {"source_id": position.source_id, "locator": position.locator}
-                            ],
-                            evidence_quality="unknown",
-                            idempotency_key=(
-                                f"osint-position:{position.source_id}:{position.position_record_id}"
-                            ),
-                        )
-                        if not assertion.accepted:
-                            raise SourceAdapterError(
-                                f"{position.source_id} position "
-                                f"{position.position_record_id} rejected: "
-                                f"{assertion.reason}"
-                            )
+                        counts["entities_linked"] += 1
+                        counts["identities_reused"] += int(not entity.is_new)
                         counts["positions"] += int(not assertion.replayed)
+                        counts["positions_deduplicated"] += int(assertion.replayed)
 
                 page = run_connector_page(
                     connector,
@@ -266,12 +246,16 @@ def main() -> int:
             elif source_id == "gdelt-events":
                 connector = GdeltConnector(contract=contracts[source_id], http=http)
                 mapper = GdeltEventMapper(max_records=args.max_records)
-                counts = {"documents": 0}
+                counts = {"documents": 0, "documents_deduplicated": 0}
 
                 def ingest_gdelt(_raw, reports, _archived, counts=counts) -> None:
                     for report in reports:
-                        _register_gdelt_report(pipeline, report)
+                        previous_sequence = log.last_sequence
+                        document = _register_gdelt_report(pipeline, report)
                         counts["documents"] += 1
+                        counts["documents_deduplicated"] += int(
+                            document.sequence is not None and document.sequence <= previous_sequence
+                        )
 
                 page = run_connector_page(
                     connector,
@@ -294,12 +278,16 @@ def main() -> int:
                     max_messages=args.max_records,
                 )
                 mapper = AisStreamMapper(max_records=args.max_records)
-                counts = {"documents": 0}
+                counts = {"documents": 0, "documents_deduplicated": 0}
 
                 def ingest_ais(_raw, reports, _archived, counts=counts) -> None:
                     for report in reports:
-                        _register_ais_report(pipeline, report)
+                        previous_sequence = log.last_sequence
+                        document = _register_ais_report(pipeline, report)
                         counts["documents"] += 1
+                        counts["documents_deduplicated"] += int(
+                            document.sequence is not None and document.sequence <= previous_sequence
+                        )
 
                 page = run_connector_page(
                     connector,
@@ -323,9 +311,16 @@ def main() -> int:
                     already_mapped=previous_mapped,
                 )
 
-                def ingest_overpass(_raw, reports, _archived) -> None:
+                counts = {"documents": 0, "documents_deduplicated": 0}
+
+                def ingest_overpass(_raw, reports, _archived, counts=counts) -> None:
                     for report in reports:
-                        _register_regional_report(pipeline, report)
+                        previous_sequence = log.last_sequence
+                        document = _register_regional_report(pipeline, report)
+                        counts["documents"] += 1
+                        counts["documents_deduplicated"] += int(
+                            document.sequence is not None and document.sequence <= previous_sequence
+                        )
 
                 page = None
                 snapshot_hashes: list[str] = []
@@ -352,8 +347,9 @@ def main() -> int:
                     else "max-records reached before all area tiles were queried",
                     "snapshots": snapshot_hashes,
                     "mapped_records": int(checkpoint.get("mapped_records", 0)),
-                    "documents": int(checkpoint.get("mapped_records", 0)),
+                    **counts,
                 }
+                source_results[source_id]["documents"] = int(checkpoint.get("mapped_records", 0))
             else:
                 if source_id == "usgs-earthquakes":
                     connector = UsgsWeeklyConnector(contract=contracts[source_id], http=http)
@@ -381,12 +377,16 @@ def main() -> int:
                     mapper = GdacsEventMapper(max_records=args.max_records)
                 else:
                     raise SourceAdapterError(f"unsupported source {source_id}")
-                counts = {"documents": 0}
+                counts = {"documents": 0, "documents_deduplicated": 0}
 
                 def ingest_reports(_raw, reports, _archived, counts=counts) -> None:
                     for report in reports:
-                        _register_regional_report(pipeline, report)
+                        previous_sequence = log.last_sequence
+                        document = _register_regional_report(pipeline, report)
                         counts["documents"] += 1
+                        counts["documents_deduplicated"] += int(
+                            document.sequence is not None and document.sequence <= previous_sequence
+                        )
 
                 page = run_connector_page(
                     connector,
@@ -405,11 +405,12 @@ def main() -> int:
             source_results[source_id] = {"status": "error", "error": str(exc)}
         _print_source_progress(source_id, source_results[source_id])
 
-    event_counts = Counter(event.event_type for event in log.iter_all())
+    run_events = list(log.iter_after_sequence(start_sequence))
+    event_counts = Counter(event.event_type for event in run_events)
     summary = {
         "run_id": args.run_id,
         "run_root": str(run_root.resolve()),
-        "event_log": str((run_root / "events.jsonl").resolve()),
+        "event_log": str(log.path.resolve()),
         "area_of_interest": {
             "name": VIETNAM_SCS.name,
             "south": VIETNAM_SCS.south,
@@ -421,7 +422,12 @@ def main() -> int:
         "sources": source_results,
         "source_windows": run_config,
         "event_counts": dict(sorted(event_counts.items())),
-        "total_events": sum(event_counts.values()),
+        "total_events": len(run_events),
+        "deduplicated_records": sum(
+            int(result.get("positions_deduplicated", 0))
+            + int(result.get("documents_deduplicated", 0))
+            for result in source_results.values()
+        ),
         "generated_at": datetime.now(UTC).isoformat(),
     }
     summary_path = run_root / "summary.json"
@@ -439,16 +445,26 @@ def _print_source_progress(source_id: str, result: str | dict[str, object]) -> N
             "source": source_id,
             "status": result.get("status", "complete"),
         }
-        for field in ("mapped_records", "documents", "entities", "positions", "reviews"):
+        for field in (
+            "mapped_records",
+            "documents",
+            "documents_deduplicated",
+            "entities",
+            "entities_linked",
+            "identities_reused",
+            "positions",
+            "positions_deduplicated",
+            "reviews",
+        ):
             count = result.get(field)
             if isinstance(count, int):
                 progress[field] = count
     print(json.dumps(progress, sort_keys=True), flush=True)
 
 
-def _register_gdelt_report(pipeline: IngestionPipeline, report: GdeltReportRecord) -> None:
+def _register_gdelt_report(pipeline: IngestionPipeline, report: GdeltReportRecord) -> SemanticEvent:
     """Register one GDELT-coded report without asserting it as verified fact."""
-    pipeline.register_document(
+    return pipeline.register_document(
         uri=report.locator,
         title=report.title,
         source_system=report.source_id,
@@ -458,9 +474,9 @@ def _register_gdelt_report(pipeline: IngestionPipeline, report: GdeltReportRecor
     )
 
 
-def _register_ais_report(pipeline: IngestionPipeline, report: AisReportRecord) -> None:
+def _register_ais_report(pipeline: IngestionPipeline, report: AisReportRecord) -> SemanticEvent:
     """Register one validated AISStream report, keeping receipt-time semantics."""
-    pipeline.register_document(
+    return pipeline.register_document(
         uri=report.locator,
         title=report.title,
         source_system=report.source_id,
@@ -470,9 +486,11 @@ def _register_ais_report(pipeline: IngestionPipeline, report: AisReportRecord) -
     )
 
 
-def _register_regional_report(pipeline: IngestionPipeline, report: RegionalReportRecord) -> None:
+def _register_regional_report(
+    pipeline: IngestionPipeline, report: RegionalReportRecord
+) -> SemanticEvent:
     """Register a mapper output as a document, never as an unverified assertion."""
-    pipeline.register_document(
+    return pipeline.register_document(
         uri=report.locator,
         title=report.title,
         source_system=report.source_id,

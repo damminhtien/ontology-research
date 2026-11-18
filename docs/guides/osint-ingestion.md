@@ -25,9 +25,9 @@ identifier rules, mapping và quality checks của từng nguồn:
 | Wikidata | QID là identity của source record. P31 dùng allowlist để chọn loại Organization. P1278 tạo crosswalk LEI sau khi kiểm tra checksum và collision. Tên/alias chỉ tạo lookup candidate. | Fetch theo yêu cầu; lưu entity IDs/version trong raw snapshot. |
 | GLEIF | LEI hợp lệ là identifier authoritative trong namespace `gleif-lei`. Legal name và other names là label/alias, không phải bằng chứng merge. | API trả Golden Copy publication time; refresh bằng run mới. |
 | Wikipedia tiếng Anh | Page ID xác định document; revision ID và timestamp xác định version. Chỉ ánh xạ câu tường minh `subsidiary of` thành `organization:subsidiaryOf`; subject phải khớp pageprops Wikidata QID, còn object phải resolve bằng alias chính xác và duy nhất. | Lấy revision mới nhất và giữ revision metadata. |
-| OpenSky | State vector chỉ tạo vị trí assertion khi có ICAO24, tọa độ và `time_position` hợp lệ. ICAO24 thuộc source record OpenSky; callsign không dùng làm identity evidence. | Một state snapshot cho mỗi run; bỏ điểm quá cũ hoặc ngoài AOI. |
-| ADSB.lol | Readsb position có ICAO24 và `seen_pos`; ICAO24 namespace riêng, callsign/registration chỉ là metadata. Không dùng làm cross-source merge evidence. | Một snapshot 250 NM quanh 12.5°N, 110°E; lọc lại theo AOI và tuổi tối đa một giờ. |
-| adsb.fi | Readsb position từ API v3; ICAO24 namespace riêng, không tự nhập với aircraft từ OpenSky/ADSB.lol. | Một snapshot 250 NM quanh 12.5°N, 110°E; tuân thủ giới hạn công khai một request/giây. |
+| OpenSky | State vector chỉ tạo vị trí assertion khi có ICAO24, tọa độ và `time_position` hợp lệ. ICAO24 dùng namespace chung giữa các feed; callsign không dùng làm identity evidence. | Một state snapshot cho mỗi run; bỏ điểm quá cũ hoặc ngoài AOI. |
+| ADSB.lol | Readsb position có ICAO24 và `seen_pos`; ICAO24 dùng namespace chung, callsign/registration chỉ là metadata. | Một snapshot 250 NM quanh 12.5°N, 110°E; lọc lại theo AOI và tuổi tối đa một giờ. |
+| adsb.fi | Readsb position từ API v3; ICAO24 dùng namespace chung để nối aircraft giữa các feed. | Một snapshot 250 NM quanh 12.5°N, 110°E; tuân thủ giới hạn công khai một request/giây. |
 | AISStream | MMSI là identifier có thể được tái sử dụng. Position reports được lưu nguyên nguồn; timestamp giây trong phút không thành valid time. | Cửa sổ live có giới hạn; cần `AISSTREAM_API_KEY`. |
 | GDELT Events | Giữ GlobalEventID, ngày, CAMEO và ActionGeo như metadata báo cáo. Không xem GDELT row hoặc URL bài báo là fact đã kiểm chứng. | Lấy export mới nhất, xác nhận MD5 rồi lọc theo vùng. |
 | OpenStreetMap | Object cảng/harbour được chọn theo tag, tọa độ và OSM type/ID. Không suy ra ownership hay operator. | Overpass quét bốn tile với checkpoint; `max_records` có thể dừng trước khi hết vùng. |
@@ -81,6 +81,24 @@ nằm trong sample này.
 
 ## OSINT quanh Việt Nam và Biển Đông
 
-Adapter theo vùng không ghi vào production event log hoặc FastAPI. Raw
-snapshots, event log và checkpoints tiếp tục được giữ ngoài Git, trong thư mục
-crawl riêng.
+Adapter theo vùng ghi assertion và document qua ingestion pipeline vào
+production event log chung. Identity index được dựng từ log này khi crawler
+khởi động, nên source record lặp ở các run có thể dùng lại canonical entity và
+idempotency key.
+
+Raw snapshots, checkpoints, cấu hình run và summary vẫn nằm riêng dưới crawl
+root, ngoài Git. Aircraft từ OpenSky, ADSB.lol và adsb.fi dùng chung ICAO24 để
+liên kết chéo feed. Tài liệu GDELT, AISStream, OSM, USGS, NASA FIRMS, GFW và
+GDACS được khử trùng theo source-record key và content hash; chúng chỉ được gắn
+với entity khi mapper có identifier đủ tin cậy.
+
+Các run cũ có event log riêng được hợp nhất bằng lệnh:
+
+```bash
+.venv/bin/python tools/consolidate_osint_runs.py --dry-run
+.venv/bin/python tools/consolidate_osint_runs.py
+```
+
+Lệnh giữ nguyên event log và raw archive cũ, replay record qua validation của
+ingestion pipeline, khôi phục aircraft position từ snapshot đã lưu và ghi
+manifest ngoài repo. Có thể chạy lại an toàn nhờ idempotency.

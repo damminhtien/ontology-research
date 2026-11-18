@@ -105,6 +105,10 @@ symlink tương thích ở local setup. Cấu hình PostgreSQL projector trong
 [hướng dẫn vận hành](../guides/postgres-readmodel.md).
 Chỉ dùng Console write operations khi đã trỏ tới log phù hợp.
 
+Trong database mode, event monitor và operational projection cùng đọc production
+log. Không cấu hình database thì console giữ demo log; `FOUNDRY_EVENT_LOG` ghi đè
+log dùng cho monitor và local read-model scaffold.
+
 ## Projection — read model
 
 - Cards read-model stats + projection lag

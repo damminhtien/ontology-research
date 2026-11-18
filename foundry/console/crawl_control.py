@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
 
-from foundry.paths import crawl_path
+from foundry.paths import crawl_path, production_event_log_path
 from foundry.source_adapters import SourceAdapterError, load_source_contracts
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -251,6 +251,8 @@ class CrawlRunManager:
                 run_id,
                 "--root",
                 str(self.raw_root),
+                "--event-log",
+                str(production_event_log_path()),
                 "--max-records",
                 str(max_records),
                 "--duration-seconds",
@@ -431,10 +433,14 @@ class CrawlRunManager:
             count_fields = (
                 "mapped_records",
                 "entities",
+                "entities_linked",
+                "identities_reused",
                 "positions",
+                "positions_deduplicated",
                 "reviews",
                 "skipped",
                 "documents",
+                "documents_deduplicated",
             )
             for source_id, result in sources.items():
                 if not isinstance(source_id, str) or not isinstance(result, dict):
@@ -462,11 +468,15 @@ class CrawlRunManager:
             else {}
         )
         total_events = value.get("total_events")
+        deduplicated_records = value.get("deduplicated_records")
         result = {
             "sources": safe_sources,
             "event_counts": safe_counts,
             "total_events": total_events
             if isinstance(total_events, int) and total_events >= 0
+            else 0,
+            "deduplicated_records": deduplicated_records
+            if isinstance(deduplicated_records, int) and deduplicated_records >= 0
             else 0,
         }
         generated_at = value.get("generated_at")

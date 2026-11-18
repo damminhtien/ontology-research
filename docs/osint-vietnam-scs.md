@@ -70,14 +70,16 @@ AISStream cần WebSocket client tùy chọn:
 ## Semantics và giới hạn
 
 - **OpenSky:** Chỉ vector hợp lệ, mới, có ICAO24 và `time_position` tạo
-  assertion vị trí theo khoảng nửa mở một giây. ICAO24/callsign không tự merge
-  identity khác nguồn.
+  assertion vị trí theo khoảng nửa mở một giây. ICAO24 được dùng làm định danh
+  aircraft chung giữa các feed; callsign chỉ là metadata.
 - **ADSB.lol / adsb.fi:** Mỗi adapter lấy một vòng tròn 250 hải lý quanh
   12.5°N, 110°E rồi lọc lại theo AOI. `seen_pos` (giây trước `now`, Unix ms)
   xác định valid time; thiếu thời gian, tọa độ hoặc ICAO24 hợp lệ thì bỏ qua.
-  ICAO24 được tách namespace theo provider; callsign, registration và loại tàu
-  bay chỉ là metadata. Hai feed này có thể trùng OpenSky hoặc nhau, không phải
-  bằng chứng merge hay xác nhận độc lập.
+  Cả ba feed dùng namespace `icao24`, vì [ICAO quy định địa chỉ Mode S 24-bit
+  được phân bổ độc quyền cho từng aircraft](https://www.icao.int/WACAF/Documents/APIRG/APIRG%2026/EN/WPs-ENG/APIRG26%20WP03F12%20-%20App.%20Guidelines%20for%20ICAO%2024%20Bits%20Adresses%20Assignment.pdf);
+  ICAO cũng lưu ý địa chỉ cũ có thể được trả lại khi đăng ký thay đổi.
+  Nếu có bằng chứng tái cấp gây nhầm danh tính, sửa bằng event split có kiểm
+  toán. Các feed vẫn không phải xác nhận độc lập của vị trí.
 - **GDELT:** Tải export mới nhất theo `lastupdate.txt` và kiểm tra MD5. ActionGeo
   là vị trí do GDELT geocode; GlobalEventID/CAMEO/SOURCEURL được lưu thành
   source report, không phải sự kiện đã xác minh.
@@ -102,20 +104,33 @@ AISStream cần WebSocket client tùy chọn:
   chỉ nhận centroid trong AOI. Alert không xác nhận độc lập mức độ tác động.
 
 OpenSky, ADSB.lol và adsb.fi tạo location assertion có source/time sau khi qua
-kiểm tra vùng và freshness. Các nguồn còn lại đăng ký `DocumentRegistered`;
-chúng không tạo fact assertions hoặc merge identity. Raw response, checkpoint, event log,
-`run-config.json` và `summary.json` ghi ngoài repo dưới crawl root, mặc định:
+kiểm tra vùng và freshness. Ba nguồn dùng chung namespace `icao24`, do đó snapshot
+của cùng aircraft được gắn vào một canonical entity; source-record key vẫn giữ
+riêng từng provider. Các nguồn báo cáo còn lại đăng ký `DocumentRegistered` và
+được deduplicate theo source-record key cùng content hash. Chúng chưa được gắn
+vào một entity domain khi mapper không cung cấp identifier đủ tin cậy; không
+suy ra liên kết từ tên, tiêu đề, vị trí gần nhau hoặc nội dung tự do.
+
+Event mới được ghi vào production event log chung, mặc định
+`~/Data/ontology-research/data/production.jsonl`. Raw response, checkpoint,
+`run-config.json` và `summary.json` vẫn nằm theo từng crawl run ngoài repo:
 
 ```text
 ~/Data/ontology-research/data/crawl-runs/osint-vietnam-scs/<run-id>/
 ├── checkpoints/
-├── events.jsonl
 ├── raw/
 ├── run-config.json
 └── summary.json
 ```
 
+Log từng run từ các lần crawl cũ được giữ nguyên làm dữ liệu lịch sử. Chạy
+`.venv/bin/python tools/consolidate_osint_runs.py --dry-run` để kiểm tra trước,
+sau đó bỏ `--dry-run` để replay chúng vào production log. Tool đọc lại snapshot
+ADS-B đã archive để khôi phục các record từng bị đưa vào review do namespace cũ.
+Manifest kết quả nằm ở crawl root, ngoài Git.
+
 Mỗi nguồn có checkpoint riêng; page chỉ được đánh dấu hoàn tất sau khi raw
-snapshot đã archive và mọi mapped document/assertion đã được commit. Dữ liệu
+snapshot đã archive và mọi mapped document/assertion đã được commit vào event
+log chung. Dữ liệu
 chỉ là snapshot theo vùng và giới hạn response; không cam kết bao phủ toàn bộ
 vận tải biển, cảng, cháy hoặc sự kiện an ninh.

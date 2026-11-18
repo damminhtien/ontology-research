@@ -98,6 +98,11 @@ DEFAULT_IDENTIFIER_POLICIES: Mapping[str, IdentifierPolicy] = {
     "gleif-lei": IdentifierPolicy(unique_authoritative=True, confidence=1.0),
     "usn-hull": IdentifierPolicy(unique_authoritative=True, confidence=1.0),
     "sensor-registry": IdentifierPolicy(unique_authoritative=True, confidence=1.0),
+    # ICAO assigns exclusive 24-bit addresses to aircraft. All ADS-B feeds
+    # share this identifier, so provider-specific namespaces would split one
+    # aircraft into separate canonical entities. Reassignment is exceptional
+    # and can be corrected with the replayable split workflow if evidenced.
+    "icao24": IdentifierPolicy(unique_authoritative=True, confidence=1.0),
     "ais-mmsi": IdentifierPolicy(unique_authoritative=False, confidence=0.55),
     "mnis": IdentifierPolicy(unique_authoritative=False, confidence=0.55),
     "naval-registry": IdentifierPolicy(unique_authoritative=False, confidence=0.55),

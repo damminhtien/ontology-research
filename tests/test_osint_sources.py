@@ -197,8 +197,8 @@ def test_opensky_mapper_keeps_recent_positions_and_source_time():
     assert len(positions) == 1
     position = positions[0]
     assert position.source_record_id == "abc123"
-    assert position.external_namespace == "opensky-icao24"
-    assert position.entity_name == "Aircraftabc123"
+    assert position.external_namespace == "icao24"
+    assert position.entity_name == "Aircraft abc123"
     assert position.observed_at == "2023-11-14T22:13:20+00:00"
     assert position.valid_until == "2023-11-14T22:13:21+00:00"
     assert position.location_iri == "urn:osint:crs84:16.000000:110.000000"
@@ -280,9 +280,9 @@ def test_adsb_mapper_requires_recent_source_timed_positions_and_preserves_units(
 
     assert len(positions) == 1
     position = positions[0]
-    assert position.external_namespace == "adsb-lol-icao24"
+    assert position.external_namespace == "icao24"
     assert position.external_id == "abc123"
-    assert position.entity_name == "AircraftAdsbLolabc123"
+    assert position.entity_name == "Aircraft abc123"
     assert position.observed_at == "2023-11-14T22:13:48.500000+00:00"
     assert position.valid_until == "2023-11-14T22:13:49.500000+00:00"
     measurements = {item["name"]: item for item in position.measurements}
@@ -299,7 +299,7 @@ def test_adsb_mapper_rejects_unversioned_snapshot_time():
         AdsbPositionMapper().map(_raw_record("adsb-fi", body))
 
 
-def test_adsb_providers_do_not_auto_merge_the_same_icao24(tmp_path):
+def test_adsb_providers_link_the_same_icao24_to_one_entity(tmp_path):
     body = json.dumps({"now": 1_700_000_030_000, "ac": [_adsb_aircraft()]}).encode()
     log = EventLog(tmp_path / "events.jsonl")
     pipeline = IngestionPipeline(
@@ -318,11 +318,14 @@ def test_adsb_providers_do_not_auto_merge_the_same_icao24(tmp_path):
             external_id=position.external_id,
             content_hash=position.identity_content_hash,
         )
-        assert entity.accepted and entity.is_new
+        assert entity.accepted
         entities.append(entity.canonical_id)
 
-    assert len(set(entities)) == 2
-    assert [event.event_type for event in log.read_all()] == ["EntityCreated", "EntityCreated"]
+    assert len(set(entities)) == 1
+    assert [event.event_type for event in log.read_all()] == [
+        "EntityCreated",
+        "SourceRecordMatched",
+    ]
 
 
 def test_opensky_positions_ingest_as_idempotent_source_assertions(tmp_path):
