@@ -456,6 +456,44 @@ class PostgresReadModelStore:
             has_more=offset + len(items) < total,
         )
 
+    def assertion_history_page(
+        self,
+        subject_id: str,
+        *,
+        include_superseded: bool = True,
+        limit: int,
+        offset: int,
+        sort_by: str = "recorded_at",
+        descending: bool = True,
+    ) -> QueryPage[dict]:
+        """Page assertion history with a subject index and deterministic ordering."""
+        canonical_subject = self._canonical_id(subject_id)
+        where = "subject_id = %s"
+        args: tuple = (canonical_subject,)
+        if not include_superseded:
+            where += " AND status = 'asserted'"
+        order_column = {"recorded_at": "recorded_at", "valid_from": "valid_from"}[sort_by]
+        direction = "DESC" if descending else "ASC"
+        with self.database.connection() as connection:
+            count_row = connection.execute(
+                f"SELECT count(*) FROM read_assertions WHERE {where}", args
+            ).fetchone()
+            rows = connection.execute(
+                self._assertion_select()
+                + f" WHERE {where} ORDER BY {order_column} {direction}, assertion_id {direction} "
+                "LIMIT %s OFFSET %s",
+                (*args, limit, offset),
+            ).fetchall()
+        total = count_row[0] if count_row else 0
+        items = tuple(self._assertion(row) for row in rows)
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
+
     def assertions_as_of(
         self, subject_id: str, instant: datetime, predicate_iri: str | None = None
     ) -> list[dict]:

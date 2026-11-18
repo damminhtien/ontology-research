@@ -33,6 +33,7 @@ from foundry.console.api import (  # noqa: E402
     admin,
     crawler,
     impact,
+    intelligence,
     monitor,
     ontology,
     overview,
@@ -80,6 +81,7 @@ def create_app() -> FastAPI:
         projection.router,
         monitor.router,
         crawler.router,
+        intelligence.router,
         admin.router,
     ):
         application.include_router(router, prefix="/api")

@@ -109,6 +109,10 @@ def test_query_service_uses_postgres_indexes_and_bounded_contract(postgres_datab
     provenance = queries.assertion_provenance("urn:assert:query-a-b")
     assert provenance["source_ids"] == ["https://example.test/source/query"]
     assert provenance["evidence"][0]["locator"] == "p. 2"
+    history = queries.entity_timeline(entity_a, include_superseded=True)
+    assert [row["assertion_id"] for row in history.items] == [
+        "urn:assert:query-a-b",
+    ]
 
     with (
         pytest.raises(QueryTimeoutError),
@@ -208,6 +212,23 @@ def test_identity_bindings_survive_adapter_restart_and_split(postgres_database):
     )
     final = IdentityService(PostgresIdentityStore(PostgresDatabase(postgres_database.dsn)))
     assert (first_id, second_id) in final.store.cannot_links()
+
+
+def test_postgres_cannot_link_follows_merge_components(postgres_database):
+    survivor, duplicate, separate = (
+        "urn:world:entity:postgres-" + suffix for suffix in ("survivor", "duplicate", "separate")
+    )
+    identity = IdentityService(PostgresIdentityStore(postgres_database))
+    for entity_id in (survivor, duplicate, separate):
+        identity.register(entity_id=entity_id, entity_type="Platform")
+    cannot_link = IdentityEvidence("different-vessels", "review", "different-hulls", "analyst")
+    identity.add_cannot_link(duplicate, separate, cannot_link)
+    same_entity = IdentityEvidence("same-vessel", "registry", "hull-match", "analyst")
+    identity.merge_entities(survivor, duplicate, same_entity_evidence=same_entity)
+
+    assert identity.cannot_link_evidence_between_components(survivor, separate) == cannot_link
+    with pytest.raises(ValueError, match="cannot-link"):
+        identity.preview_merge(survivor, separate, same_entity_evidence=same_entity)
 
 
 def test_projector_restarts_and_replays_only_new_suffix(postgres_database, tmp_path, monkeypatch):

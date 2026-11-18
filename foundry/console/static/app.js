@@ -8,6 +8,7 @@ import { renderMonitor } from "./views/monitor.js";
 import { renderProjection } from "./views/projection.js";
 import { renderAdmin } from "./views/admin.js";
 import { renderCrawler } from "./views/crawler.js";
+import { renderIntelligence } from "./views/intelligence.js";
 
 const routes = {
   dashboard: { title: "Dashboard", render: renderDashboard },
@@ -17,6 +18,7 @@ const routes = {
   monitor: { title: "Data Monitor", render: renderMonitor },
   crawler: { title: "Crawl Control", render: renderCrawler },
   projection: { title: "Projection", render: renderProjection },
+  intelligence: { title: "Entity 360°", render: renderIntelligence },
   admin: { title: "Admin (token-gated)", render: renderAdmin },
 };
 

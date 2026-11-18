@@ -226,6 +226,19 @@ class ReadModelStore(Protocol):
         """Return a bounded page of assertions valid at the requested instant."""
         ...
 
+    def assertion_history_page(
+        self,
+        subject_id: str,
+        *,
+        include_superseded: bool,
+        limit: int,
+        offset: int,
+        sort_by: str,
+        descending: bool,
+    ) -> QueryPage[dict]:
+        """Return a bounded page of recorded assertion history for one entity."""
+        ...
+
     def entities_at_page(
         self, location_uri: str, instant: datetime, *, limit: int, offset: int
     ) -> QueryPage[str]:
@@ -925,6 +938,39 @@ class ReadModel:
         if object_kind is not None:
             matches = [item for item in matches if item["object"].get("kind") == object_kind]
         matches.sort(key=lambda item: (item["valid_from"], item["assertion_id"]))
+        total = len(matches)
+        items = tuple(matches[offset : offset + limit])
+        return QueryPage(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(items) < total,
+        )
+
+    def assertion_history_page(
+        self,
+        subject_id: str,
+        *,
+        include_superseded: bool = True,
+        limit: int,
+        offset: int,
+        sort_by: str = "recorded_at",
+        descending: bool = True,
+    ) -> QueryPage[dict]:
+        """Page all assertions currently assigned to the entity, including history."""
+        canonical_subject = self._canonical_id(subject_id)
+        matches = [
+            item
+            for assertion_id, record in self._assertions.items()
+            if record.subject_id == canonical_subject
+            and (include_superseded or record.status == "asserted")
+            if (item := self.get_assertion(assertion_id)) is not None
+        ]
+        matches.sort(
+            key=lambda item: (item.get(sort_by) or "", item["assertion_id"]),
+            reverse=descending,
+        )
         total = len(matches)
         items = tuple(matches[offset : offset + limit])
         return QueryPage(

@@ -238,6 +238,21 @@ class TestMultiValuedExternalIds:
         _, _, external_ids = svc.identity(entity)
         assert external_ids["mnis"] == frozenset({"1234", "5678"})
 
+    def test_cannot_link_follows_existing_merge_components(self):
+        survivor, duplicate, separate = ("urn:world:entity:" + letter * 32 for letter in "abc")
+        service = IdentityService()
+        for entity_id in (survivor, duplicate, separate):
+            service.register(entity_id=entity_id, entity_type="Platform")
+        service.add_cannot_link(duplicate, separate, SAME_ENTITY_EVIDENCE)
+        service.merge_entities(survivor, duplicate, same_entity_evidence=SAME_ENTITY_EVIDENCE)
+
+        assert (
+            service.cannot_link_evidence_between_components(survivor, separate)
+            == SAME_ENTITY_EVIDENCE
+        )
+        with pytest.raises(ValueError, match="cannot-link"):
+            service.preview_merge(survivor, separate, same_entity_evidence=SAME_ENTITY_EVIDENCE)
+
     def test_merge_preserves_other_owners_of_shared_external_id(self):
         survivor, duplicate, other = ("urn:world:entity:" + letter * 32 for letter in "abc")
         svc = IdentityService()

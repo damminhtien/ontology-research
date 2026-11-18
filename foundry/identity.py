@@ -344,6 +344,16 @@ class IdentityStore(abc.ABC):
     def cannot_links(self) -> Mapping[tuple[str, str], IdentityEvidence]:
         """All sorted cannot-link pairs and their evidence."""
 
+    @abc.abstractmethod
+    def cannot_link_evidence(self, left_id: str, right_id: str) -> IdentityEvidence | None:
+        """Return one pair constraint without scanning the full constraint set."""
+
+    @abc.abstractmethod
+    def cannot_link_between_components(
+        self, left_id: str, right_id: str
+    ) -> IdentityEvidence | None:
+        """Return a cannot-link constraint between two current merge components."""
+
 
 class InMemoryIdentityStore(IdentityStore):
     """Default backend: plain dicts, rebuilt from the log on restart."""
@@ -504,6 +514,39 @@ class InMemoryIdentityStore(IdentityStore):
     def cannot_links(self) -> Mapping[tuple[str, str], IdentityEvidence]:
         """All sorted cannot-link constraints."""
         return self._cannot_links
+
+    def cannot_link_evidence(self, left_id: str, right_id: str) -> IdentityEvidence | None:
+        """Look up one symmetric pair constraint."""
+        return self._cannot_links.get(tuple(sorted((left_id, right_id))))
+
+    def cannot_link_between_components(
+        self, left_id: str, right_id: str
+    ) -> IdentityEvidence | None:
+        """Find a cannot-link across current components, including merged members."""
+        redirects = self._merged_into
+
+        def members(root: str) -> set[str]:
+            found = {root}
+            pending = [root]
+            while pending:
+                current = pending.pop()
+                children = [
+                    duplicate for duplicate, survivor in redirects.items() if survivor == current
+                ]
+                for child in children:
+                    if child not in found:
+                        found.add(child)
+                        pending.append(child)
+            return found
+
+        left_members = members(left_id)
+        right_members = members(right_id)
+        for (left, right), evidence in self._cannot_links.items():
+            if (left in left_members and right in right_members) or (
+                right in left_members and left in right_members
+            ):
+                return evidence
+        return None
 
 
 class IdentityService:
@@ -963,12 +1006,13 @@ class IdentityService:
 
     def _cannot_link_blocks(self, survivor_id: str, duplicate_id: str) -> bool:
         """Check constraints between the current merged components."""
-        for left_id, right_id in self._store.cannot_links():
-            left = self.merged_into(left_id) or left_id
-            right = self.merged_into(right_id) or right_id
-            if {left, right} == {survivor_id, duplicate_id}:
-                return True
-        return False
+        return self._store.cannot_link_between_components(survivor_id, duplicate_id) is not None
+
+    def cannot_link_evidence_between_components(
+        self, left_id: str, right_id: str
+    ) -> IdentityEvidence | None:
+        """Return a constraint that prevents merging the two current components."""
+        return self._store.cannot_link_between_components(left_id, right_id)
 
     def merged_into(self, entity_id: str) -> str:
         """Return the final survivor for a merged id, or '' when not merged."""

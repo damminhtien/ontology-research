@@ -408,3 +408,41 @@ class PostgresIdentityStore(IdentityStore):
         return {
             (left, right): IdentityEvidence.from_dict(evidence) for left, right, evidence in rows
         }
+
+    def cannot_link_evidence(self, left_id: str, right_id: str) -> IdentityEvidence | None:
+        """Fetch one indexed pair constraint and its evidence."""
+        left, right = sorted((left_id, right_id))
+        with self.database.connection() as connection:
+            row = connection.execute(
+                """SELECT evidence FROM identity_cannot_links
+                   WHERE left_id = %s AND right_id = %s""",
+                (left, right),
+            ).fetchone()
+        return IdentityEvidence.from_dict(row[0]) if row else None
+
+    def cannot_link_between_components(
+        self, left_id: str, right_id: str
+    ) -> IdentityEvidence | None:
+        """Find a cannot-link between merge components through indexed SQL."""
+        sql = """WITH RECURSIVE
+            left_component(entity_id) AS (
+                SELECT %s::text
+                UNION
+                SELECT m.duplicate_id FROM identity_merges m
+                JOIN left_component c ON m.survivor_id = c.entity_id
+            ),
+            right_component(entity_id) AS (
+                SELECT %s::text
+                UNION
+                SELECT m.duplicate_id FROM identity_merges m
+                JOIN right_component c ON m.survivor_id = c.entity_id
+            )
+            SELECT evidence FROM identity_cannot_links c
+            WHERE (c.left_id IN (SELECT entity_id FROM left_component)
+                   AND c.right_id IN (SELECT entity_id FROM right_component))
+               OR (c.right_id IN (SELECT entity_id FROM left_component)
+                   AND c.left_id IN (SELECT entity_id FROM right_component))
+            LIMIT 1"""
+        with self.database.connection() as connection:
+            row = connection.execute(sql, (left_id, right_id)).fetchone()
+        return IdentityEvidence.from_dict(row[0]) if row else None
