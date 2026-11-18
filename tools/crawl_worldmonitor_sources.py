@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch the pinned WorldMonitor source set into an immutable local archive."""
+"""Fetch configured source data into an immutable local archive."""
 
 from __future__ import annotations
 
@@ -92,6 +92,7 @@ def _read_config(path: Path) -> dict[str, Any]:
             None,
             "gpsjam_latest_daily",
             "unhcr_population_pages",
+            "openwaters_vessel_bbox_tiles",
         }:
             raise CrawlError(f"{source_id} has an unsupported fetch strategy")
         if source.get("fetch_strategy") == "gpsjam_latest_daily" and not (
@@ -107,6 +108,23 @@ def _read_config(path: Path) -> dict[str, Any]:
             year_lookback = source.get("year_lookback", 2)
             if not isinstance(year_lookback, int) or year_lookback < 0:
                 raise CrawlError(f"{source_id} has an invalid year_lookback")
+        if source.get("fetch_strategy") == "openwaters_vessel_bbox_tiles":
+            bbox_tiles = source.get("bbox_tiles")
+            if not isinstance(bbox_tiles, list) or not bbox_tiles:
+                raise CrawlError(f"{source_id} needs bbox_tiles")
+            for bbox in bbox_tiles:
+                if not isinstance(bbox, list) or len(bbox) != 4:
+                    raise CrawlError(f"{source_id} has an invalid bounding box")
+                if any(not isinstance(value, (int, float)) for value in bbox):
+                    raise CrawlError(f"{source_id} has nonnumeric bounding box coordinates")
+                min_lat, min_lon, max_lat, max_lon = bbox
+                if not (-90 <= min_lat < max_lat <= 90 and -180 <= min_lon < max_lon <= 180):
+                    raise CrawlError(f"{source_id} has out-of-range bounding box coordinates")
+                if (max_lat - min_lat) * (max_lon - min_lon) > 100:
+                    raise CrawlError(f"{source_id} bounding box exceeds the anonymous area limit")
+            max_depth = source.get("max_tile_depth", 1)
+            if not isinstance(max_depth, int) or not 0 <= max_depth <= 4:
+                raise CrawlError(f"{source_id} has an invalid max_tile_depth")
         record_id_fields = source.get("record_id_fields", [])
         if not isinstance(record_id_fields, list) or any(
             not isinstance(value, str) or not value for value in record_id_fields
@@ -402,6 +420,73 @@ def _fetch_source_responses(
         ], {"snapshot_date": snapshot_date}
     if strategy == "unhcr_population_pages":
         return _fetch_unhcr_pages(fetcher, source, current_year=current_year)
+    if strategy == "openwaters_vessel_bbox_tiles":
+        responses = []
+        subdivided_bbox_tiles = []
+        remaining_truncated_bbox_tiles = []
+        max_depth = int(source.get("max_tile_depth", 1))
+
+        def fetch_bbox(bbox: Sequence[int | float], depth: int) -> None:
+            params = {
+                "bbox": ",".join(str(value) for value in bbox),
+                "kind": str(source.get("kind_filter", "vessel")),
+                "max_age": str(source.get("max_age", "all")),
+            }
+            url = _url_with_params(str(source["url"]), params)
+            body = fetcher.fetch({**source, "url": url})
+            try:
+                payload = json.loads(body)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise CrawlError("Open Waters response is not valid JSON") from exc
+            if (
+                not isinstance(payload, dict)
+                or not isinstance(payload.get("features"), list)
+                or any(
+                    not isinstance(feature, dict) or not isinstance(feature.get("properties"), dict)
+                    for feature in payload["features"]
+                )
+            ):
+                raise CrawlError("Open Waters response is not a vessel FeatureCollection")
+            is_truncated = payload.get("truncated") is True
+            bbox_key = ",".join(str(value) for value in bbox)
+            if is_truncated and depth < max_depth:
+                subdivided_bbox_tiles.append(bbox_key)
+                min_lat, min_lon, max_lat, max_lon = bbox
+                mid_lat = (min_lat + max_lat) / 2
+                mid_lon = (min_lon + max_lon) / 2
+                for child in (
+                    (min_lat, min_lon, mid_lat, mid_lon),
+                    (min_lat, mid_lon, mid_lat, max_lon),
+                    (mid_lat, min_lon, max_lat, mid_lon),
+                    (mid_lat, mid_lon, max_lat, max_lon),
+                ):
+                    fetch_bbox(child, depth + 1)
+                responses.append(
+                    _response(
+                        url,
+                        body,
+                        include_records=False,
+                        context={"bbox_tile": bbox_key, "tile_depth": depth},
+                    )
+                )
+                return
+            if is_truncated:
+                remaining_truncated_bbox_tiles.append(bbox_key)
+            responses.append(
+                _response(
+                    url,
+                    body,
+                    context={"bbox_tile": bbox_key, "tile_depth": depth},
+                )
+            )
+
+        for bbox in source["bbox_tiles"]:
+            fetch_bbox(bbox, 0)
+        return responses, {
+            "source_truncated": bool(remaining_truncated_bbox_tiles),
+            "subdivided_bbox_tiles": subdivided_bbox_tiles,
+            "remaining_truncated_bbox_tiles": remaining_truncated_bbox_tiles,
+        }
 
     url = _request_url(source)
     return [_response(url, fetcher.fetch(source))], {}
@@ -534,7 +619,9 @@ def _normal_records(
         row_digest = _sha256(_canonical_json(raw_for_fields))
         configured_id_fields = source.get("record_id_fields", [])
         configured_id_values = [
-            raw_for_fields.get(item) for item in configured_id_fields if isinstance(item, str)
+            _first_value(raw_for_fields, (item,))
+            for item in configured_id_fields
+            if isinstance(item, str)
         ]
         configured_record_id = (
             ":".join(str(value).strip() for value in configured_id_values)
@@ -548,7 +635,19 @@ def _normal_records(
             or configured_record_id
             or _first_value(
                 raw_for_fields,
-                ("id", "guid", "url", "link", "GlobalEventID", "eventid", "icao24", "mmsi", "imo"),
+                (
+                    "id",
+                    "guid",
+                    "url",
+                    "link",
+                    "GlobalEventID",
+                    "eventid",
+                    "icao24",
+                    "mmsi",
+                    "imo",
+                    "properties.mmsi",
+                    "properties.imo",
+                ),
             )
             or row_digest
         )
@@ -562,13 +661,25 @@ def _normal_records(
             "retrieved_at": retrieved_at,
             "source_uri": source_uri or _request_url(source),
             "title": row.get("title")
-            or _first_value(raw_for_fields, ("title", "name", "headline", "description")),
+            or _first_value(
+                raw_for_fields,
+                ("title", "name", "headline", "description", "properties.name"),
+            ),
             "locator": row.get("locator")
-            or _first_value(raw_for_fields, ("url", "link", "sourceUrl"))
+            or _first_value(raw_for_fields, ("url", "link", "sourceUrl", "properties.url"))
+            or source_uri
             or _request_url(source),
             "published_at": row.get("published_at")
             or _first_value(
-                raw_for_fields, ("published_at", "publishedAt", "date", "timestamp", "time")
+                raw_for_fields,
+                (
+                    "published_at",
+                    "publishedAt",
+                    "date",
+                    "timestamp",
+                    "time",
+                    "properties.seen",
+                ),
             ),
             "summary": row.get("summary")
             or _first_value(raw_for_fields, ("summary", "description", "content", "text")),
@@ -580,7 +691,7 @@ def _normal_records(
 
 def _first_value(value: Mapping[str, Any], names: Sequence[str]) -> str | None:
     for name in names:
-        item = value.get(name)
+        item = _path_value(value, name) if "." in name else value.get(name)
         if item is not None and str(item).strip():
             return str(item).strip()
     return None
@@ -848,17 +959,32 @@ def crawl_sources(
                             body,
                             retrieved_at,
                             source_uri=fetched["url"],
-                            context=fetched["context"],
+                            context={
+                                **fetched["context"],
+                                "raw_response_sha256": raw_hash,
+                            },
                         )
                     )
-            _atomic_records(record_path, normalized)
             response_hashes = [item["sha256"] for item in raw_snapshots]
             response_hash = (
                 response_hashes[0]
                 if len(response_hashes) == 1
                 else _sha256(_canonical_json(response_hashes))
             )
-            status = "partial" if fetch_metadata.get("pagination_truncated") else "complete"
+            status = (
+                "partial"
+                if fetch_metadata.get("pagination_truncated")
+                or fetch_metadata.get("source_truncated")
+                else "complete"
+            )
+            duplicate_records_removed = 0
+            if source.get("deduplicate_by_source_record_key"):
+                unique_records: dict[str, dict[str, Any]] = {}
+                for record in normalized:
+                    unique_records.setdefault(record["source_record_key"], record)
+                duplicate_records_removed = len(normalized) - len(unique_records)
+                normalized = list(unique_records.values())
+            _atomic_records(record_path, normalized)
             result = {
                 **base_result,
                 "status": status,
@@ -869,6 +995,7 @@ def crawl_sources(
                 "raw_snapshot": raw_snapshots[-1]["path"],
                 "raw_snapshots": raw_snapshots,
                 "records_sha256": _sha256(record_path.read_bytes()),
+                "duplicate_records_removed": duplicate_records_removed,
                 **fetch_metadata,
             }
             _atomic_json(

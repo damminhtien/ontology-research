@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "provider": "Open Waters AIS",
+    "documentation": "https://openwaters.io/api/ais/",
+    "endpoint": "https://ais.openwaters.io/v1/vessels",
+    "api_version": "v1",
+    "snapshot_semantics": "Current AIS-derived vessel snapshot; not a registry census."
+  },
+  "groups": [
+    {
+      "id": "vessel-identities",
+      "name": "Supplemental vessel identity observations",
+      "purpose": "Independent AIS vessel records for identity candidate review."
+    }
+  ],
+  "sources": [
+    {
+      "id": "openwaters-vessels-vn-scs",
+      "group": "vessel-identities",
+      "provider": "Open Waters AIS",
+      "kind": "json",
+      "url": "https://ais.openwaters.io/v1/vessels",
+      "access": "public",
+      "source_scope": "supplemental",
+      "source_schema": "Open Waters AIS v1 GeoJSON FeatureCollection",
+      "record_path": "features",
+      "record_id_fields": [
+        "properties.mmsi",
+        "properties.seen",
+        "properties.msg_type"
+      ],
+      "fetch_strategy": "openwaters_vessel_bbox_tiles",
+      "bbox_tiles": [
+        [5, 98, 15, 108],
+        [15, 98, 25, 108],
+        [5, 108, 15, 118],
+        [15, 108, 25, 118],
+        [5, 118, 15, 125],
+        [15, 118, 25, 125]
+      ],
+      "max_tile_depth": 2,
+      "kind_filter": "vessel",
+      "max_age": "all",
+      "minimum_interval_seconds": 1.0,
+      "deduplicate_by_source_record_key": true,
+      "attribution": "Open Waters AIS vessel snapshot; AIS fields are reported observations and may be incomplete or stale."
+    }
+  ]
+}

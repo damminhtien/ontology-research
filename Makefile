@@ -1,4 +1,4 @@
-.PHONY: setup validate dag align test lint fmt ci-check check conformance quality ontology-design oxigraph-test oxigraph-eval splink-test splink-fetch splink-eval rdf-export-eval postgres-test query-adapter-eval worldmonitor-crawl project-events project-events-follow project-events-rebuild project-events-verify clean docs-setup docs-sync docs-serve docs-build
+.PHONY: setup validate dag align test lint fmt ci-check check conformance quality ontology-design oxigraph-test oxigraph-eval splink-test splink-fetch splink-eval rdf-export-eval postgres-test query-adapter-eval worldmonitor-crawl openwaters-vessel-crawl project-events project-events-follow project-events-rebuild project-events-verify clean docs-setup docs-sync docs-serve docs-build
 
 PY := .venv/bin/python
 DATABASE_URL ?= postgresql:///ontology_research
@@ -100,6 +100,12 @@ query-adapter-eval:
 
 worldmonitor-crawl:
 	$(PY) tools/crawl_worldmonitor_sources.py $(WORLDMONITOR_CRAWL_ARGS)
+
+openwaters-vessel-crawl:
+	$(PY) tools/crawl_worldmonitor_sources.py \
+		--config config/openwaters_vessels.json \
+		--output-root /Users/macbook/Data/ontology-research/data/openwaters \
+		$(OPENWATERS_CRAWL_ARGS)
 
 splink-test:
 	uv run --no-project --python 3.13 --with-requirements requirements/evaluation-splink.txt python -m pytest -q tests/test_splink_evaluation.py

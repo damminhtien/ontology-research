@@ -75,6 +75,14 @@ def test_worldmonitor_config_covers_the_requested_source_groups() -> None:
     } <= source_ids
 
 
+def test_openwaters_config_is_a_separate_supplemental_vessel_source() -> None:
+    config = _read_config(REPO_ROOT / "config" / "openwaters_vessels.json")
+    source = config["sources"][0]
+    assert source["source_scope"] == "supplemental"
+    assert source["fetch_strategy"] == "openwaters_vessel_bbox_tiles"
+    assert len(source["bbox_tiles"]) == 6
+
+
 def test_crawler_archives_raw_feed_and_keeps_claims_as_unverified_metadata(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -277,3 +285,165 @@ def test_http_failures_are_classified_by_upstream_response() -> None:
     assert (
         crawler._failure_status(crawler.CrawlError("HTTP 429", http_status=429)) == "rate_limited"
     )
+
+
+def test_openwaters_tiles_archive_raw_responses_and_deduplicate_vessel_observations(
+    tmp_path: Path, monkeypatch
+) -> None:
+    first_feature = {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [105.0, 10.0]},
+        "properties": {
+            "mmsi": 574001234,
+            "imo": 9566631,
+            "name": "VESSEL ALPHA",
+            "seen": "2026-11-18T11:55:47Z",
+            "msg_type": "ShipStaticData",
+        },
+    }
+    second_feature = {
+        **first_feature,
+        "geometry": {"type": "Point", "coordinates": [110.0, 16.0]},
+        "properties": {**first_feature["properties"], "mmsi": 574009999, "name": "VESSEL BETA"},
+    }
+    payloads = {
+        "5,98,15,108": {"type": "FeatureCollection", "features": [first_feature]},
+        "15,98,25,108": {
+            "type": "FeatureCollection",
+            "features": [first_feature, second_feature],
+        },
+    }
+    config = {
+        "schema_version": 1,
+        "upstream": {"provider": "Open Waters AIS"},
+        "groups": [{"id": "vessels", "name": "Vessels"}],
+        "sources": [
+            {
+                "id": "openwaters-vessels",
+                "group": "vessels",
+                "provider": "Open Waters AIS",
+                "kind": "json",
+                "url": "https://ais.openwaters.example/v1/vessels",
+                "record_path": "features",
+                "record_id_fields": [
+                    "properties.mmsi",
+                    "properties.seen",
+                    "properties.msg_type",
+                ],
+                "fetch_strategy": "openwaters_vessel_bbox_tiles",
+                "bbox_tiles": [[5, 98, 15, 108], [15, 98, 25, 108]],
+                "access": "public",
+                "deduplicate_by_source_record_key": True,
+                "attribution": "Open Waters AIS.",
+            }
+        ],
+    }
+    requests = []
+
+    def fetch(_self, source):
+        bbox = parse_qs(urlsplit(source["url"]).query)["bbox"][0]
+        requests.append(bbox)
+        return json.dumps(payloads[bbox]).encode()
+
+    monkeypatch.setattr(HttpFetcher, "fetch", fetch)
+    run_root = tmp_path / "openwaters-run"
+    manifest = crawl_sources(config, run_root, run_id="openwaters")
+
+    result = manifest["source_results"][0]
+    rows = [json.loads(line) for line in (run_root / "records.jsonl").read_text().splitlines()]
+    assert requests == ["5,98,15,108", "15,98,25,108"]
+    assert result["record_count"] == 2
+    assert result["duplicate_records_removed"] == 1
+    assert len(result["raw_snapshots"]) == 2
+    assert rows[0]["record_id"] == "574001234:2026-11-18T11:55:47Z:ShipStaticData"
+    assert rows[0]["title"] == "VESSEL ALPHA"
+    assert rows[0]["published_at"] == "2026-11-18T11:55:47Z"
+
+
+def test_openwaters_rejects_tiles_over_the_anonymous_area_limit(tmp_path: Path) -> None:
+    config = {
+        "schema_version": 1,
+        "upstream": {"provider": "Open Waters AIS"},
+        "groups": [{"id": "vessels", "name": "Vessels"}],
+        "sources": [
+            {
+                "id": "openwaters-vessels",
+                "group": "vessels",
+                "provider": "Open Waters AIS",
+                "kind": "json",
+                "url": "https://ais.openwaters.example/v1/vessels",
+                "fetch_strategy": "openwaters_vessel_bbox_tiles",
+                "bbox_tiles": [[5, 98, 15, 108.1]],
+                "access": "public",
+                "attribution": "Open Waters AIS.",
+            }
+        ],
+    }
+    path = tmp_path / "over_limit.json"
+    path.write_text(json.dumps(config))
+
+    try:
+        crawler._read_config(path)
+    except crawler.CrawlError as exc:
+        assert "exceeds the anonymous area limit" in str(exc)
+    else:
+        raise AssertionError("over-limit Open Waters bbox should be rejected")
+
+
+def test_openwaters_subdivides_truncated_tiles_and_ignores_partial_parent_rows(
+    tmp_path: Path, monkeypatch
+) -> None:
+    feature = {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [100.0, 5.0]},
+        "properties": {"mmsi": 574001234, "seen": "2026-11-18T11:55:47Z", "msg_type": "Position"},
+    }
+    parent_feature = {
+        **feature,
+        "properties": {"mmsi": 574009999, "seen": "2026-11-18T11:55:47Z", "msg_type": "Position"},
+    }
+    config = {
+        "schema_version": 1,
+        "upstream": {"provider": "Open Waters AIS"},
+        "groups": [{"id": "vessels", "name": "Vessels"}],
+        "sources": [
+            {
+                "id": "openwaters-vessels",
+                "group": "vessels",
+                "provider": "Open Waters AIS",
+                "kind": "json",
+                "url": "https://ais.openwaters.example/v1/vessels",
+                "record_path": "features",
+                "record_id_fields": ["properties.mmsi", "properties.seen", "properties.msg_type"],
+                "fetch_strategy": "openwaters_vessel_bbox_tiles",
+                "bbox_tiles": [[0, 98, 10, 108]],
+                "max_tile_depth": 1,
+                "access": "public",
+                "deduplicate_by_source_record_key": True,
+                "attribution": "Open Waters AIS.",
+            }
+        ],
+    }
+    requests = []
+
+    def fetch(_self, source):
+        bbox = parse_qs(urlsplit(source["url"]).query)["bbox"][0]
+        requests.append(bbox)
+        if bbox == "0,98,10,108":
+            payload = {"type": "FeatureCollection", "features": [parent_feature], "truncated": True}
+        else:
+            payload = {"type": "FeatureCollection", "features": [feature]}
+        return json.dumps(payload).encode()
+
+    monkeypatch.setattr(HttpFetcher, "fetch", fetch)
+    run_root = tmp_path / "openwaters-split-run"
+    manifest = crawl_sources(config, run_root, run_id="openwaters-split")
+
+    result = manifest["source_results"][0]
+    rows = [json.loads(line) for line in (run_root / "records.jsonl").read_text().splitlines()]
+    assert len(requests) == 5
+    assert result["status"] == "complete"
+    assert result["source_truncated"] is False
+    assert result["subdivided_bbox_tiles"] == ["0,98,10,108"]
+    assert result["duplicate_records_removed"] == 3
+    assert [row["raw_record"]["properties"]["mmsi"] for row in rows] == [574001234]
