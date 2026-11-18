@@ -23,6 +23,8 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
+from scrapling import Selector
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / "config" / "worldmonitor_sources.json"
 DEFAULT_ROOT = Path("/Users/macbook/Data/ontology-research/data/worldmonitor")
@@ -30,6 +32,7 @@ USER_AGENT = (
     "semantic-foundry-worldmonitor-crawl/1.0 (+https://github.com/damminhtien/ontology-research)"
 )
 MAX_RESPONSE_BYTES = 50 * 1024 * 1024
+MAX_HTML_FIELD_CHARS = 4_096
 TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
 
 
@@ -587,6 +590,38 @@ def _csv_records(body: bytes) -> list[dict[str, Any]]:
         raise CrawlError("CSV response is not UTF-8") from exc
 
 
+def _html_value(page: Selector, css_selector: str) -> str | None:
+    value = page.css(css_selector).get()
+    if value is None:
+        return None
+    normalized = re.sub(r"\s+", " ", str(value)).strip()
+    return normalized[:MAX_HTML_FIELD_CHARS] or None
+
+
+def _html_records(body: bytes) -> list[dict[str, Any]]:
+    html = body.decode("utf-8-sig", errors="replace")
+    page = Selector(html)
+    title = _html_value(page, "title::text")
+    open_graph_title = _html_value(page, 'meta[property="og:title"]::attr(content)')
+    description = _html_value(page, 'meta[name="description"]::attr(content)')
+    open_graph_description = _html_value(page, 'meta[property="og:description"]::attr(content)')
+    canonical_url = _html_value(page, 'link[rel="canonical"]::attr(href)')
+    metadata = {
+        "snapshot_sha256": _sha256(body),
+        "open_graph_title": open_graph_title,
+        "meta_description": description,
+        "open_graph_description": open_graph_description,
+        "canonical_url": canonical_url,
+    }
+    return [
+        {
+            "title": title or open_graph_title,
+            "summary": description or open_graph_description,
+            "raw_record": {key: value for key, value in metadata.items() if value is not None},
+        }
+    ]
+
+
 def _normal_records(
     source: Mapping[str, Any],
     body: bytes,
@@ -603,13 +638,7 @@ def _normal_records(
     elif kind == "csv":
         rows = _csv_records(body)
     else:
-        try:
-            html = body.decode("utf-8", errors="replace")
-        except UnicodeError as exc:
-            raise CrawlError("HTML response decode failed") from exc
-        title_match = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
-        title = re.sub(r"\s+", " ", title_match.group(1)).strip() if title_match else None
-        rows = [{"title": title, "raw_record": {"snapshot_sha256": _sha256(body)}}]
+        rows = _html_records(body)
 
     normalized = []
     for row in rows:

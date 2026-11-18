@@ -277,6 +277,45 @@ def test_unhcr_crawl_pages_and_falls_back_to_latest_year_with_records(
     assert {row["raw_record"]["page"] for row in rows} == {1, 2}
 
 
+def test_html_crawl_uses_scrapling_to_extract_document_metadata(
+    tmp_path: Path, monkeypatch
+) -> None:
+    html_body = (
+        b"<html><head><title>Ports &amp; Shipping</title>"
+        b"<meta name='description' content='Maritime update for Viet Nam'>"
+        b"<meta property='og:title' content='Fallback title'>"
+        b"<link rel='canonical' href='https://source.example/report/1'>"
+        b"</head><body><h1>Latest report</h1>"
+    )
+    config = {
+        "schema_version": 1,
+        "upstream": {"commit": "fixture"},
+        "groups": [{"id": "news", "name": "News"}],
+        "sources": [
+            {
+                "id": "html-source",
+                "group": "news",
+                "provider": "Example Publisher",
+                "kind": "html",
+                "url": "https://source.example/report/1",
+                "access": "public",
+                "attribution": "Publisher page.",
+            }
+        ],
+    }
+    monkeypatch.setattr(HttpFetcher, "fetch", lambda _self, _source: html_body)
+    run_root = tmp_path / "html-run"
+    manifest = crawl_sources(config, run_root, run_id="html")
+
+    result = manifest["source_results"][0]
+    record = json.loads((run_root / "records.jsonl").read_text().splitlines()[0])
+    assert result["record_count"] == 1
+    assert record["title"] == "Ports & Shipping"
+    assert record["summary"] == "Maritime update for Viet Nam"
+    assert record["raw_record"]["canonical_url"] == "https://source.example/report/1"
+    assert record["raw_record"]["snapshot_sha256"] == hashlib.sha256(html_body).hexdigest()
+
+
 def test_http_failures_are_classified_by_upstream_response() -> None:
     assert (
         crawler._failure_status(crawler.CrawlError("HTTP 401", http_status=401)) == "auth_required"
