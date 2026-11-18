@@ -7,6 +7,7 @@ import importlib.metadata
 import json
 import os
 import platform
+import resource
 import statistics
 import sys
 import time
@@ -20,7 +21,11 @@ for _path in (REPO_ROOT / "tools", REPO_ROOT):
 
 from foundry.events import EventLog  # noqa: E402
 from foundry.namespaces import ASSERTION_MIDDLE_NS, CORE_ONTOLOGY_NS  # noqa: E402
-from foundry.oxigraph_snapshot import build_snapshot, open_current_store  # noqa: E402
+from foundry.oxigraph_snapshot import (  # noqa: E402
+    build_snapshot,
+    directory_size_bytes,
+    open_current_store,
+)
 from foundry.postgres import PostgresDatabase  # noqa: E402
 from foundry.postgres_readmodel import PostgresReadModelStore  # noqa: E402
 from foundry.query_service import QueryService  # noqa: E402
@@ -193,7 +198,9 @@ def compare(
             "PostgreSQL projection checkpoint does not match the event log: "
             f"{model.checkpoint_sequence} != {last_sequence}; project the log first"
         )
+    build_started = time.perf_counter()
     snapshot_path = build_snapshot(event_log_path, snapshot_root)
+    snapshot_build_seconds = time.perf_counter() - build_started
     snapshot_manifest = json.loads((snapshot_path / "manifest.json").read_text(encoding="utf-8"))
     with database.connection() as connection:
         database_version = connection.execute("SELECT version()").fetchone()[0]
@@ -202,7 +209,9 @@ def compare(
         from pyoxigraph import __version__ as oxigraph_version
     except ImportError as exc:
         raise RuntimeError("install requirements/evaluation-oxigraph.txt first") from exc
+    open_started = time.perf_counter()
     store = open_current_store(snapshot_root)
+    snapshot_open_seconds = time.perf_counter() - open_started
     name_query = (
         f"SELECT ?name WHERE {{ {_sparql_iri(entity_id)} "
         f"{_sparql_iri(CORE_ONTOLOGY_NS + 'name')} ?name }} ORDER BY ?name"
@@ -300,6 +309,16 @@ def compare(
             "snapshot": str(snapshot_path),
             "profile": snapshot_manifest["profile"],
             "ontology_modules": snapshot_manifest["ontology_modules"],
+        },
+        "storage": {
+            "snapshot_build_seconds": round(snapshot_build_seconds, 4),
+            "snapshot_open_seconds": round(snapshot_open_seconds, 4),
+            "snapshot_bytes": directory_size_bytes(snapshot_path),
+            "process_peak_rss_bytes": (
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                if sys.platform == "darwin"
+                else resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+            ),
         },
         "environment": {
             "python": sys.version.split()[0],
