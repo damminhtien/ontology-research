@@ -15,15 +15,23 @@ Ontology terms  10^4–10^5
 
 ## Ladder kiểm chứng
 
-| Bước | Dataset | Mục đích |
-|-----:|---------|----------|
-| 0 | Seed dataset (repo này) | Correctness của CQ + SHACL |
-| 1 | Synthetic 10M entities / 100M edges | Ingestion throughput, index build, query p95 |
-| 2 | Synthetic 100M entities / 1B edges | Horizontal scalability, replication, recovery |
-| 3 | Federation (nhiều domain KG) | Federated queries, semantic contracts |
+| Level | Dataset | Mục đích |
+|---|---|---|
+| L0 | 10K entities / 100K assertions | Correctness và chức năng trên OSINT-shaped workload |
+| L1 | 100K entities / 1M assertions | So sánh với baseline và xem throughput theo batch |
+| L2 | 1M entities / 10M assertions | Indexing, memory, query, recovery và đồng thời reader/writer |
+| L3 | 10M entities / 100M assertions | Production-scale qualification |
+| L4 | 100M entities / 1B assertions | Mục tiêu kiến trúc dài hạn |
 
-Ở mỗi bước đo: ingestion throughput, query p95/p99, memory, storage,
-index build time, recovery time, replication lag.
+Workload benchmark dùng 10 assertions/entity để dựng relation graph, source skew,
+evidence locator/span và valid-time qua nhiều năm. Bộ dữ liệu 1M location
+observations cũ không thay thế 1M assertion OSINT.
+
+Ở mỗi level, benchmark cần đo append và projection throughput theo batch, query
+p50/p95/p99 ở concurrency khai báo, memory với phạm vi process/system rõ ràng,
+log/database footprint, index rebuild, restart/recovery và reader/writer
+consistency. Nếu không đạt SLO, profile bottleneck trước khi đổi storage hoặc
+thêm distributed components.
 
 ## Bằng chứng đo hiện tại
 
@@ -46,10 +54,15 @@ Query p95 lấy từ 200 warm entity probes, mỗi probe tính trung bình 100 l
 nên mỗi lượt scale cần chạy trong process riêng.
 
 Benchmark này dùng in-memory identity và read-model adapters; chưa đo
-PostgreSQL. Quy mô 100K entity và 1M location observation còn dưới target 10M
-entity / 100M edge, và chưa bao gồm distributed recovery. PostgreSQL operational
-backend đã được triển khai. Bước tiếp theo là đo durable projection, index
-build, restart và recovery ở 1M rồi 10M entity.
+PostgreSQL. Quy mô 100K entity và 1M location observation là baseline lịch sử,
+không tương đương 1M assertion OSINT. PostgreSQL operational backend được đánh
+giá riêng bằng `tools/benchmark_osint_scale.py`. Tính đến **2026-11-18**, L0
+(10K entities / 100K assertions) đã chạy: event-log append đạt 15,716 events/s,
+nhưng PostgreSQL projection chỉ đạt 149 events/s so với SLO 10,000 events/s.
+Query p95 và checkpoint consistency đạt trong phạm vi phép đo; L1–L4 chưa chạy
+vì projection chưa qua gate. Chi tiết và giới hạn đo nằm trong
+[`docs/evaluations/osint-scale-ladder.md`](../docs/evaluations/osint-scale-ladder.md);
+JSON, event log và profile được lưu ngoài Git trong `/Users/macbook/Data`.
 
 ## Quy tắc kiến trúc liên quan scale
 
