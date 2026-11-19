@@ -2,30 +2,55 @@
 
 ## Latest runs (2026-11-19)
 
-Both runs use seed 42, PostgreSQL 18.7, Python 3.13.16, macOS 27.2.1 on an
+All runs use seed 42, PostgreSQL 18.7, Python 3.13.16, macOS 27.2.1 on an
 Apple M2 Max (12 logical CPUs, 64 GiB RAM), and the same
 `QueryService → PostgreSQL → psycopg → Python` boundary without HTTP. The
 workload is deterministic synthetic data, not crawled OSINT or a manually
-adjudicated gold set. The worktree was dirty at measurement; the report records
-base commit `3fe36247231c843dbcf9b02f75718c3a59eeed67`.
+adjudicated gold set. The pre-COPY runs used commit
+`35c5cfbdd10e4318e0b4959d0c8a305b5fafb42b`; the reports record a dirty worktree.
 
 | Level | Projection events | Time | Throughput | First / second half | Query p95 gates | Checkpoint |
 |---|---:|---:|---:|---:|---|---|
 | L0: 10K entities / 100K assertions | 110K | 10.74 s | 10,243 events/s | 11,206 / 9,712 (-13.33%) | All passed at concurrency 1/8/32 | Consistent through 110,100 after tail append |
-| L1: 100K entities / 1M assertions | 1.1M | 120.63 s | 9,119 events/s | 9,315 / 9,080 (-2.52%) | All passed at concurrency 1/8/32 | Consistent through 1,100,100 after tail append |
+| L1 before ledger COPY: 100K / 1M | 1.1M | 120.63 s | 9,119 events/s | 9,315 / 9,080 (-2.52%) | All passed at concurrency 1/8/32 | Consistent through 1,100,100 after tail append |
+| L2 before ledger COPY: 1M / 10M | 11M | 1,881.48 s | 5,846 events/s | 7,420 / 5,213 (-29.74%) | All passed at concurrency 1/8/32 | Consistent through 11,000,100 after tail append |
+| L1 after ledger COPY: 100K / 1M | 1.1M | 115.10 s | 9,557 events/s | 9,797 / 9,494 (-3.09%) | All passed at concurrency 1/8/32 | Consistent through 1,100,100 after tail append |
 
 L0 cleared the 10,000 events/s projection minimum by 2.4%, with a 13.33%
-second-half slowdown. L1 throughput was stable across the run but stayed 8.8%
-under that minimum. Both runs matched event-ledger count, projection count and
-final checkpoint. The Python high-water RSS was 162.0 MB at L0 and 406.2 MB at
-L1; it excludes PostgreSQL and other system processes. Database/event-log
-footprints were 169.9/129.6 MB at L0 and 1.611/1.296 GB at L1. Restart plus
-checkpoint verification took 0.145 s and 0.192 s respectively.
+second-half slowdown. The first L1 run stayed 8.8% under that minimum; the
+post-COPY L1 retest improved 4.8% to 9,557 events/s but still missed by 4.4%.
+The pre-COPY L2 run reached 5,846 events/s and slowed 29.74% in its second half.
+All runs matched event-ledger count, projection count and final checkpoint; all
+recorded query p95s were within their configured limits at concurrency 1/8/32.
+The Python high-water RSS was 162.0 MB at L0, 406.2 MB at L1, and 414.2 MB at
+L2; these values exclude PostgreSQL and other system processes. Database/event-
+log footprints were 169.9/129.6 MB at L0, 1.611/1.296 GB at the first L1,
+1.611/1.296 GB at the post-COPY L1, and 16.008/12.973 GB at pre-COPY L2.
+Restart plus checkpoint verification took 0.145 s, 0.192 s, 0.180 s and
+0.625 s respectively. L2 index rebuild took 270.57 s.
+
+At pre-COPY L2, projection batch latency increased from 0.96 s for the first
+10K-event batch to 2.47 s for the last. The read assertion table and indexes
+occupied 11.99 GB; the projection event ledger occupied 1.83 GB. A separate
+instrumented 1.1M-event prefix profile attributed 41.3% of observed time to
+assertion batches and 20.2% to ledger/checkpoint batches. Replacing the large
+ledger `VALUES` statement with COPY staging reduced the ledger/checkpoint share
+to 14.9% and its measured duration from 24.05 s to 15.50 s. The same profile
+still attributed 45.1% to assertion batches. These instrumented method timings
+include Python, psycopg, and PostgreSQL and are diagnostic, not SLO results.
+A 10-second Python sample spent 6,196 of 8,433 samples in psycopg polling; a
+concurrent PostgreSQL activity snapshot caught an assertion insert waiting on
+`DataFileExtend`, with autovacuum active. This points to database write and file
+growth costs, but does not prove that either alone explains the full L2 decline.
+The post-COPY code has not been rerun at L2.
 
 The report files and generated logs remain outside Git:
 
 - L0: `/Users/macbook/Data/ontology-research/evaluations/osint-scale-ladder-v1/20261119T075725Z-6862b1d0/l0/scale-report.json`
 - L1: `/Users/macbook/Data/ontology-research/evaluations/osint-scale-ladder-v1/20261119T080018Z-0b961589/l1/scale-report.json`
+- L2: `/Users/macbook/Data/ontology-research/evaluations/osint-scale-ladder-v1/20261119T081041Z-4f98b094/l2/scale-report.json`
+- L1 after ledger COPY: `/Users/macbook/Data/ontology-research/evaluations/osint-scale-ladder-v1/20261119T103315Z-f1ee4318/l1/scale-report.json`
+- Diagnostic profiles: `/Users/macbook/Data/ontology-research/evaluations/osint-scale-ladder-v1/20261119T081041Z-4f98b094/l2/profile-prefix-1.1m.json`, `profile-prefix-1.1m-copy-ledger.json`, and `python-profile-prefix-1.1m.txt`
 
 Reproduce either level with the same options and change only `--level`:
 
@@ -37,8 +62,10 @@ FOUNDRY_DATABASE_URL="<PostgreSQL admin DSN>" \
   --data-root /Users/macbook/Data/ontology-research
 ```
 
-L2–L4 remain unmeasured. L1's throughput miss is recorded; these results do
-not qualify the system for production-scale traffic or multi-writer use.
+L0 meets the projection rate threshold only narrowly. Both L1 runs and the
+pre-COPY L2 run miss it; post-COPY L2 has not been measured. L3–L4 remain
+unmeasured, so the current evidence does not qualify production-scale traffic or
+multi-writer use.
 
 ## Historical baseline (2026-11-18)
 
@@ -189,4 +216,4 @@ changing database technology.
   completed projection. It did not simulate process termination during a
   transaction or rebuild the projection from empty state.
 - Storage-per-million and all scale observations are L0-only measurements.
-- L1–L4 remain unmeasured. No performance claim is made for those levels.
+- L3–L4 remain unmeasured. No performance claim is made for those levels.

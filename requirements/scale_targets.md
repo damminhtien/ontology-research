@@ -75,18 +75,36 @@ synthetic, không phải crawl thật hay gold set đã adjudicate.
 | Level | Events | Projection | Throughput | First/second half | Query p95 | Restart check | Database / event log | Python peak RSS |
 |---|---:|---:|---:|---:|---|---:|---:|---:|
 | L0: 10K / 100K | 110K | 10.74 s | 10,243 events/s | 11,206 / 9,712 events/s (-13.33%) | Tất cả gate đạt ở concurrency 1/8/32 | 0.145 s | 169.9 / 129.6 MB | 162.0 MB |
-| L1: 100K / 1M | 1.1M | 120.63 s | 9,119 events/s | 9,315 / 9,080 events/s (-2.52%) | Tất cả gate đạt ở concurrency 1/8/32 | 0.192 s | 1.611 / 1.296 GB | 406.2 MB |
+| L1 trước COPY ledger: 100K / 1M | 1.1M | 120.63 s | 9,119 events/s | 9,315 / 9,080 events/s (-2.52%) | Tất cả gate đạt ở concurrency 1/8/32 | 0.192 s | 1.611 / 1.296 GB | 406.2 MB |
+| L2 trước COPY ledger: 1M / 10M | 11M | 1,881.48 s | 5,846 events/s | 7,420 / 5,213 events/s (-29.74%) | Tất cả gate đạt ở concurrency 1/8/32 | 0.625 s | 16.008 / 12.973 GB | 414.2 MB |
+| L1 sau COPY ledger: 100K / 1M | 1.1M | 115.10 s | 9,557 events/s | 9,797 / 9,494 events/s (-3.09%) | Tất cả gate đạt ở concurrency 1/8/32 | 0.180 s | 1.611 / 1.296 GB | 326.6 MB |
 
 L0 vừa qua mức tối thiểu 10,000 events/s với biên 2.4%; nửa sau chậm hơn
-13.33%. L1 giữ throughput ổn định giữa hai nửa, nhưng thấp hơn mức tối thiểu
-10,000 events/s khoảng 8.8%. Cả hai lượt khớp checkpoint và số dòng cuối với
-event log. Python RSS không gồm PostgreSQL server hoặc tiến trình hệ thống.
-Concurrent append/read chỉ là probe nhỏ: L0 90 events/s, L1 112 events/s khi
-chiếu 100 assertion trong lúc 8 reader hoạt động; không đại diện cho sustained
-ingest SLO.
+13.33%. L1 trước COPY ledger thấp hơn mức tối thiểu 10,000 events/s khoảng
+8.8%; sau COPY, throughput tăng 4.8% nhưng vẫn thấp hơn gate 4.4%. Cả bốn lượt
+khớp checkpoint và số dòng cuối với event log. Python RSS không gồm PostgreSQL
+server hoặc tiến trình hệ thống. Concurrent append/read là probe nhỏ: L0 90,
+L1 trước COPY 112 và L1 sau COPY 111 events/s khi 8 reader hoạt động; không đại
+diện cho sustained ingest SLO.
 
-L2–L4 chưa chạy. L2 cần được đánh giá trước khi kết luận về index, memory và
-recovery ở 1M / 10M. L3/L4 chưa đủ bằng chứng để gọi là production-qualified.
+L2 mất khoảng 31.4 phút cho projection; generation mất 859.03 giây. Rebuild
+index mất 270.57 giây, restart/checkpoint verification mất 0.625 giây, và
+concurrent append/read đạt 85 events/s khi 8 reader thực hiện 435 truy vấn.
+Database dùng 16.008 GB, trong đó read_assertions chiếm 11.986 GB và
+projection_events 1.826 GB. Query p95 cao nhất ở concurrency 32 là 46.35 ms
+cho traversal; mọi query p95 vẫn nằm trong gate. Python RSS không gồm
+PostgreSQL server hoặc tiến trình hệ thống.
+
+L2 pre-COPY không đạt projection minimum 10,000 events/s; half-rate giảm
+29.74%, và batch cuối mất 2.469 giây cho 10K events so với 0.960 giây ở batch
+đầu. Instrumented prefix profile ghi nhận assertion batches chiếm 41.3% thời
+gian quan sát và ledger/checkpoint chiếm 20.2%. Sau đổi ledger staging sang
+COPY, ledger/checkpoint giảm từ 24.05 xuống 15.50 giây trên cùng prefix; L1
+retest đạt 9,557 events/s. Assertion batches tiếp tục chiếm 45.1% trong profile
+sau thay đổi. Đây là timing ở ranh giới adapter, không phải SQL CPU profile.
+L2 chưa được chạy lại với code COPY mới. L3/L4 chưa chạy; cần tiếp tục tối ưu
+và đo L2 hiện tại trước khi thử quy mô lớn hơn. Chưa đủ bằng chứng để gọi bất
+kỳ level nào là production-qualified.
 Chi tiết và giới hạn đo nằm trong
 [`docs/evaluations/osint-scale-ladder.md`](../docs/evaluations/osint-scale-ladder.md);
 JSON, event log và profile được lưu ngoài Git trong `/Users/macbook/Data`.

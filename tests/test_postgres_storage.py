@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import importlib.util
 import os
+from dataclasses import replace
 
 import pytest
 
-from foundry.events import EventLog, make_event
+from foundry.events import EVENT_SCHEMA_VERSION, EventLog, SemanticEvent, make_event, utc_now_iso
 from foundry.identity import IdentityEvidence, IdentityService, SourceRecordIdentity
 from foundry.merge import apply_identity_event
 from foundry.namespaces import CORE_LOCATED_AT
@@ -440,3 +441,36 @@ def test_new_name_collision_reopens_resolved_pending_assertions(postgres_databas
     ambiguous = model.get_assertion("urn:assertion:pending-name-collision")
     assert ambiguous["subject_id"] == ""
     assert ambiguous["subject_status"] == "ambiguous"
+
+
+def test_group_ledger_records_skipped_events_with_checkpoint(postgres_database):
+    entity_id = "urn:world:entity:group-ledger"
+    created = replace(
+        make_event(
+            "EntityCreated",
+            {"entity_id": entity_id, "entity_type": "Platform", "name": "Ledger Test"},
+        ),
+        sequence=1,
+    )
+    unknown = SemanticEvent(
+        event_id="future-unsupported-ledger-event",
+        event_type="FutureUnsupportedEvent",
+        schema_version=EVENT_SCHEMA_VERSION,
+        occurred_at=utc_now_iso(),
+        payload={"payload": "ignored by this projector"},
+        sequence=2,
+    )
+    model = PostgresReadModelStore(postgres_database)
+    projector = Projector(model)
+
+    result = projector.apply_batch([created, unknown])
+
+    assert (result.applied, result.skipped, result.duplicates) == (1, 1, 0)
+    assert model.checkpoint_sequence == 2
+    assert model.applied_event_count == 1
+    with postgres_database.connection() as connection:
+        rows = connection.execute(
+            "SELECT sequence, applied FROM projection_events ORDER BY sequence"
+        ).fetchall()
+    assert rows == [(1, True), (2, False)]
+    assert postgres_database.verify_projection(2)["consistent"] is True

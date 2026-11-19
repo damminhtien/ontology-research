@@ -84,12 +84,25 @@ class PostgresReadModelStore:
         batch = tuple(entries)
         if not batch:
             return
-        values = ", ".join("(%s::text, %s::bigint, %s::boolean)" for _entry in batch)
-        parameters = tuple(value for entry in batch for value in entry)
-        query = f"""WITH batch(event_id, sequence, applied) AS (VALUES {values}),
-                     inserted AS (
+        with self.database.connection() as connection:
+            connection.execute(
+                """CREATE TEMP TABLE IF NOT EXISTS projection_event_stage (
+                       event_id text NOT NULL,
+                       sequence bigint,
+                       applied boolean NOT NULL
+                   ) ON COMMIT DELETE ROWS"""
+            )
+            connection.execute("TRUNCATE pg_temp.projection_event_stage")
+            with connection.cursor().copy(
+                """COPY pg_temp.projection_event_stage(event_id, sequence, applied)
+                   FROM STDIN"""
+            ) as copy:
+                for entry in batch:
+                    copy.write_row(entry)
+            connection.execute(
+                """WITH inserted AS (
                        INSERT INTO projection_events(event_id, sequence, applied)
-                       SELECT event_id, sequence, applied FROM batch
+                       SELECT event_id, sequence, applied FROM pg_temp.projection_event_stage
                        ON CONFLICT (event_id) DO NOTHING
                        RETURNING sequence, applied
                      ),
@@ -113,9 +126,9 @@ class PostgresReadModelStore:
                            ELSE GREATEST(projection_state.last_event_time, %s::timestamptz)
                          END
                      FROM summary
-                     WHERE singleton = TRUE"""
-        with self.database.connection() as connection:
-            connection.execute(query, (*parameters, last_event_time, last_event_time))
+                     WHERE singleton = TRUE""",
+                (last_event_time, last_event_time),
+            )
 
     def mark_applied(self, event_id: str, sequence: int | None) -> None:
         """Persist an applied event and advance the committed watermark."""
