@@ -120,10 +120,10 @@ def test_query_service_uses_postgres_indexes_and_bounded_contract(postgres_datab
 
     with (
         pytest.raises(QueryTimeoutError),
-        store.query_timeout(10),
+        store.query_timeout(100),
         postgres_database.connection() as connection,
     ):
-        connection.execute("SELECT pg_sleep(0.05)")
+        connection.execute("SELECT pg_sleep(1)")
 
 
 @pytest.mark.skipif(importlib.util.find_spec("pyoxigraph") is None, reason="optional Oxigraph")
@@ -159,9 +159,29 @@ def test_query_adapter_evaluation_matches_postgres_and_oxigraph(postgres_databas
                         {
                             "source_id": "https://example.test/source/adapter-eval",
                             "locator": "p. 1",
-                            "span": None,
+                            "span": {
+                                "start": 0,
+                                "end": 12,
+                                "unit": "unicode_codepoint",
+                                "exact_text": "Probe Subject",
+                            },
                         }
                     ],
+                    "evidence_quality": "primary",
+                },
+            ),
+            make_event(
+                "AssertionMade",
+                {
+                    "assertion_id": "urn:assert:adapter-eval-earlier",
+                    "subject_id": subject_id,
+                    "predicate_iri": "https://example.test/ontology#connectedTo",
+                    "object": {"kind": "entity", "value": object_id},
+                    "valid_from": "2026-07-01T00:00:00Z",
+                    "valid_until": "2026-08-01T00:00:00Z",
+                    "recorded_at": "2026-08-02T00:00:00Z",
+                    "source_ids": ["https://example.test/source/adapter-eval"],
+                    "evidence": [],
                     "evidence_quality": "primary",
                 },
             ),
@@ -177,6 +197,8 @@ def test_query_adapter_evaluation_matches_postgres_and_oxigraph(postgres_databas
     )
     assert result["equivalent"] is True
     assert result["results"]["as_of_assertions"] == 1
+    assert result["latency_scope"]["comparable"] is True
+    assert result["workload"]["boundary"] == "OperationalQueryBoundary"
 
 
 def test_identity_bindings_survive_adapter_restart_and_split(postgres_database):
