@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 
@@ -61,6 +61,61 @@ class PostgresReadModelStore:
                 "SELECT 1 FROM projection_events WHERE event_id = %s", (event_id,)
             ).fetchone()
         return row is not None
+
+    def applied_event_ids(self, event_ids: Iterable[str]) -> set[str]:
+        """Return processed IDs with one bounded ledger lookup."""
+        requested = tuple(event_ids)
+        if not requested:
+            return set()
+        with self.database.connection() as connection:
+            rows = connection.execute(
+                "SELECT event_id FROM projection_events WHERE event_id = ANY(%s)",
+                (list(requested),),
+            ).fetchall()
+        return {row[0] for row in rows}
+
+    def mark_processed_batch(
+        self,
+        entries: Iterable[tuple[str, int | None, bool]],
+        *,
+        last_event_time: datetime | None,
+    ) -> None:
+        """Write a group ledger and advance its checkpoint in one statement."""
+        batch = tuple(entries)
+        if not batch:
+            return
+        values = ", ".join("(%s::text, %s::bigint, %s::boolean)" for _entry in batch)
+        parameters = tuple(value for entry in batch for value in entry)
+        query = f"""WITH batch(event_id, sequence, applied) AS (VALUES {values}),
+                     inserted AS (
+                       INSERT INTO projection_events(event_id, sequence, applied)
+                       SELECT event_id, sequence, applied FROM batch
+                       ON CONFLICT (event_id) DO NOTHING
+                       RETURNING sequence, applied
+                     ),
+                     summary AS (
+                       SELECT max(sequence) AS max_sequence,
+                              count(*) FILTER (WHERE applied) AS applied_count
+                       FROM inserted
+                     )
+                     UPDATE projection_state
+                     SET checkpoint_sequence = CASE
+                           WHEN summary.max_sequence IS NULL
+                             THEN projection_state.checkpoint_sequence
+                           ELSE GREATEST(
+                             COALESCE(projection_state.checkpoint_sequence, 0),
+                             summary.max_sequence
+                           )
+                         END,
+                         applied_count = projection_state.applied_count + summary.applied_count,
+                         last_event_time = CASE
+                           WHEN %s::timestamptz IS NULL THEN projection_state.last_event_time
+                           ELSE GREATEST(projection_state.last_event_time, %s::timestamptz)
+                         END
+                     FROM summary
+                     WHERE singleton = TRUE"""
+        with self.database.connection() as connection:
+            connection.execute(query, (*parameters, last_event_time, last_event_time))
 
     def mark_applied(self, event_id: str, sequence: int | None) -> None:
         """Persist an applied event and advance the committed watermark."""
@@ -151,6 +206,96 @@ class PostgresReadModelStore:
                 )
                 self._resolve_pending_references(normalized)
 
+    def upsert_entities_batch(self, entities: Iterable[dict]) -> None:
+        """Upsert a bounded group of entities and names with set-based writes."""
+        merged: dict[str, dict[str, object]] = {}
+        name_rows: set[tuple[str, str, str]] = set()
+        for entity in entities:
+            entity_id = str(entity["entity_id"])
+            event_time = entity["event_time"]
+            record = merged.get(entity_id)
+            if record is None:
+                record = {
+                    "entity_type": entity["entity_type"],
+                    "name": entity["name"],
+                    "first_seen": event_time,
+                    "last_event_time": event_time,
+                }
+                merged[entity_id] = record
+            elif event_time > record["last_event_time"]:
+                record["last_event_time"] = event_time
+
+            for surface in (entity["name"], *(entity.get("aliases") or ())):
+                normalized = normalize_surface(surface)
+                if normalized:
+                    name_rows.add((entity_id, normalized, surface))
+
+        if not merged:
+            return
+        entity_rows = [
+            (
+                entity_id,
+                record["entity_type"],
+                record["name"],
+                str(record["name"]).casefold(),
+                record["first_seen"].isoformat(),
+                record["last_event_time"].isoformat(),
+            )
+            for entity_id, record in merged.items()
+        ]
+        entity_ids, entity_types, names, name_keys, first_seen, last_event = zip(
+            *entity_rows, strict=True
+        )
+        with self.database.connection() as connection:
+            connection.execute(
+                """INSERT INTO read_entities(
+                       entity_id, entity_type, name, name_key, first_seen, last_event_time
+                   )
+                   SELECT entity_id, entity_type, name, name_key, first_seen, last_event_time
+                   FROM unnest(
+                     %s::text[], %s::text[], %s::text[], %s::text[],
+                     %s::text[], %s::text[]
+                   ) AS input(entity_id, entity_type, name, name_key, first_seen, last_event_time)
+                   ON CONFLICT (entity_id) DO UPDATE SET
+                     last_event_time = CASE
+                       WHEN read_entities.last_event_time::timestamptz
+                         < EXCLUDED.last_event_time::timestamptz
+                       THEN EXCLUDED.last_event_time ELSE read_entities.last_event_time END""",
+                (
+                    list(entity_ids),
+                    list(entity_types),
+                    list(names),
+                    list(name_keys),
+                    list(first_seen),
+                    list(last_event),
+                ),
+            )
+            if name_rows:
+                owner_ids, normalized_names, surfaces = zip(*sorted(name_rows), strict=True)
+                connection.execute(
+                    """INSERT INTO read_entity_names(entity_id, normalized_name, surface)
+                       SELECT entity_id, normalized_name, surface
+                       FROM unnest(%s::text[], %s::text[], %s::text[])
+                         AS input(entity_id, normalized_name, surface)
+                       ON CONFLICT DO NOTHING""",
+                    (list(owner_ids), list(normalized_names), list(surfaces)),
+                )
+        self._resolve_pending_references_many(normalized for _, normalized, _ in name_rows)
+
+    def _resolve_pending_references_many(self, surfaces: Iterable[str]) -> None:
+        """Find references affected by a name group, then resolve only those keys."""
+        normalized_surfaces = tuple(sorted(set(surfaces)))
+        if not normalized_surfaces:
+            return
+        with self.database.connection() as connection:
+            rows = connection.execute(
+                """SELECT DISTINCT subject_ref_surface_norm FROM read_assertions
+                   WHERE subject_ref_surface_norm = ANY(%s)""",
+                (list(normalized_surfaces),),
+            ).fetchall()
+        for (surface,) in rows:
+            self._resolve_pending_references(surface)
+
     def _canonical_id(self, entity_id: str) -> str:
         with self.database.connection() as connection:
             row = connection.execute(
@@ -174,6 +319,8 @@ class PostgresReadModelStore:
                    FROM read_assertions WHERE subject_ref_surface_norm = %s""",
                 (normalized_surface,),
             ).fetchall()
+            if not rows:
+                return
             owner_rows = connection.execute(
                 """SELECT DISTINCT entity_id FROM read_entity_names
                    WHERE normalized_name = %s""",
@@ -259,32 +406,140 @@ class PostgresReadModelStore:
 
     def add_assertion(self, payload: dict) -> None:
         """Index one assertion with provenance and half-open valid time."""
-        assertion_id = payload["assertion_id"]
-        subject_ref = payload.get("subject_ref")
-        original_subject = payload.get("subject_id") or ""
-        subject = self._canonical_id(original_subject) if original_subject else ""
-        valid_from = payload["valid_from"]
-        valid_until = payload.get("valid_until", payload.get("valid_to"))
-        subject_surface = normalize_surface(subject_ref["surface_form"]) if subject_ref else None
-        object_value = dict(payload["object"])
-        object_entity_id = (
-            str(object_value.get("value"))
-            if object_value.get("kind") == "entity" and object_value.get("value") is not None
-            else None
-        )
+        self.add_assertions_batch((payload,))
+
+    def add_assertions_batch(self, payloads: Iterable[dict]) -> None:
+        """Upsert a bounded assertion group with one set-based SQL statement."""
+        assertions = tuple(payloads)
+        if not assertions:
+            return
+        assertion_ids = [payload["assertion_id"] for payload in assertions]
+        if len(set(assertion_ids)) != len(assertion_ids):
+            for payload in assertions:
+                self.add_assertion(payload)
+            return
+
+        staged_rows: list[tuple[object, ...]] = []
+        surfaces: list[str] = []
+        supersessions: list[tuple[str, str]] = []
+        for payload in assertions:
+            subject_ref = payload.get("subject_ref")
+            subject_surface = (
+                normalize_surface(subject_ref["surface_form"]) if subject_ref else None
+            )
+            if subject_surface:
+                surfaces.append(subject_surface)
+            superseded = payload.get("supersedes")
+            if superseded is not None:
+                supersessions.append((payload["assertion_id"], superseded))
+            object_value = dict(payload["object"])
+            object_entity_id = (
+                str(object_value.get("value"))
+                if object_value.get("kind") == "entity" and object_value.get("value") is not None
+                else None
+            )
+            original_subject = payload.get("subject_id") or ""
+            valid_from = payload["valid_from"]
+            valid_until = payload.get("valid_until", payload.get("valid_to"))
+            staged_rows.append(
+                (
+                    payload["assertion_id"],
+                    original_subject,
+                    json.dumps(subject_ref) if subject_ref else None,
+                    subject_surface,
+                    "unresolved" if subject_ref else "resolved",
+                    payload["predicate_iri"],
+                    json.dumps(object_value),
+                    object_entity_id,
+                    valid_from,
+                    valid_from,
+                    valid_until,
+                    valid_until,
+                    payload.get("recorded_at", ""),
+                    json.dumps(payload.get("source_ids") or []),
+                    json.dumps(payload.get("evidence") or []),
+                    payload.get("model_score", payload.get("confidence")),
+                    payload.get("evidence_quality", "unknown"),
+                )
+            )
+
         with self.database.connection() as connection:
             connection.execute(
-                """INSERT INTO read_assertions(
+                """CREATE TEMP TABLE IF NOT EXISTS assertion_projection_stage (
+                       assertion_id text NOT NULL,
+                       original_subject_id text NOT NULL,
+                       subject_ref jsonb,
+                       subject_ref_surface_norm text,
+                       subject_status text NOT NULL,
+                       predicate_iri text NOT NULL,
+                       object jsonb NOT NULL,
+                       object_entity_id text,
+                       valid_from timestamptz NOT NULL,
+                       valid_from_text text NOT NULL,
+                       valid_until timestamptz,
+                       valid_until_text text,
+                       recorded_at text NOT NULL,
+                       source_ids jsonb NOT NULL,
+                       evidence jsonb NOT NULL,
+                       model_score double precision,
+                       evidence_quality text NOT NULL
+                   ) ON COMMIT DELETE ROWS"""
+            )
+            connection.execute("TRUNCATE pg_temp.assertion_projection_stage")
+            with connection.cursor().copy(
+                """COPY pg_temp.assertion_projection_stage (
+                       assertion_id, original_subject_id, subject_ref,
+                       subject_ref_surface_norm, subject_status, predicate_iri, object,
+                       object_entity_id, valid_from, valid_from_text, valid_until,
+                       valid_until_text, recorded_at, source_ids, evidence,
+                       model_score, evidence_quality
+                   ) FROM STDIN"""
+            ) as copy:
+                for row in staged_rows:
+                    copy.write_row(row)
+            connection.execute(
+                """WITH RECURSIVE lineage(start_id, entity_id, merged_into, depth) AS (
+                       SELECT subjects.original_subject_id, entity.entity_id,
+                              entity.merged_into, 0
+                       FROM (
+                         SELECT DISTINCT original_subject_id
+                         FROM pg_temp.assertion_projection_stage
+                         WHERE original_subject_id <> ''
+                       ) AS subjects
+                       JOIN read_entities AS entity
+                         ON entity.entity_id = subjects.original_subject_id
+                       UNION ALL
+                       SELECT lineage.start_id, entity.entity_id, entity.merged_into,
+                              lineage.depth + 1
+                       FROM read_entities AS entity
+                       JOIN lineage ON entity.entity_id = lineage.merged_into
+                       WHERE lineage.depth < 100
+                     ), canonical_subjects AS (
+                       SELECT DISTINCT ON (start_id) start_id, entity_id
+                       FROM lineage
+                       WHERE merged_into IS NULL
+                       ORDER BY start_id, depth DESC
+                     )
+                     INSERT INTO read_assertions(
                        assertion_id, subject_id, original_subject_id, subject_ref,
                        subject_ref_surface_norm, subject_status, predicate_iri, object,
                        object_entity_id, valid_from, valid_from_text, valid_until,
                        valid_until_text, recorded_at, source_ids, evidence, model_score,
                        evidence_quality, status, superseded_by, superseded_reason
-                   ) VALUES (
-                       %s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s,
-                       %s::timestamptz, %s, %s::timestamptz, %s, %s, %s::jsonb,
-                       %s::jsonb, %s, %s, 'asserted', NULL, NULL
-                   ) ON CONFLICT (assertion_id) DO UPDATE SET
+                     )
+                     SELECT input.assertion_id,
+                            COALESCE(canonical_subjects.entity_id, input.original_subject_id),
+                            input.original_subject_id, input.subject_ref,
+                            input.subject_ref_surface_norm, input.subject_status,
+                            input.predicate_iri, input.object, input.object_entity_id,
+                            input.valid_from, input.valid_from_text, input.valid_until,
+                            input.valid_until_text, input.recorded_at, input.source_ids,
+                            input.evidence, input.model_score, input.evidence_quality,
+                            'asserted', NULL, NULL
+                     FROM pg_temp.assertion_projection_stage AS input
+                     LEFT JOIN canonical_subjects
+                       ON canonical_subjects.start_id = input.original_subject_id
+                     ON CONFLICT (assertion_id) DO UPDATE SET
                        subject_id = EXCLUDED.subject_id,
                        original_subject_id = EXCLUDED.original_subject_id,
                        subject_ref = EXCLUDED.subject_ref,
@@ -302,37 +557,16 @@ class PostgresReadModelStore:
                        evidence = EXCLUDED.evidence,
                        model_score = EXCLUDED.model_score,
                        evidence_quality = EXCLUDED.evidence_quality,
-                       status = 'asserted', superseded_by = NULL, superseded_reason = NULL""",
-                (
-                    assertion_id,
-                    subject,
-                    original_subject,
-                    json.dumps(subject_ref) if subject_ref else None,
-                    subject_surface,
-                    "unresolved" if subject_ref else "resolved",
-                    payload["predicate_iri"],
-                    json.dumps(object_value),
-                    object_entity_id,
-                    valid_from,
-                    valid_from,
-                    valid_until,
-                    valid_until,
-                    payload.get("recorded_at", ""),
-                    json.dumps(payload.get("source_ids") or []),
-                    json.dumps(payload.get("evidence") or []),
-                    payload.get("model_score", payload.get("confidence")),
-                    payload.get("evidence_quality", "unknown"),
-                ),
+                       status = 'asserted', superseded_by = NULL, superseded_reason = NULL"""
             )
-            superseded = payload.get("supersedes")
-            if superseded is not None:
-                connection.execute(
+            if supersessions:
+                connection.cursor().executemany(
                     """UPDATE read_assertions SET status = 'superseded',
                        superseded_by = %s WHERE assertion_id = %s""",
-                    (assertion_id, superseded),
+                    supersessions,
                 )
-        if subject_surface:
-            self._resolve_pending_references(subject_surface)
+        for surface in dict.fromkeys(surfaces):
+            self._resolve_pending_references(surface)
 
     def supersede_assertion(self, assertion_id: str, reason: str = "") -> None:
         """Retract an assertion without deleting its history."""

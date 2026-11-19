@@ -230,6 +230,60 @@ def apply_identity_event(identity: IdentityService, event: SemanticEvent) -> boo
     return True
 
 
+def apply_identity_events(identity: IdentityService, events: list[SemanticEvent]) -> None:
+    """Replay a bounded event group, bulk-registering independent creations."""
+    if not callable(getattr(identity.store, "register_entities_batch", None)):
+        for event in events:
+            apply_identity_event(identity, event)
+        return
+
+    neutral_events = {
+        "AssertionMade",
+        "AssertionSuperseded",
+        "DocumentRegistered",
+        "ObservationRecorded",
+        "ResolutionReviewQueued",
+        "TrackObserved",
+    }
+    pending_creations: list[SemanticEvent] = []
+
+    def flush_creations() -> None:
+        if not pending_creations:
+            return
+        registrations = []
+        for event in pending_creations:
+            payload = event.payload
+            source_record = (
+                (payload["source_id"], payload["source_record_id"])
+                if payload.get("source_id") and payload.get("source_record_id")
+                else None
+            )
+            registrations.append(
+                {
+                    "entity_id": payload["entity_id"],
+                    "entity_type": payload["entity_type"],
+                    "aliases": [payload["name"], *(payload.get("name_aliases") or [])],
+                    "external_ids": [
+                        (binding["source"], binding["external_id"])
+                        for binding in payload.get("external_ids") or []
+                    ],
+                    "source_record": source_record,
+                }
+            )
+        identity.register_batch(registrations)
+        pending_creations.clear()
+
+    for event in events:
+        if event.event_type == EVENT_TYPE_ENTITY_CREATED:
+            pending_creations.append(event)
+        elif event.event_type in neutral_events:
+            continue
+        else:
+            flush_creations()
+            apply_identity_event(identity, event)
+    flush_creations()
+
+
 def rebuild_identity(log: EventLog, *, store: IdentityStore | None = None) -> IdentityService:
     """Rebuild identity indexes from an event log without materializing it.
 

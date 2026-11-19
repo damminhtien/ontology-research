@@ -380,9 +380,14 @@ class InMemoryIdentityStore(IdentityStore):
         self._cannot_links: dict[tuple[str, str], IdentityEvidence] = {}
 
     def upsert(self, entity_id: str, entity_type: str) -> None:
-        """Create an empty record when absent (existing records untouched)."""
-        if entity_id not in self._records:
+        """Create an empty record or reject a conflicting entity type."""
+        record = self._records.get(entity_id)
+        if record is None:
             self._records[entity_id] = IdentityRecord(entity_type=entity_type)
+        elif record.entity_type != entity_type:
+            raise ValueError(
+                f"type conflict for {entity_id}: {record.entity_type!r} vs {entity_type!r}"
+            )
 
     def get(self, entity_id: str) -> IdentityRecord | None:
         """Return the live record, or ``None`` for unknown ids."""
@@ -610,6 +615,60 @@ class IdentityService:
             ids = [value] if isinstance(value, str) else value
             for ext in ids:
                 self._store.bind_external(entity_id, source, ext)
+
+    @_atomic_identity_mutation
+    def register_batch(self, registrations: Iterable[Mapping[str, object]]) -> None:
+        """Register independent entity facts through an optional bulk adapter."""
+        batch = tuple(registrations)
+        if not batch:
+            return
+        bulk_register = getattr(self._store, "register_entities_batch", None)
+        if callable(bulk_register):
+            bulk_register(batch)
+            return
+
+        entity_types: dict[str, str] = {}
+        source_records: dict[SourceRecordIdentity, str] = {}
+        for registration in batch:
+            entity_id = str(registration["entity_id"])
+            entity_type = str(registration["entity_type"])
+            prior_type = entity_types.setdefault(entity_id, entity_type)
+            if prior_type != entity_type:
+                raise ValueError(
+                    f"type conflict for {entity_id}: {prior_type!r} vs {entity_type!r}"
+                )
+            existing = self._store.get(entity_id)
+            if existing is not None and existing.entity_type != entity_type:
+                raise ValueError(
+                    f"type conflict for {entity_id}: {existing.entity_type!r} vs {entity_type!r}"
+                )
+            source_record = registration.get("source_record")
+            if source_record is not None:
+                key = SourceRecordIdentity(*source_record)
+                prior_owner = source_records.setdefault(key, entity_id)
+                if prior_owner != entity_id:
+                    raise ValueError(
+                        f"source record {key.source_id}::{key.record_id} appears more than once"
+                    )
+                current_owner = self._store.source_record_owner(key)
+                if current_owner is not None and current_owner != entity_id:
+                    raise ValueError(
+                        f"source record {key.source_id}::{key.record_id} "
+                        f"is already assigned to {current_owner}"
+                    )
+
+        for registration in batch:
+            entity_id = str(registration["entity_id"])
+            self.register(
+                entity_id=entity_id,
+                entity_type=str(registration["entity_type"]),
+                aliases=list(registration.get("aliases") or ()),
+            )
+            for binding in registration.get("external_ids") or ():
+                self.add_external_id(entity_id, binding[0], binding[1])
+            source_record = registration.get("source_record")
+            if source_record is not None:
+                self._store.bind_source_record(SourceRecordIdentity(*source_record), entity_id)
 
     def lookup(
         self,

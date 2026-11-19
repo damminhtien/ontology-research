@@ -38,7 +38,10 @@ def test_migrations_are_applied_once(postgres_database):
         rows = connection.execute(
             "SELECT version FROM foundry_schema_migrations ORDER BY version"
         ).fetchall()
-    assert rows == [("001_operational_store.sql",)]
+    assert rows == [
+        ("001_operational_store.sql",),
+        ("002_assertion_surface_lookup.sql",),
+    ]
 
 
 def test_query_service_uses_postgres_indexes_and_bounded_contract(postgres_database, tmp_path):
@@ -270,7 +273,8 @@ def test_projector_restarts_and_replays_only_new_suffix(postgres_database, tmp_p
     assert result["applied"] == 2
     assert result["checkpoint_sequence"] == 2
 
-    reopened = PostgresReadModelStore(PostgresDatabase(postgres_database.dsn))
+    reopened_database = PostgresDatabase(postgres_database.dsn)
+    reopened = PostgresReadModelStore(reopened_database)
     reference, _reference_stats = replay_log(log)
     view = reopened.get_entity(entity_id)
     assert view is not None and view.name == "Persistent Patrol Vessel"
@@ -284,9 +288,7 @@ def test_projector_restarts_and_replays_only_new_suffix(postgres_database, tmp_p
     assert reopened.entities_at("https://example.test/loc/7") == reference.entities_at(
         "https://example.test/loc/7"
     )
-    reopened_identity = IdentityService(
-        PostgresIdentityStore(PostgresDatabase(postgres_database.dsn))
-    )
+    reopened_identity = IdentityService(PostgresIdentityStore(reopened_database))
     assert reopened_identity.store.external_owners("wikidata", "Q7") == {entity_id}
 
     binding = make_event(
@@ -331,3 +333,110 @@ def test_projection_rows_and_checkpoint_rollback_together(postgres_database):
     assert reopened_identity.store.get("urn:world:entity:rollback") is None
     assert reopened.checkpoint_sequence is None
     assert reopened.applied_event_count == 0
+
+
+def test_projector_group_commit_rolls_back_and_replays_idempotently(postgres_database, tmp_path):
+    log = EventLog(tmp_path / "group-commit.jsonl")
+    entity_id = "urn:world:entity:group-commit"
+    log.extend(
+        [
+            make_event(
+                "EntityCreated",
+                {"entity_id": entity_id, "entity_type": "Platform", "name": "Group Commit"},
+            ),
+            make_event(
+                "AssertionMade",
+                {
+                    "assertion_id": "urn:assertion:group-commit",
+                    "subject_id": entity_id,
+                    "predicate_iri": CORE_LOCATED_AT,
+                    "object": {"kind": "location", "value": "https://example.test/loc/1"},
+                    "valid_from": "2026-11-01T00:00:00Z",
+                    "valid_until": None,
+                    "recorded_at": "2026-11-01T00:01:00Z",
+                    "source_ids": ["fixture-source"],
+                    "evidence": [],
+                },
+            ),
+        ]
+    )
+    events = list(log.iter_all())
+    model = PostgresReadModelStore(postgres_database)
+    identity = IdentityService(PostgresIdentityStore(postgres_database))
+    projector = Projector(model)
+
+    def fail_after_second_event(event):
+        apply_identity_event(identity, event)
+        if event.event_id == events[1].event_id:
+            raise RuntimeError("injected group failure")
+
+    with pytest.raises(RuntimeError, match="injected group failure"):
+        projector.apply_batch(events, before_apply=fail_after_second_event)
+
+    assert model.get_entity(entity_id) is None
+    assert model.get_assertion("urn:assertion:group-commit") is None
+    assert identity.store.get(entity_id) is None
+    assert model.checkpoint_sequence is None
+    assert model.applied_event_count == 0
+
+    result = projector.apply_batch(
+        events,
+        before_apply=lambda event: apply_identity_event(identity, event),
+    )
+    assert (result.applied, result.skipped, result.duplicates) == (2, 0, 0)
+    replayed = projector.apply_batch(
+        events,
+        before_apply=lambda event: apply_identity_event(identity, event),
+    )
+    assert (replayed.applied, replayed.skipped, replayed.duplicates) == (0, 0, 2)
+    assert model.checkpoint_sequence == 2
+    assert model.applied_event_count == 2
+    assert postgres_database.verify_projection(log.last_sequence)["consistent"] is True
+
+
+def test_new_name_collision_reopens_resolved_pending_assertions(postgres_database, tmp_path):
+    log = EventLog(tmp_path / "pending-name-collision.jsonl")
+    first_id = "urn:world:entity:pending-first"
+    second_id = "urn:world:entity:pending-second"
+    log.extend(
+        [
+            make_event(
+                "AssertionMade",
+                {
+                    "assertion_id": "urn:assertion:pending-name-collision",
+                    "subject_id": "",
+                    "subject_ref": {"surface_form": "Ghost Vessel", "entity_type": "Platform"},
+                    "predicate_iri": CORE_LOCATED_AT,
+                    "object": {"kind": "location", "value": "https://example.test/loc/2"},
+                    "valid_from": "2026-11-01T00:00:00Z",
+                    "valid_until": None,
+                    "recorded_at": "2026-11-01T00:01:00Z",
+                    "source_ids": ["fixture-source"],
+                    "evidence": [],
+                },
+            ),
+            make_event(
+                "EntityCreated",
+                {"entity_id": first_id, "entity_type": "Platform", "name": "Ghost Vessel"},
+            ),
+        ]
+    )
+    model = PostgresReadModelStore(postgres_database)
+    identity = IdentityService(PostgresIdentityStore(postgres_database))
+
+    first = project_once(log, identity, model, limit=2)
+    assert first["applied"] == 2
+    resolved = model.get_assertion("urn:assertion:pending-name-collision")
+    assert resolved["subject_id"] == first_id
+    assert resolved["subject_status"] == "resolved"
+
+    log.append(
+        make_event(
+            "EntityCreated",
+            {"entity_id": second_id, "entity_type": "Platform", "name": "Ghost Vessel"},
+        )
+    )
+    project_once(log, identity, model)
+    ambiguous = model.get_assertion("urn:assertion:pending-name-collision")
+    assert ambiguous["subject_id"] == ""
+    assert ambiguous["subject_status"] == "ambiguous"

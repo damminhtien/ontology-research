@@ -56,11 +56,38 @@ nên mỗi lượt scale cần chạy trong process riêng.
 Benchmark này dùng in-memory identity và read-model adapters; chưa đo
 PostgreSQL. Quy mô 100K entity và 1M location observation là baseline lịch sử,
 không tương đương 1M assertion OSINT. PostgreSQL operational backend được đánh
-giá riêng bằng `tools/benchmark_osint_scale.py`. Tính đến **2026-11-18**, L0
-(10K entities / 100K assertions) đã chạy: event-log append đạt 15,716 events/s,
-nhưng PostgreSQL projection chỉ đạt 149 events/s so với SLO 10,000 events/s.
-Query p95 và checkpoint consistency đạt trong phạm vi phép đo; L1–L4 chưa chạy
-vì projection chưa qua gate. Chi tiết và giới hạn đo nằm trong
+giá riêng bằng `tools/benchmark_osint_scale.py`.
+
+### Baseline lịch sử ngày 2026-11-18
+
+L0 append đạt 15,716 events/s, nhưng PostgreSQL projection chỉ đạt 149
+events/s. Báo cáo ghi nhận transaction và ledger round trip theo từng event,
+cùng tra cứu subject reference thiếu index đầy đủ, là bottleneck cần xử lý.
+
+### Tái đo ngày 2026-11-19
+
+Hai lượt dưới đây dùng seed 42, cùng máy Apple M2 Max / 12 logical CPUs / 64
+GiB RAM, Python 3.13.16 và PostgreSQL 18.7. Workload sinh tổng cộng một
+`EntityCreated` cho mỗi entity và 10 `AssertionMade` cho mỗi entity. Query path
+là `QueryService → PostgreSQL → psycopg → Python`; không đo HTTP. Dữ liệu là
+synthetic, không phải crawl thật hay gold set đã adjudicate.
+
+| Level | Events | Projection | Throughput | First/second half | Query p95 | Restart check | Database / event log | Python peak RSS |
+|---|---:|---:|---:|---:|---|---:|---:|---:|
+| L0: 10K / 100K | 110K | 10.74 s | 10,243 events/s | 11,206 / 9,712 events/s (-13.33%) | Tất cả gate đạt ở concurrency 1/8/32 | 0.145 s | 169.9 / 129.6 MB | 162.0 MB |
+| L1: 100K / 1M | 1.1M | 120.63 s | 9,119 events/s | 9,315 / 9,080 events/s (-2.52%) | Tất cả gate đạt ở concurrency 1/8/32 | 0.192 s | 1.611 / 1.296 GB | 406.2 MB |
+
+L0 vừa qua mức tối thiểu 10,000 events/s với biên 2.4%; nửa sau chậm hơn
+13.33%. L1 giữ throughput ổn định giữa hai nửa, nhưng thấp hơn mức tối thiểu
+10,000 events/s khoảng 8.8%. Cả hai lượt khớp checkpoint và số dòng cuối với
+event log. Python RSS không gồm PostgreSQL server hoặc tiến trình hệ thống.
+Concurrent append/read chỉ là probe nhỏ: L0 90 events/s, L1 112 events/s khi
+chiếu 100 assertion trong lúc 8 reader hoạt động; không đại diện cho sustained
+ingest SLO.
+
+L2–L4 chưa chạy. L2 cần được đánh giá trước khi kết luận về index, memory và
+recovery ở 1M / 10M. L3/L4 chưa đủ bằng chứng để gọi là production-qualified.
+Chi tiết và giới hạn đo nằm trong
 [`docs/evaluations/osint-scale-ladder.md`](../docs/evaluations/osint-scale-ladder.md);
 JSON, event log và profile được lưu ngoài Git trong `/Users/macbook/Data`.
 

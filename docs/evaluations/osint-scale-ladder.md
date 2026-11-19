@@ -1,5 +1,47 @@
 # OSINT Scale Ladder
 
+## Latest runs (2026-11-19)
+
+Both runs use seed 42, PostgreSQL 18.7, Python 3.13.16, macOS 27.2.1 on an
+Apple M2 Max (12 logical CPUs, 64 GiB RAM), and the same
+`QueryService → PostgreSQL → psycopg → Python` boundary without HTTP. The
+workload is deterministic synthetic data, not crawled OSINT or a manually
+adjudicated gold set. The worktree was dirty at measurement; the report records
+base commit `3fe36247231c843dbcf9b02f75718c3a59eeed67`.
+
+| Level | Projection events | Time | Throughput | First / second half | Query p95 gates | Checkpoint |
+|---|---:|---:|---:|---:|---|---|
+| L0: 10K entities / 100K assertions | 110K | 10.74 s | 10,243 events/s | 11,206 / 9,712 (-13.33%) | All passed at concurrency 1/8/32 | Consistent through 110,100 after tail append |
+| L1: 100K entities / 1M assertions | 1.1M | 120.63 s | 9,119 events/s | 9,315 / 9,080 (-2.52%) | All passed at concurrency 1/8/32 | Consistent through 1,100,100 after tail append |
+
+L0 cleared the 10,000 events/s projection minimum by 2.4%, with a 13.33%
+second-half slowdown. L1 throughput was stable across the run but stayed 8.8%
+under that minimum. Both runs matched event-ledger count, projection count and
+final checkpoint. The Python high-water RSS was 162.0 MB at L0 and 406.2 MB at
+L1; it excludes PostgreSQL and other system processes. Database/event-log
+footprints were 169.9/129.6 MB at L0 and 1.611/1.296 GB at L1. Restart plus
+checkpoint verification took 0.145 s and 0.192 s respectively.
+
+The report files and generated logs remain outside Git:
+
+- L0: `/Users/macbook/Data/ontology-research/evaluations/osint-scale-ladder-v1/20261119T075725Z-6862b1d0/l0/scale-report.json`
+- L1: `/Users/macbook/Data/ontology-research/evaluations/osint-scale-ladder-v1/20261119T080018Z-0b961589/l1/scale-report.json`
+
+Reproduce either level with the same options and change only `--level`:
+
+```sh
+FOUNDRY_DATABASE_URL="<PostgreSQL admin DSN>" \
+  .venv/bin/python tools/benchmark_osint_scale.py \
+  --level l0 --seed 42 --append-batch-events 10000 \
+  --query-runs 100 --concurrency 1,8,32 --tail-appends 100 \
+  --data-root /Users/macbook/Data/ontology-research
+```
+
+L2–L4 remain unmeasured. L1's throughput miss is recorded; these results do
+not qualify the system for production-scale traffic or multi-writer use.
+
+## Historical baseline (2026-11-18)
+
 **Run:** `20261118T082918Z-1ee7a959`
 **Measured level:** L0 only
 **Status:** correctness and query gates passed; PostgreSQL projection throughput did not meet its SLO. L1–L4 were not run.

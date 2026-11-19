@@ -95,7 +95,7 @@ còn số đo latency không được xem là engine-only comparison.
 
 | # | Việc | Ghi chú |
 |---|------|---------|
-| 1 | **Scale ladder** 10M entity / 100M edge → 100M / 1B | Probe in-memory đạt 100K entity / 1M location observation ngày 2026-11-12. PostgreSQL backend đã có; cần benchmark durable projection, build index và recovery ở 1M rồi 10M entity. Xem `requirements/scale_targets.md`. |
+| 1 | **Scale ladder** 10M entity / 100M edge → 100M / 1B | L0 requalification ngày 2026-11-19 đạt 10,243 projected events/s; L1 đạt 9,119 events/s, thấp hơn gate 10,000. Query/recovery/checkpoint checks đạt ở cả hai mức. L2–L4 chưa đo; xem `requirements/scale_targets.md`. |
 | 2 | **Federation** theo domain KG và query layer | Nhiều domain KG cùng tuân thủ `core`, `middle` và semantic contracts |
 | 3 | **Multi-writer log** | Chưa triển khai; chỉ thiết kế khi benchmark cho thấy single-writer là giới hạn |
 | 4 | **Vector candidate generation** | Có thể bổ sung candidate generation; mọi match vẫn cần evidence và review policy hiện hành |
