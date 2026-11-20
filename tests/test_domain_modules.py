@@ -14,7 +14,7 @@ import manage_ontology as mgmt
 import pytest
 from conftest import CORE_ONTOLOGY, REPO_ROOT, type_closure
 from rdflib import RDF, Graph, URIRef
-from rdflib.namespace import RDFS
+from rdflib.namespace import OWL, RDFS
 
 MIDDLE = {
     "location": REPO_ROOT / "ontology" / "middle" / "location.ttl",
@@ -51,7 +51,7 @@ class TestMiddleModules:
                 iri
                 == f"https://damminhtien.github.io/ontology-research/ontology/middle/{iri_suffix}"
             )
-            assert version == "0.1.0"
+            assert version == ("0.2.0" if iri_suffix == "organization" else "0.1.0")
 
     def test_geography_classes_subclass_location(self):
         graph = load_module(MIDDLE["location"])
@@ -76,6 +76,13 @@ class TestMiddleModules:
         rng = next(graph.objects(prop, RDFS.range), None)
         assert domain == URIRef(CORE + "Organization")
         assert rng == URIRef(CORE + "Organization")
+
+    def test_subsidiary_of_has_domain_and_range(self):
+        graph = load_module(MIDDLE["organization"])
+        prop = URIRef(ORG + "subsidiaryOf")
+        assert (prop, RDF.type, OWL.ObjectProperty) in graph
+        assert (prop, RDFS.domain, URIRef(CORE + "Organization")) in graph
+        assert (prop, RDFS.range, URIRef(CORE + "Organization")) in graph
 
     def test_dag_check_passes_with_middle_layer(self):
         result = subprocess.run(

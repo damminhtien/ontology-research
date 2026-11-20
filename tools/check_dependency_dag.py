@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Enforce the ontology module dependency invariant.
 
-Layers (allowed import direction: higher number may import lower number):
+Ontology layers (allowed import direction: higher number may import lower number):
 
     0 = ontology/core      (semantic kernel — imports nothing above it)
     1 = ontology/middle    (may import core only)
-    2 = ontology/domain(s), profiles/  (may import middle and core)
+    2 = ontology/domain(s) (may import middle and core)
+
+Regional profiles under ``profiles/`` configure shared terms; they are not
+ontology modules and their RDF fixtures/shapes do not need ontology headers.
 
 Fails on:
   * upward imports (e.g. core importing domain);
@@ -31,7 +34,6 @@ LAYER_BY_PREFIX: list[tuple[str, int]] = [
     ("ontology/core", 0),
     ("ontology/middle", 1),
     ("ontology/domain", 2),
-    ("profiles", 2),
 ]
 
 
@@ -45,10 +47,9 @@ def layer_of(file_path: Path) -> int | None:
 
 def find_module_files() -> list[Path]:
     files: list[Path] = []
-    for root in ("ontology", "profiles"):
-        base = REPO_ROOT / root
-        if base.exists():
-            files.extend(sorted(p for p in base.rglob("*.ttl") if p.is_file()))
+    base = REPO_ROOT / "ontology"
+    if base.exists():
+        files.extend(sorted(path for path in base.rglob("*.ttl") if path.is_file()))
     return files
 
 

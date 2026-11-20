@@ -53,11 +53,49 @@ applications bị ảnh hưởng.
 - SHACL validation gate trên ontology modules và benchmark datasets, qua mọi shape file
 - Competency queries: pass/fail từng query
 
+## Crawl Control — cấu hình và theo dõi ingest
+
+Tab **Crawl Control** chạy lại pipeline regional hiện có qua
+`tools/ingest_osint_region.py`; connector, mapper, checkpoint và raw archive
+không bị thay thế. Có thể chọn một trong 10 nguồn regional hoặc chạy lần lượt
+tất cả nguồn, rồi giới hạn số record mỗi nguồn và thời lượng AISStream.
+Trang tự làm mới trạng thái, log và kết quả từng nguồn mỗi 5 giây.
+
+Crawl root là `FOUNDRY_CRAWL_ROOT` nếu biến này được đặt; nếu không, service
+dùng `$FOUNDRY_DATA_ROOT/data/crawl-runs`, với data root mặc định
+`~/Data/ontology-research`. Cấu hình và log nằm trong
+`<crawl-root>/crawler-service/`; raw snapshots nằm trong
+`<crawl-root>/osint-vietnam-scs/`. Mỗi run có thư mục riêng và summary. Một
+run đang chạy sẽ chặn lệnh start tiếp theo; có thể dừng từ tab này hoặc khi
+console shutdown.
+
+`GET /api/crawler/state` chỉ trả trạng thái, hợp đồng nguồn và cờ cho biết
+credential đã cấu hình; nó không trả giá trị secret. `make console` tự tạo
+`FOUNDRY_CONSOLE_TOKEN` ngẫu nhiên nếu chưa có, lưu file quyền `0600` tại
+`$FOUNDRY_DATA_ROOT/secrets/console-token` (mặc định
+`~/Data/ontology-research/secrets/console-token`) và chỉ bind vào loopback.
+Crawler UI tự nhận phiên browser qua cookie `HttpOnly`; token không được gửi về
+JavaScript. Có thể đặt `FOUNDRY_CONSOLE_TOKEN` trước khi chạy để dùng giá trị
+quản lý sẵn. API vẫn nhận bearer token cho các client trực tiếp. Đặt
+`AISSTREAM_API_KEY`, `FIRMS_MAP_KEY` và/hoặc `GFW_API_ACCESS_TOKEN` trong môi
+trường của tiến trình console khi dùng các nguồn tương ứng. Log được lọc các
+credential đã cấu hình trước khi ghi ra đĩa.
+
+Trang Crawl Control hiển thị mapped records, event count, tốc độ quan sát,
+thời lượng, exit code, trạng thái từng nguồn, số entity/document/position,
+review/skipped, snapshot hash, loại event và log của từng run. Tổng mapped
+records cộng theo nguồn; crawl lại có thể chứa record nguồn đã thấy trước đó.
+
+Các connector hiện tại gọi API/feeds có cấu trúc và giữ mapping/provenance của
+repo. Chưa thêm framework crawler HTML riêng; Scrapy phù hợp khi cần spider các
+website, còn pipeline hiện tại không cần thay connector bằng nó.
+
 ## Admin — corrections có xác thực
 
 Tab **Admin** hỗ trợ xem review queue, merge/split entities và chạy external-id
-backfill. Trước khi khởi động Console, cấu hình `FOUNDRY_CONSOLE_TOKEN`; nếu
-chưa có token thì admin API trả `503`. Merge và split ghi actor trong event;
+backfill. `make console` luôn cấu hình token cho local service; nếu chạy app
+theo cách khác, phải cấu hình `FOUNDRY_CONSOLE_TOKEN` trước khi khởi động.
+Merge và split ghi actor trong event;
 backfill ghi `ExternalIdBound` events.
 
 Các thao tác Admin mặc định đọc và ghi `$FOUNDRY_ADMIN_LOG`, mặc định là
@@ -66,6 +104,10 @@ demo `~/Data/ontology-research/data/events.jsonl`. `data/` trong repo chỉ là
 symlink tương thích ở local setup. Cấu hình PostgreSQL projector trong
 [hướng dẫn vận hành](../guides/postgres-readmodel.md).
 Chỉ dùng Console write operations khi đã trỏ tới log phù hợp.
+
+Trong database mode, event monitor và operational projection cùng đọc production
+log. Không cấu hình database thì console giữ demo log; `FOUNDRY_EVENT_LOG` ghi đè
+log dùng cho monitor và local read-model scaffold.
 
 ## Projection — read model
 
@@ -76,6 +118,22 @@ Chỉ dùng Console write operations khi đã trỏ tới log phù hợp.
 - Operational query API gọi `QueryService` qua adapter PostgreSQL; xem
   [OSINT query contract](https://github.com/damminhtien/ontology-research/blob/main/requirements/osint_queries.md) để biết 10 query
   paths và các giới hạn.
+
+## Semantic Query — câu hỏi qua CQ đã đăng ký
+
+Tab **Semantic Query** hỗ trợ vị trí tại một thời điểm, lịch sử membership và
+nguồn của assertion. Nhập canonical entity/assertion IRI; câu hỏi vị trí nhận
+ngày ISO như `2026-08-05` (00:00 UTC) hoặc timestamp có timezone. Planner mặc
+định gọi Qwen `qwen3.5:35b-mlx` qua Ollama ở `127.0.0.1:11434`; model chỉ chọn
+một CQ ID và không sinh SPARQL. Khi Ollama chưa chạy hoặc trả lỗi, phrase map
+Việt/Anh xử lý câu hỏi phù hợp. Đổi model bằng `FOUNDRY_SEMANTIC_QUERY_MODEL`
+và endpoint bằng `FOUNDRY_OLLAMA_BASE_URL`.
+
+Để chạy trên RDF projection, đặt `FOUNDRY_SEMANTIC_QUERY_DATA` thành một file
+RDF hoặc thư mục chứa file RDF trước khi khởi động Console. Endpoint chỉ đọc
+projection đã cấu hình; nó không tự replay event log vào graph trong RAM.
+Không cấu hình biến này thì tab vẫn hiển thị catalog và báo projection chưa
+được cấu hình khi chạy câu hỏi.
 
 ## Khám phá REST API
 

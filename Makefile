@@ -1,4 +1,4 @@
-.PHONY: setup validate dag align test lint fmt ci-check check conformance quality ontology-design oxigraph-test oxigraph-eval splink-test splink-fetch splink-eval rdf-export-eval postgres-test query-adapter-eval project-events project-events-follow project-events-rebuild project-events-verify clean docs-setup docs-sync docs-serve docs-build
+.PHONY: setup validate dag align test lint fmt ci-check check conformance quality ontology-design profile-check oxigraph-test oxigraph-eval splink-test splink-fetch splink-eval rdf-export-eval postgres-test query-adapter-eval worldmonitor-crawl openwaters-vessel-crawl project-events project-events-follow project-events-rebuild project-events-verify clean docs-setup docs-sync docs-serve docs-build
 
 PY := .venv/bin/python
 DATABASE_URL ?= postgresql:///ontology_research
@@ -67,7 +67,10 @@ quality:
 ontology-design:
 	$(PY) tools/check_ontology_design.py --output build/ontology-design.json
 
-ci-check: lint ontology-design quality versions align validate dag test
+profile-check:
+	$(PY) tools/check_vietnam_profile.py
+
+ci-check: lint ontology-design profile-check quality versions align validate dag test
 
 check: ci-check slo
 
@@ -98,6 +101,15 @@ oxigraph-eval:
 query-adapter-eval:
 	FOUNDRY_DATABASE_URL=$${FOUNDRY_DATABASE_URL:-$(DATABASE_URL)} uv run --no-project --python 3.13 --with-requirements requirements.txt --with-requirements requirements/evaluation-oxigraph.txt python tools/compare_query_adapters.py $(QUERY_ADAPTER_ARGS)
 
+worldmonitor-crawl:
+	$(PY) tools/crawl_worldmonitor_sources.py $(WORLDMONITOR_CRAWL_ARGS)
+
+openwaters-vessel-crawl:
+	$(PY) tools/crawl_worldmonitor_sources.py \
+		--config config/openwaters_vessels.json \
+		--output-root /Users/macbook/Data/ontology-research/data/openwaters \
+		$(OPENWATERS_CRAWL_ARGS)
+
 splink-test:
 	uv run --no-project --python 3.13 --with-requirements requirements/evaluation-splink.txt python -m pytest -q tests/test_splink_evaluation.py
 
@@ -117,7 +129,7 @@ clean:
 	rm -rf .pytest_cache
 
 console:
-	FOUNDRY_DATABASE_URL=$${FOUNDRY_DATABASE_URL:-$(DATABASE_URL)} $(PY) -m uvicorn foundry.console.app:app --port 8787
+	FOUNDRY_DATABASE_URL=$${FOUNDRY_DATABASE_URL:-$(DATABASE_URL)} $(PY) tools/run_console.py --port 8787
 
 seed-console:
 	$(PY) tools/seed_console_data.py

@@ -2,10 +2,9 @@
 
 Every mutation is **gated and audited**:
 
-- **Auth**: ``Authorization: Bearer <token>`` compared constant-time against
-  ``$FOUNDRY_CONSOLE_TOKEN``. When the variable is unset the whole admin
-  surface is disabled (503) — the console can never gain write access by
-  accident.
+- **Auth**: bearer credentials are compared constant-time against
+  ``$FOUNDRY_CONSOLE_TOKEN``. The local UI may use a same-origin HttpOnly
+  session cookie; if the variable is unset the admin surface is disabled (503).
 - **Audit trail**: every accepted mutation appends its canonical event
   (``EntityMerged`` / ``EntitySplit`` / ``ExternalIdBound``) to the production
   event log. Merge and split events record the requested actor in their
@@ -24,7 +23,7 @@ import sys
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Cookie, Header, HTTPException, Request
 from pydantic import BaseModel
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -32,6 +31,10 @@ for _path in (REPO_ROOT / "tools", REPO_ROOT):
     if _path.as_posix() not in sys.path:
         sys.path.insert(0, _path.as_posix())
 
+from foundry.console.local_auth import (  # noqa: E402
+    CONSOLE_SESSION_COOKIE,
+    is_local_same_origin_request,
+)
 from foundry.events import EVENT_TYPE_REVIEW_QUEUED, EventLog  # noqa: E402
 from foundry.identity import IdentityEvidence, IdentityService  # noqa: E402
 from foundry.lake import default_lake_root, persist_events  # noqa: E402
@@ -55,16 +58,31 @@ def _admin_identity(log: EventLog) -> tuple[IdentityService, bool]:
     return identity_service_for_log(log)
 
 
-def _check_token(authorization: str | None) -> str:
+def _check_token(
+    authorization: str | None,
+    session_token: str | None = None,
+    request: Request | None = None,
+) -> str:
     expected = os.environ.get(TOKEN_ENV)
     if not expected:
         raise HTTPException(
             status_code=503,
             detail=f"admin API disabled: {TOKEN_ENV} is not configured",
         )
-    if not authorization or not authorization.startswith("Bearer "):
+    if authorization:
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="admin token required")
+        supplied = authorization.removeprefix("Bearer ").strip()
+    elif session_token:
+        if (
+            request is not None
+            and request.method in {"POST", "PUT", "PATCH", "DELETE"}
+            and not is_local_same_origin_request(request)
+        ):
+            raise HTTPException(status_code=403, detail="local same-origin request required")
+        supplied = session_token
+    else:
         raise HTTPException(status_code=401, detail="admin token required")
-    supplied = authorization.removeprefix("Bearer ").strip()
     if not hmac.compare_digest(supplied, expected):
         raise HTTPException(status_code=401, detail="invalid admin token")
     return supplied
@@ -88,14 +106,18 @@ def _persist_to_lake(events: list) -> int:
 
 
 @router.post("/review")
-def list_review_queue(authorization: Annotated[str | None, Header()] = None) -> dict:
+def list_review_queue(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+    session_token: Annotated[str | None, Cookie(alias=CONSOLE_SESSION_COOKIE)] = None,
+) -> dict:
     """List every ``ResolutionReviewQueued`` fact in the admin log.
 
     This is a read-only view; it does not remove events from the append-only log.
     POST (not GET) because the list is token-gated — bearer credentials never
     travel in a cacheable URL fetch.
     """
-    _check_token(authorization)
+    _check_token(authorization, session_token, request)
     log = EventLog(_admin_log_path())
     queued = []
     for event in log.iter_all():
@@ -109,10 +131,12 @@ def list_review_queue(authorization: Annotated[str | None, Header()] = None) -> 
 @router.post("/merge")
 def admin_merge(
     request: CorrectionRequest,
+    http_request: Request,
     authorization: Annotated[str | None, Header()] = None,
+    session_token: Annotated[str | None, Cookie(alias=CONSOLE_SESSION_COOKIE)] = None,
 ) -> dict:
     """Merge a duplicate entity into its survivor (audited on the log)."""
-    _check_token(authorization)
+    _check_token(authorization, session_token, http_request)
     log = EventLog(_admin_log_path())
     identity, apply_projection = _admin_identity(log)
     if request.same_entity_evidence is None:
@@ -147,10 +171,12 @@ def admin_merge(
 @router.post("/split")
 def admin_split(
     request: CorrectionRequest,
+    http_request: Request,
     authorization: Annotated[str | None, Header()] = None,
+    session_token: Annotated[str | None, Cookie(alias=CONSOLE_SESSION_COOKIE)] = None,
 ) -> dict:
     """Undo a previously recorded merge (audited on the log)."""
-    _check_token(authorization)
+    _check_token(authorization, session_token, http_request)
     log = EventLog(_admin_log_path())
     identity, apply_projection = _admin_identity(log)
     try:
@@ -177,9 +203,13 @@ def admin_split(
 
 
 @router.post("/backfill-external-ids")
-def admin_backfill(authorization: Annotated[str | None, Header()] = None) -> dict:
+def admin_backfill(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+    session_token: Annotated[str | None, Cookie(alias=CONSOLE_SESSION_COOKIE)] = None,
+) -> dict:
     """Re-derive missing Wikidata bindings (idempotent, audited on the log)."""
-    _check_token(authorization)
+    _check_token(authorization, session_token, request)
     import backfill_external_ids as backfill
 
     log = EventLog(_admin_log_path())

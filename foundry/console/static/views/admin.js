@@ -4,16 +4,27 @@ import { esc, post } from "../api.js";
 const TOKEN_KEY = "foundry.admin.token";
 
 export async function renderAdmin(viewEl) {
+  let localSession = false;
+  try {
+    const session = await post("/api/crawler/session", {});
+    localSession = session.authenticated === true;
+  } catch {
+    localSession = false;
+  }
+  if (localSession) sessionStorage.removeItem(TOKEN_KEY);
+
   viewEl.innerHTML = `
     <p class="view-sub">Mọi thao tác ghi cần admin token (<code>$FOUNDRY_CONSOLE_TOKEN</code>) và
     được audit trên event log (payload <code>actor</code>).</p>
-    <div class="card">
-      <h3>Admin token</h3>
-      <input id="admin-token" type="password" placeholder="bearer token"
-             value="${esc(sessionStorage.getItem(TOKEN_KEY) ?? "")}" style="width:60%">
-      <button id="admin-save">Lưu</button>
-      <span id="admin-status"></span>
-    </div>
+    ${localSession
+      ? `<p class="badge ok">Local browser session active; token remains private.</p>`
+      : `<div class="card">
+           <h3>Admin token</h3>
+           <input id="admin-token" type="password" placeholder="bearer token"
+                  value="${esc(sessionStorage.getItem(TOKEN_KEY) ?? "")}" style="width:60%">
+           <button id="admin-save">Lưu</button>
+           <span id="admin-status"></span>
+         </div>`}
     <div class="card">
       <h3>Review queue (<code>ResolutionReviewQueued</code>)</h3>
       <button id="admin-review">Tải danh sách</button>
@@ -38,15 +49,15 @@ export async function renderAdmin(viewEl) {
     </div>
     <pre id="admin-result"></pre>`;
 
-  const token = () => document.getElementById("admin-token").value.trim();
+  const token = () => localSession ? "" : document.getElementById("admin-token")?.value.trim() ?? "";
   const result = (text) => {
     document.getElementById("admin-result").textContent = text;
   };
 
-  document.getElementById("admin-save").onclick = () => {
+  document.getElementById("admin-save")?.addEventListener("click", () => {
     sessionStorage.setItem(TOKEN_KEY, token());
     document.getElementById("admin-status").textContent = "đã lưu (session)";
-  };
+  });
 
   const guard = async (fn) => {
     try {

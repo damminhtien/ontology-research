@@ -156,20 +156,162 @@ class PostgresIdentityStore(IdentityStore):
     def upsert(self, entity_id: str, entity_type: str) -> None:
         """Create an identity row or reject an existing type mismatch."""
         with self.database.connection() as connection:
-            connection.execute(
-                """INSERT INTO identity_entities(entity_id, entity_type)
-                   VALUES (%s, %s) ON CONFLICT (entity_id) DO NOTHING""",
-                (entity_id, entity_type),
-            )
             row = connection.execute(
-                "SELECT entity_type FROM identity_entities WHERE entity_id = %s",
-                (entity_id,),
+                """INSERT INTO identity_entities(entity_id, entity_type)
+                   VALUES (%s, %s) ON CONFLICT (entity_id) DO NOTHING
+                   RETURNING entity_type""",
+                (entity_id, entity_type),
             ).fetchone()
+            if row is None:
+                row = connection.execute(
+                    "SELECT entity_type FROM identity_entities WHERE entity_id = %s",
+                    (entity_id,),
+                ).fetchone()
             if row is None or row[0] != entity_type:
                 current_type = row[0] if row else None
                 raise ValueError(
                     f"type conflict for {entity_id}: {current_type!r} vs {entity_type!r}"
                 )
+
+    def register_entities_batch(self, registrations: Iterable[Mapping[str, object]]) -> None:
+        """Insert identity records and their indexes with set-based statements."""
+        entities: dict[str, dict[str, object]] = {}
+        for registration in registrations:
+            entity_id = str(registration["entity_id"])
+            entity_type = str(registration["entity_type"])
+            entry = entities.setdefault(
+                entity_id,
+                {
+                    "entity_type": entity_type,
+                    "aliases": [],
+                    "external_ids": [],
+                    "source_records": [],
+                },
+            )
+            if entry["entity_type"] != entity_type:
+                raise ValueError(
+                    f"type conflict for {entity_id}: {entry['entity_type']!r} vs {entity_type!r}"
+                )
+            entry["aliases"].extend(str(alias) for alias in registration.get("aliases") or ())
+            entry["external_ids"].extend(registration.get("external_ids") or ())
+            source_record = registration.get("source_record")
+            if source_record is not None:
+                entry["source_records"].append(tuple(source_record))
+
+        entity_rows = [(entity_id, data["entity_type"]) for entity_id, data in entities.items()]
+        source_records: dict[tuple[str, str], str] = {}
+        alias_rows: set[tuple[str, str, str]] = set()
+        external_rows: set[tuple[str, str, str]] = set()
+        token_rows: set[tuple[str, str]] = set()
+        for entity_id, data in entities.items():
+            for alias in data["aliases"]:
+                normalized = normalize_name(alias)
+                if not normalized:
+                    continue
+                alias_rows.add((entity_id, normalized, alias))
+                token_rows.update((token, normalized) for token in normalized.split())
+            external_rows.update(
+                (entity_id, str(namespace), str(external_id))
+                for namespace, external_id in data["external_ids"]
+            )
+            for source_id, record_id in data["source_records"]:
+                key = (source_id, record_id)
+                prior_owner = source_records.setdefault(key, entity_id)
+                if prior_owner != entity_id:
+                    raise ValueError(
+                        f"source record {source_id}::{record_id} appears more than once"
+                    )
+
+        with self.database.connection() as connection:
+            inserted_entities = connection.execute(
+                """INSERT INTO identity_entities(entity_id, entity_type)
+                   SELECT entity_id, entity_type
+                   FROM unnest(%s::text[], %s::text[]) AS input(entity_id, entity_type)
+                   ON CONFLICT (entity_id) DO NOTHING
+                   RETURNING entity_id""",
+                (
+                    [entity_id for entity_id, _ in entity_rows],
+                    [entity_type for _, entity_type in entity_rows],
+                ),
+            ).fetchall()
+            if len(inserted_entities) != len(entity_rows):
+                existing = connection.execute(
+                    """SELECT entity_id, entity_type FROM identity_entities
+                       WHERE entity_id = ANY(%s)""",
+                    ([entity_id for entity_id, _ in entity_rows],),
+                ).fetchall()
+                existing_types = dict(existing)
+                for entity_id, entity_type in entity_rows:
+                    if existing_types.get(entity_id) != entity_type:
+                        raise ValueError(
+                            f"type conflict for {entity_id}: "
+                            f"{existing_types.get(entity_id)!r} vs {entity_type!r}"
+                        )
+
+            if alias_rows:
+                entity_ids, normalized_aliases, surfaces = zip(*sorted(alias_rows), strict=True)
+                connection.execute(
+                    """INSERT INTO identity_aliases(entity_id, normalized_alias, surface)
+                       SELECT entity_id, normalized_alias, surface
+                       FROM unnest(%s::text[], %s::text[], %s::text[])
+                         AS input(entity_id, normalized_alias, surface)
+                       ON CONFLICT DO NOTHING""",
+                    (list(entity_ids), list(normalized_aliases), list(surfaces)),
+                )
+                tokens, token_aliases = zip(*sorted(token_rows), strict=True)
+                connection.execute(
+                    """INSERT INTO identity_alias_tokens(token, normalized_alias)
+                       SELECT token, normalized_alias
+                       FROM unnest(%s::text[], %s::text[])
+                         AS input(token, normalized_alias)
+                       ON CONFLICT DO NOTHING""",
+                    (list(tokens), list(token_aliases)),
+                )
+
+            if external_rows:
+                entity_ids, namespaces, external_ids = zip(*sorted(external_rows), strict=True)
+                connection.execute(
+                    """INSERT INTO identity_external_ids(entity_id, namespace, external_id)
+                       SELECT entity_id, namespace, external_id
+                       FROM unnest(%s::text[], %s::text[], %s::text[])
+                         AS input(entity_id, namespace, external_id)
+                       ON CONFLICT DO NOTHING""",
+                    (list(entity_ids), list(namespaces), list(external_ids)),
+                )
+
+            if source_records:
+                keys = sorted(source_records)
+                source_ids, record_ids = zip(*keys, strict=True)
+                owners = [source_records[key] for key in keys]
+                inserted_records = connection.execute(
+                    """INSERT INTO identity_source_records(source_id, record_id, entity_id)
+                       SELECT source_id, record_id, entity_id
+                       FROM unnest(%s::text[], %s::text[], %s::text[])
+                         AS input(source_id, record_id, entity_id)
+                       ON CONFLICT (source_id, record_id) DO NOTHING
+                       RETURNING source_id, record_id""",
+                    (list(source_ids), list(record_ids), owners),
+                ).fetchall()
+                if len(inserted_records) != len(keys):
+                    existing = connection.execute(
+                        """SELECT source_id, record_id, entity_id
+                           FROM identity_source_records
+                           WHERE (source_id, record_id) IN (
+                             SELECT source_id, record_id
+                             FROM unnest(%s::text[], %s::text[])
+                               AS input(source_id, record_id)
+                           )""",
+                        (list(source_ids), list(record_ids)),
+                    ).fetchall()
+                    existing_owners = {
+                        (source, record): owner for source, record, owner in existing
+                    }
+                    for key, owner in source_records.items():
+                        if existing_owners.get(key) != owner:
+                            raise ValueError(
+                                f"source record {key[0]}::{key[1]} is already assigned to "
+                                f"{existing_owners.get(key, 'unknown')}"
+                            )
 
     def get(self, entity_id: str) -> IdentityRecord | None:
         """Fetch one entity and its attached identifiers."""
@@ -226,14 +368,15 @@ class PostgresIdentityStore(IdentityStore):
             return
         with self.database.connection() as connection:
             connection.execute(
-                """INSERT INTO identity_aliases(entity_id, normalized_alias, surface)
-                   VALUES (%s, %s, %s) ON CONFLICT DO NOTHING""",
-                (entity_id, normalized, alias),
-            )
-            connection.cursor().executemany(
-                """INSERT INTO identity_alias_tokens(token, normalized_alias)
-                   VALUES (%s, %s) ON CONFLICT DO NOTHING""",
-                [(token, normalized) for token in normalized.split()],
+                """WITH alias_binding AS (
+                       INSERT INTO identity_aliases(entity_id, normalized_alias, surface)
+                       VALUES (%s, %s, %s) ON CONFLICT DO NOTHING
+                       RETURNING 1
+                   )
+                   INSERT INTO identity_alias_tokens(token, normalized_alias)
+                   SELECT token, %s FROM unnest(%s::text[]) AS token
+                   ON CONFLICT DO NOTHING""",
+                (entity_id, normalized, alias, normalized, normalized.split()),
             )
 
     def unbind_alias(self, alias: str, entity_id: str) -> None:
@@ -364,16 +507,18 @@ class PostgresIdentityStore(IdentityStore):
     def bind_source_record(self, source_record: SourceRecordIdentity, entity_id: str) -> None:
         """Bind a source record once, rejecting any conflicting owner."""
         with self.database.connection() as connection:
-            connection.execute(
-                """INSERT INTO identity_source_records(source_id, record_id, entity_id)
-                   VALUES (%s, %s, %s) ON CONFLICT (source_id, record_id) DO NOTHING""",
-                (source_record.source_id, source_record.record_id, entity_id),
-            )
             row = connection.execute(
-                """SELECT entity_id FROM identity_source_records
-                   WHERE source_id = %s AND record_id = %s""",
-                (source_record.source_id, source_record.record_id),
+                """INSERT INTO identity_source_records(source_id, record_id, entity_id)
+                   VALUES (%s, %s, %s) ON CONFLICT (source_id, record_id) DO NOTHING
+                   RETURNING entity_id""",
+                (source_record.source_id, source_record.record_id, entity_id),
             ).fetchone()
+            if row is None:
+                row = connection.execute(
+                    """SELECT entity_id FROM identity_source_records
+                       WHERE source_id = %s AND record_id = %s""",
+                    (source_record.source_id, source_record.record_id),
+                ).fetchone()
             if row is None or row[0] != entity_id:
                 owner = row[0] if row else "unknown"
                 raise ValueError(
@@ -408,3 +553,41 @@ class PostgresIdentityStore(IdentityStore):
         return {
             (left, right): IdentityEvidence.from_dict(evidence) for left, right, evidence in rows
         }
+
+    def cannot_link_evidence(self, left_id: str, right_id: str) -> IdentityEvidence | None:
+        """Fetch one indexed pair constraint and its evidence."""
+        left, right = sorted((left_id, right_id))
+        with self.database.connection() as connection:
+            row = connection.execute(
+                """SELECT evidence FROM identity_cannot_links
+                   WHERE left_id = %s AND right_id = %s""",
+                (left, right),
+            ).fetchone()
+        return IdentityEvidence.from_dict(row[0]) if row else None
+
+    def cannot_link_between_components(
+        self, left_id: str, right_id: str
+    ) -> IdentityEvidence | None:
+        """Find a cannot-link between merge components through indexed SQL."""
+        sql = """WITH RECURSIVE
+            left_component(entity_id) AS (
+                SELECT %s::text
+                UNION
+                SELECT m.duplicate_id FROM identity_merges m
+                JOIN left_component c ON m.survivor_id = c.entity_id
+            ),
+            right_component(entity_id) AS (
+                SELECT %s::text
+                UNION
+                SELECT m.duplicate_id FROM identity_merges m
+                JOIN right_component c ON m.survivor_id = c.entity_id
+            )
+            SELECT evidence FROM identity_cannot_links c
+            WHERE (c.left_id IN (SELECT entity_id FROM left_component)
+                   AND c.right_id IN (SELECT entity_id FROM right_component))
+               OR (c.right_id IN (SELECT entity_id FROM left_component)
+                   AND c.left_id IN (SELECT entity_id FROM right_component))
+            LIMIT 1"""
+        with self.database.connection() as connection:
+            row = connection.execute(sql, (left_id, right_id)).fetchone()
+        return IdentityEvidence.from_dict(row[0]) if row else None

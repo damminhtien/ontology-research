@@ -43,6 +43,8 @@ class CandidateFact:
     """
 
     subject_name: str
+    subject_external_source: str | None
+    subject_external_id: str | None
     predicate_iri: str
     object_kind: str  # entity | location | literal
     object_value: str
@@ -55,6 +57,8 @@ class CandidateFact:
         self,
         *,
         subject_name: str,
+        subject_external_source: str | None = None,
+        subject_external_id: str | None = None,
         predicate_iri: str,
         object_kind: str,
         object_value: str,
@@ -71,6 +75,12 @@ class CandidateFact:
         """
         if model_score is not None and confidence is not None:
             raise ValueError("supply model_score; confidence is a deprecated alias")
+        if (subject_external_source is None) != (subject_external_id is None):
+            raise ValueError("subject_external_source and subject_external_id must be paired")
+        if subject_external_source is not None and (
+            not subject_external_source.strip() or not subject_external_id.strip()
+        ):
+            raise ValueError("subject external identifier must be non-empty")
         score = model_score if model_score is not None else confidence
         if score is None:
             score = 0.0
@@ -82,6 +92,8 @@ class CandidateFact:
         if evidence_span is not None and not isinstance(evidence_span, Mapping):
             raise ValueError("evidence_span must be an object")
         object.__setattr__(self, "subject_name", subject_name)
+        object.__setattr__(self, "subject_external_source", subject_external_source)
+        object.__setattr__(self, "subject_external_id", subject_external_id)
         object.__setattr__(self, "predicate_iri", predicate_iri)
         object.__setattr__(self, "object_kind", object_kind)
         object.__setattr__(self, "object_value", object_value)

@@ -1,0 +1,466 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "repository": "https://github.com/koala73/worldmonitor",
+    "commit": "b413ca8bc3d8becc87ba5a1849daf2b0adec6afa",
+    "source_attribution_manifest": {
+      "path": "shared/source-attribution-manifest.json",
+      "sha256": "c21f023046e64ae0ad45ac023198b9e8799e61057292b0528193bb138f23db7f"
+    },
+    "news_catalog": {
+      "path": "shared/news-catalog.json",
+      "sha256": "5c5d0a09aa895fb054128bf74c5fdc383e4d4e3a34a5ddd2809934b4f7ad21a8"
+    }
+  },
+  "groups": [
+    {
+      "id": "geopolitics-conflict",
+      "name": "Geopolitics & Conflict",
+      "purpose": "Conflict events, protests, displacement, advisories and market signals"
+    },
+    {
+      "id": "military-strategic",
+      "name": "Military & Strategic",
+      "purpose": "Military flights, orbital objects, GPS interference and maritime alerts"
+    },
+    {
+      "id": "news-osint",
+      "name": "News & OSINT",
+      "purpose": "Publisher feeds and reviewed-channel source references"
+    },
+    {
+      "id": "energy-commodities",
+      "name": "Energy & Commodities",
+      "purpose": "Gas, petroleum and commodities positioning"
+    },
+    {
+      "id": "environment-disasters",
+      "name": "Environment & Disasters",
+      "purpose": "Earthquakes, disasters, fires, natural events and weather"
+    },
+    {
+      "id": "aviation-airspace",
+      "name": "Aviation & Airspace",
+      "purpose": "Flight tracking, airport status and NOTAM source references"
+    },
+    {
+      "id": "china-coverage",
+      "name": "China Coverage",
+      "purpose": "Official macroeconomic, policy and cross-strait publications"
+    },
+    {
+      "id": "infrastructure-cyber",
+      "name": "Infrastructure & Cyber",
+      "purpose": "Submarine cables, internet outages and threat indicators"
+    }
+  ],
+  "sources": [
+    {
+      "id": "acled",
+      "group": "geopolitics-conflict",
+      "provider": "ACLED",
+      "kind": "json",
+      "url": "https://acleddata.com/api/acled/read",
+      "access": "credentialed_adapter_required",
+      "credential_env": ["ACLED_USERNAME", "ACLED_PASSWORD"],
+      "attribution": "Armed Conflict Location & Event Data; source-specific record, not independently verified truth."
+    },
+    {
+      "id": "ucdp",
+      "group": "geopolitics-conflict",
+      "provider": "UCDP",
+      "kind": "json",
+      "url": "https://ucdpapi.pcr.uu.se/api/gedevents/25.1?pagesize=100",
+      "access": "credentialed",
+      "credential_env": ["UCDP_API_KEY"],
+      "credential_location": "query",
+      "credential_parameter": "key",
+      "attribution": "Uppsala Conflict Data Program; provider-coded event records."
+    },
+    {
+      "id": "gdelt-events",
+      "group": "geopolitics-conflict",
+      "provider": "GDELT",
+      "kind": "json",
+      "url": "https://api.gdeltproject.org/api/v2/doc/doc?query=%28Vietnam%20OR%20%22South%20China%20Sea%22%29&mode=ArtList&format=json&maxrecords=75&sort=HybridRel",
+      "access": "public",
+      "minimum_interval_seconds": 5.5,
+      "record_path": "articles",
+      "attribution": "GDELT article metadata; event/article identifiers are provider-scoped."
+    },
+    {
+      "id": "unhcr-population",
+      "group": "geopolitics-conflict",
+      "provider": "UNHCR",
+      "kind": "json",
+      "url": "https://api.unhcr.org/population/v1/population/",
+      "access": "public",
+      "fetch_strategy": "unhcr_population_pages",
+      "page_size": 10000,
+      "max_pages": 25,
+      "year_lookback": 2,
+      "record_path": "items",
+      "attribution": "UNHCR Population Statistics; source-reported population estimates."
+    },
+    {
+      "id": "ocha-reliefweb",
+      "group": "geopolitics-conflict",
+      "provider": "OCHA ReliefWeb",
+      "kind": "json",
+      "url": "https://api.reliefweb.int/v1/disasters?appname=ontology-research&limit=100",
+      "access": "public",
+      "record_path": "data",
+      "attribution": "UN OCHA ReliefWeb disaster reports and updates."
+    },
+    {
+      "id": "polymarket",
+      "group": "geopolitics-conflict",
+      "provider": "Polymarket",
+      "kind": "json",
+      "url": "https://gamma-api.polymarket.com/events?active=true&closed=false&limit=100",
+      "access": "public",
+      "record_path": "",
+      "attribution": "Polymarket market listings; prices are market signals, not event verification."
+    },
+    {
+      "id": "ukmto-incidents",
+      "group": "geopolitics-conflict",
+      "provider": "UKMTO incident republisher",
+      "kind": "json",
+      "url": "https://hormuz.data-tracking.net/api/incidents",
+      "access": "public",
+      "poll_interval_seconds": 1800,
+      "attribution": "UKMTO incidents as republished by Data Tracking; preserve original source links."
+    },
+    {
+      "id": "adsb-lol-military",
+      "group": "military-strategic",
+      "provider": "adsb.lol",
+      "kind": "json",
+      "url": "https://api.adsb.lol/v2/mil",
+      "access": "public",
+      "record_path": "ac",
+      "attribution": "ADSB.lol live aircraft observations; callsigns and type codes are reported metadata."
+    },
+    {
+      "id": "wingbits",
+      "group": "military-strategic",
+      "provider": "Wingbits",
+      "kind": "json",
+      "url": "https://api.wingbits.com",
+      "access": "excluded_by_pinned_upstream_manifest",
+      "credential_env": ["WINGBITS_API_KEY"],
+      "attribution": "The pinned WorldMonitor attribution manifest classifies this host as excluded first-party/display transport; no crawl is enabled."
+    },
+    {
+      "id": "celestrak-active",
+      "group": "military-strategic",
+      "provider": "CelesTrak",
+      "kind": "json",
+      "url": "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=json",
+      "access": "public",
+      "record_path": "",
+      "attribution": "CelesTrak GP orbital elements; orbit elements are not observations of tasking or intent."
+    },
+    {
+      "id": "gpsjam",
+      "group": "military-strategic",
+      "provider": "gpsjam.org",
+      "kind": "csv",
+      "url": "https://gpsjam.org/data/manifest.csv",
+      "access": "public",
+      "fetch_strategy": "gpsjam_latest_daily",
+      "daily_url_template": "https://gpsjam.org/data/{date}-h3_4.csv",
+      "record_id_fields": ["snapshot_date", "hex"],
+      "attribution": "GPS interference aggregates derived from ADS-B reports; not a direct measurement of cause."
+    },
+    {
+      "id": "bbc-world",
+      "group": "news-osint",
+      "provider": "BBC World",
+      "kind": "rss",
+      "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "access": "public",
+      "attribution": "BBC News headlines and publisher links; feed URL pinned from the WorldMonitor catalog."
+    },
+    {
+      "id": "reuters-world",
+      "group": "news-osint",
+      "provider": "Reuters World via Google News RSS",
+      "kind": "rss",
+      "url": "https://news.google.com/rss/search?q=site%3Areuters.com%20world%20when%3A1d&hl=en-US&gl=US&ceid=US:en",
+      "access": "public",
+      "attribution": "Reuters headline metadata via Google News RSS; link to the publisher item."
+    },
+    {
+      "id": "ap-news",
+      "group": "news-osint",
+      "provider": "AP News via Google News RSS",
+      "kind": "rss",
+      "url": "https://news.google.com/rss/search?q=site%3Aapnews.com%20when%3A1d&hl=en-US&gl=US&ceid=US:en",
+      "access": "public",
+      "attribution": "AP headline metadata via Google News RSS; link to the publisher item."
+    },
+    {
+      "id": "al-jazeera",
+      "group": "news-osint",
+      "provider": "Al Jazeera",
+      "kind": "rss",
+      "url": "https://www.aljazeera.com/xml/rss/all.xml",
+      "access": "public",
+      "attribution": "Al Jazeera headlines and publisher links; feed URL pinned from the WorldMonitor catalog."
+    },
+    {
+      "id": "telegram-reviewed-channels",
+      "group": "news-osint",
+      "provider": "Reviewed Telegram channels",
+      "kind": "json",
+      "access": "reviewed_channel_adapter_required",
+      "credential_env": ["TELEGRAM_API_ID", "TELEGRAM_API_HASH"],
+      "attribution": "Each channel must be reviewed and registered individually; posts remain source reports, not verified facts."
+    },
+    {
+      "id": "gie-agsi",
+      "group": "energy-commodities",
+      "provider": "GIE AGSI+",
+      "kind": "json",
+      "url": "https://agsi.gie.eu/api/data?country=DE",
+      "access": "credentialed",
+      "credential_env": ["GIE_API_KEY"],
+      "credential_location": "header",
+      "credential_header": "x-key",
+      "attribution": "Gas Infrastructure Europe AGSI+; use provider-reported observation and publication times."
+    },
+    {
+      "id": "eia-petroleum",
+      "group": "energy-commodities",
+      "provider": "U.S. EIA",
+      "kind": "json",
+      "url": "https://api.eia.gov/v2/petroleum/sum/sndw/data/?frequency=weekly&data[0]=value&length=100",
+      "access": "credentialed",
+      "credential_env": ["EIA_API_KEY"],
+      "credential_location": "query",
+      "credential_parameter": "api_key",
+      "attribution": "U.S. Energy Information Administration; retain series and report dates."
+    },
+    {
+      "id": "iea-data",
+      "group": "energy-commodities",
+      "provider": "IEA",
+      "kind": "json",
+      "access": "provider_api_adapter_required",
+      "credential_env": ["IEA_API_KEY"],
+      "attribution": "International Energy Agency source; adapter and dataset-specific authorization are required."
+    },
+    {
+      "id": "cftc-cot-commodities",
+      "group": "energy-commodities",
+      "provider": "CFTC Commitments of Traders",
+      "kind": "json",
+      "url": "https://publicreporting.cftc.gov/resource/rxbv-e226.json?$limit=200&$order=report_date_as_yyyy_mm_dd%20DESC&$where=futonly_or_combined%3D%27Combined%27",
+      "access": "public",
+      "record_path": "",
+      "attribution": "U.S. Commodity Futures Trading Commission Socrata dataset rxbv-e226."
+    },
+    {
+      "id": "usgs-earthquakes",
+      "group": "environment-disasters",
+      "kind": "json",
+      "provider": "USGS Earthquake Hazards Program",
+      "url": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson",
+      "access": "public",
+      "record_path": "features",
+      "attribution": "USGS earthquake catalog; provider event ID and origin time retained."
+    },
+    {
+      "id": "gdacs-events",
+      "group": "environment-disasters",
+      "kind": "json",
+      "provider": "GDACS",
+      "url": "https://www.gdacs.org/gdacsapi/api/Events/geteventlist/eventsbyarea",
+      "access": "public",
+      "record_path": "features",
+      "attribution": "Global Disaster Alert and Coordination System alerts; alert episodes are provider reports."
+    },
+    {
+      "id": "nasa-eonet",
+      "group": "environment-disasters",
+      "kind": "json",
+      "provider": "NASA EONET",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=30",
+      "access": "public",
+      "record_path": "events",
+      "attribution": "NASA Earth Observatory Natural Event Tracker; events remain source-reported."
+    },
+    {
+      "id": "nasa-firms",
+      "group": "environment-disasters",
+      "kind": "csv",
+      "provider": "NASA FIRMS",
+      "url": "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{credential}/VIIRS_NOAA20_NRT/100,0,140,40/1/{date}",
+      "access": "credentialed",
+      "credential_env": ["FIRMS_MAP_KEY"],
+      "attribution": "NASA FIRMS satellite detections; detections are not confirmed fires."
+    },
+    {
+      "id": "open-meteo-vietnam-scs",
+      "group": "environment-disasters",
+      "kind": "json",
+      "provider": "Open-Meteo",
+      "url": "https://api.open-meteo.com/v1/forecast?latitude=12&longitude=110&current=temperature_2m,wind_speed_10m&timezone=UTC",
+      "access": "public",
+      "attribution": "Open-Meteo forecast snapshot for a fixed Vietnam-SCS reference point; not historical observations."
+    },
+    {
+      "id": "adsb-lol-aviation",
+      "group": "aviation-airspace",
+      "kind": "json",
+      "provider": "adsb.lol",
+      "url": "https://api.adsb.lol/v2/lat/12.5/lon/110/dist/250",
+      "access": "public",
+      "record_path": "ac",
+      "attribution": "ADSB.lol live aircraft observations around Vietnam and the South China Sea."
+    },
+    {
+      "id": "faa-airport-status",
+      "group": "aviation-airspace",
+      "kind": "html",
+      "provider": "FAA",
+      "url": "https://nasstatus.faa.gov/",
+      "access": "public",
+      "attribution": "FAA NAS status page snapshot; page status is not a complete NOTAM feed."
+    },
+    {
+      "id": "faa-notams",
+      "group": "aviation-airspace",
+      "kind": "json",
+      "provider": "FAA NOTAM API",
+      "url": "https://external-api.faa.gov/notamapi/v1/notams?icaoLocation=VVTS",
+      "access": "credentialed",
+      "credential_env": ["FAA_NOTAM_API_KEY"],
+      "credential_location": "header",
+      "credential_header": "client-id",
+      "attribution": "FAA NOTAM records; NOTAM shorthand is retained without inferred cause or duration."
+    },
+    {
+      "id": "icao-notams",
+      "group": "aviation-airspace",
+      "kind": "json",
+      "provider": "ICAO NOTAM API",
+      "url": "https://applications.icao.int/dataservices/api/notams-list?states=VNM&format=json",
+      "access": "credentialed",
+      "credential_env": ["ICAO_API_KEY"],
+      "credential_location": "query",
+      "credential_parameter": "api_key",
+      "attribution": "ICAO NOTAM data service; preserve NOTAM identifiers and issue times."
+    },
+    {
+      "id": "aviationstack-flights",
+      "group": "aviation-airspace",
+      "kind": "json",
+      "provider": "AviationStack",
+      "url": "https://api.aviationstack.com/v1/flights?limit=100",
+      "access": "credentialed",
+      "credential_env": ["AVIATIONSTACK_ACCESS_KEY"],
+      "credential_location": "query",
+      "credential_parameter": "access_key",
+      "attribution": "AviationStack flight records; provider coverage and timestamp semantics retained."
+    },
+    {
+      "id": "china-nbs",
+      "group": "china-coverage",
+      "kind": "html",
+      "provider": "China National Bureau of Statistics",
+      "url": "https://www.stats.gov.cn/english/",
+      "access": "public",
+      "attribution": "Official NBS publication-page snapshot; values require dataset-specific extraction."
+    },
+    {
+      "id": "china-safe",
+      "group": "china-coverage",
+      "kind": "html",
+      "provider": "State Administration of Foreign Exchange",
+      "url": "https://www.safe.gov.cn/en/",
+      "access": "public",
+      "attribution": "Official SAFE publication-page snapshot."
+    },
+    {
+      "id": "china-pboc",
+      "group": "china-coverage",
+      "kind": "html",
+      "provider": "People's Bank of China",
+      "url": "http://www.pbc.gov.cn/en/3688006/index.html",
+      "access": "public",
+      "attribution": "Official PBoC publication-page snapshot."
+    },
+    {
+      "id": "taiwan-mnd",
+      "group": "china-coverage",
+      "kind": "html",
+      "provider": "Taiwan Ministry of National Defense",
+      "url": "https://www.mnd.gov.tw/English/Publication",
+      "access": "public",
+      "attribution": "Taiwan MND official releases; daily reporting windows remain source-specific."
+    },
+    {
+      "id": "shanghai-stock-exchange",
+      "group": "china-coverage",
+      "kind": "html",
+      "provider": "Shanghai Stock Exchange",
+      "url": "https://www.sse.com.cn/",
+      "access": "public",
+      "attribution": "SSE official disclosure site snapshot; issuer identity requires exact registry identifiers."
+    },
+    {
+      "id": "shenzhen-stock-exchange",
+      "group": "china-coverage",
+      "kind": "html",
+      "provider": "Shenzhen Stock Exchange",
+      "url": "https://www.szse.cn/",
+      "access": "public",
+      "attribution": "SZSE official disclosure site snapshot; issuer identity requires exact registry identifiers."
+    },
+    {
+      "id": "cloudflare-radar",
+      "group": "infrastructure-cyber",
+      "kind": "json",
+      "provider": "Cloudflare Radar",
+      "url": "https://api.cloudflare.com/client/v4/radar/annotations/outages?limit=50",
+      "access": "credentialed",
+      "credential_env": ["CLOUDFLARE_API_TOKEN"],
+      "credential_location": "header",
+      "credential_header": "Authorization",
+      "credential_prefix": "Bearer ",
+      "attribution": "Cloudflare Radar outage annotations; an outage report does not establish cause."
+    },
+    {
+      "id": "submarine-cable-map",
+      "group": "infrastructure-cyber",
+      "kind": "json",
+      "provider": "TeleGeography Submarine Cable Map",
+      "url": "https://www.submarinecablemap.com/api/v3/cable/all.json",
+      "access": "public",
+      "attribution": "TeleGeography cable inventory and map geometry; retain attribution."
+    },
+    {
+      "id": "abusech-feodo",
+      "group": "infrastructure-cyber",
+      "kind": "json",
+      "provider": "abuse.ch Feodo Tracker",
+      "url": "https://feodotracker.abuse.ch/downloads/ipblocklist.json",
+      "access": "public",
+      "attribution": "Feodo Tracker C2 infrastructure indicators; indicators are time-sensitive leads."
+    },
+    {
+      "id": "abusech-urlhaus",
+      "group": "infrastructure-cyber",
+      "kind": "json",
+      "provider": "abuse.ch URLhaus",
+      "method": "POST",
+      "url": "https://urlhaus-api.abuse.ch/v1/urls/recent/limit/100/",
+      "access": "public",
+      "record_path": "urls",
+      "attribution": "URLhaus recent malicious URL reports; retain submission and first-seen fields."
+    }
+  ]
+}

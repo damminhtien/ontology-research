@@ -92,6 +92,19 @@ class OperationalQueryAdapter(Protocol):
         """Return one assertion and its provenance fields."""
         ...
 
+    def assertion_history_page(
+        self,
+        subject_id: str,
+        *,
+        include_superseded: bool,
+        limit: int,
+        offset: int,
+        sort_by: str,
+        descending: bool,
+    ) -> QueryPage[dict]:
+        """Return a bounded, stable page of valid-time and recorded history."""
+        ...
+
     def entities_at_page(
         self, location_uri: str, instant: datetime, *, limit: int, offset: int
     ) -> QueryPage[str]:
@@ -304,6 +317,98 @@ class QueryService:
         timeout = _validate_timeout(timeout_ms)
         with self._adapter.query_timeout(timeout):
             return self._adapter.get_assertion(assertion_id)
+
+    def entity_timeline(
+        self,
+        subject_id: str,
+        *,
+        include_superseded: bool = True,
+        limit: int = DEFAULT_PAGE_SIZE,
+        offset: int = 0,
+        sort_by: str = "recorded_at",
+        descending: bool = True,
+        timeout_ms: int = DEFAULT_TIMEOUT_MS,
+    ) -> QueryPage[dict]:
+        """Return a bounded subject history ordered by recorded or valid time."""
+        page_limit, page_offset = _validate_page(limit, offset)
+        if sort_by not in {"recorded_at", "valid_from"}:
+            raise ValueError("sort_by must be 'recorded_at' or 'valid_from'")
+        if not isinstance(include_superseded, bool) or not isinstance(descending, bool):
+            raise ValueError("timeline flags must be booleans")
+        timeout = _validate_timeout(timeout_ms)
+        with self._adapter.query_timeout(timeout):
+            return self._adapter.assertion_history_page(
+                subject_id,
+                include_superseded=include_superseded,
+                limit=page_limit,
+                offset=page_offset,
+                sort_by=sort_by,
+                descending=descending,
+            )
+
+    def entity_conflicts(
+        self,
+        subject_id: str,
+        instant: datetime,
+        *,
+        limit: int = DEFAULT_PAGE_SIZE,
+        offset: int = 0,
+        timeout_ms: int = DEFAULT_TIMEOUT_MS,
+    ) -> QueryPage[dict]:
+        """Find predicates with competing active object values for one subject."""
+        instant = _validate_instant(instant)
+        page_limit, page_offset = _validate_page(limit, offset)
+        timeout = _validate_timeout(timeout_ms)
+        with self._adapter.query_timeout(timeout):
+            source_page = self._adapter.assertions_as_of_page(
+                subject_id,
+                instant,
+                predicate_iri=None,
+                object_kind=None,
+                limit=MAX_CONTRADICTION_SCAN + 1,
+            )
+
+        grouped: dict[str, dict[str, list[dict]]] = {}
+        for assertion in source_page.items[:MAX_CONTRADICTION_SCAN]:
+            predicate = assertion["predicate_iri"]
+            object_key = json.dumps(assertion["object"], sort_keys=True, ensure_ascii=False)
+            grouped.setdefault(predicate, {}).setdefault(object_key, []).append(assertion)
+
+        conflicts = []
+        for predicate, alternatives in sorted(grouped.items()):
+            if len(alternatives) < 2:
+                continue
+            conflicts.append(
+                {
+                    "subject_id": subject_id,
+                    "predicate_iri": predicate,
+                    "valid_at": _format_instant(instant),
+                    "review_status": "unreviewed",
+                    "review_status_source": "derived_from_active_assertions",
+                    "alternatives": [
+                        {
+                            "object": values[0]["object"],
+                            "assertions": sorted(values, key=lambda item: item["assertion_id"]),
+                        }
+                        for _, values in sorted(alternatives.items())
+                    ],
+                }
+            )
+
+        truncated = (
+            len(source_page.items) > MAX_CONTRADICTION_SCAN
+            or source_page.has_more
+            or source_page.truncated
+        )
+        items = tuple(conflicts[page_offset : page_offset + page_limit])
+        return QueryPage(
+            items=items,
+            total=len(conflicts),
+            limit=page_limit,
+            offset=page_offset,
+            has_more=truncated or page_offset + len(items) < len(conflicts),
+            truncated=truncated,
+        )
 
     def contradictions(
         self,
