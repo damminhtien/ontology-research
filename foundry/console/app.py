@@ -39,15 +39,17 @@ from foundry.console.api import (  # noqa: E402
     overview,
     projection,
     registry,
+    semantic,
 )
 from foundry.console.crawl_control import shutdown_crawl_manager  # noqa: E402
 from foundry.query_service import QueryTimeoutError  # noqa: E402
+from foundry.semantic_query import IntentSelector, KeywordIntentSelector  # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
-def create_app() -> FastAPI:
-    """Build the console application with all API routers and the SPA."""
+def create_app(*, semantic_intent_selector: IntentSelector | None = None) -> FastAPI:
+    """Build the console application with optional constrained intent planning."""
 
     @asynccontextmanager
     async def lifespan(_application: FastAPI) -> AsyncIterator[None]:
@@ -65,6 +67,7 @@ def create_app() -> FastAPI:
         ),
         lifespan=lifespan,
     )
+    application.state.semantic_intent_selector = semantic_intent_selector or KeywordIntentSelector()
 
     @application.exception_handler(QueryTimeoutError)
     async def query_timeout_handler(
@@ -77,6 +80,7 @@ def create_app() -> FastAPI:
         overview.router,
         ontology.router,
         registry.router,
+        semantic.router,
         impact.router,
         projection.router,
         monitor.router,

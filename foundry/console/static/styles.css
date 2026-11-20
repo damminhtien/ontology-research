@@ -119,6 +119,17 @@ button:disabled { cursor: wait; opacity: .55; }
 .intelligence-identifiers h4, .identity-forms h4 { margin: 2px 0 9px; }
 .intelligence-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .intelligence-chip { border-radius: 12px; background: #edf3f8; padding: 4px 9px; font-size: 12px; }
+.semantic-query { display: grid; gap: 12px; }
+.semantic-query h3 { margin: 0 0 5px; }
+.semantic-query form { display: grid; gap: 8px; }
+.semantic-query textarea { width: 100%; resize: vertical; }
+.semantic-query form .row { justify-content: space-between; }
+.semantic-example-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px; }
+.semantic-example-list button { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left; }
+.semantic-example-list span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.semantic-query details { margin-top: 12px; }
+.semantic-query pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.muted { color: var(--muted); font-size: 11px; }
 .table-wrap { overflow-x: auto; }
 .conflict-card { border: 1px solid #efd59b; background: #fffaf0; border-radius: 6px; padding: 12px; margin: 9px 0; }
 .conflict-alternative { border-top: 1px solid #f1e4c7; margin-top: 8px; padding-top: 8px; }

@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "profile_id": "urn:world:profile:vietnam-scs",
+  "name": "Vietnam and South China Sea",
+  "preferred_languages": ["vi", "en"],
+  "area_of_interest": {
+    "name": "vietnam-scs",
+    "south": 0.0,
+    "west": 98.0,
+    "north": 25.0,
+    "east": 122.0
+  },
+  "country_reference": {
+    "namespace": "wikidata",
+    "identifier": "Q881",
+    "entity_class": "https://damminhtien.github.io/ontology-research/ontology/middle/location#Country"
+  },
+  "entity_type_mappings": {
+    "aircraft": "https://damminhtien.github.io/ontology-research/ontology/core#Platform",
+    "administrative_region": "https://damminhtien.github.io/ontology-research/ontology/middle/location#AdministrativeRegion",
+    "country": "https://damminhtien.github.io/ontology-research/ontology/middle/location#Country",
+    "organization": "https://damminhtien.github.io/ontology-research/ontology/core#Organization",
+    "person": "https://damminhtien.github.io/ontology-research/ontology/core#Person",
+    "vessel": "https://damminhtien.github.io/ontology-research/ontology/core#Platform"
+  },
+  "relationship_mappings": {
+    "corporate_ownership": "https://damminhtien.github.io/ontology-research/ontology/middle/organization#subsidiaryOf",
+    "event_participation": "https://damminhtien.github.io/ontology-research/ontology/core#participatesIn",
+    "membership": "https://damminhtien.github.io/ontology-research/ontology/core#memberOf",
+    "organization_command": "https://damminhtien.github.io/ontology-research/ontology/middle/organization#subordinateTo",
+    "role_assignment": "https://damminhtien.github.io/ontology-research/ontology/core#hasRole"
+  },
+  "affiliation_policy": {
+    "membership_predicate": "https://damminhtien.github.io/ontology-research/ontology/core#memberOf",
+    "role_predicate": "https://damminhtien.github.io/ontology-research/ontology/core#hasRole",
+    "participation_predicate": "https://damminhtien.github.io/ontology-research/ontology/core#participatesIn",
+    "require_valid_time": true,
+    "require_recorded_time": true,
+    "require_source_and_evidence": true,
+    "membership_object_class": "https://damminhtien.github.io/ontology-research/ontology/core#Agent",
+    "role_object_class": "https://damminhtien.github.io/ontology-research/ontology/core#Role",
+    "participation_object_class": "https://damminhtien.github.io/ontology-research/ontology/core#Event"
+  },
+  "semantic_query_templates": [
+    {
+      "id": "CQ-018",
+      "query_file": "q18_temporal_asof.rq",
+      "label": "Location at a time",
+      "triggers": ["where was", "location at", "as of", "ở đâu", "vị trí tại", "ở thời điểm"],
+      "bindings": {"entity": "iri", "instant": "datetime"},
+      "examples": [
+        "Where was https://data.example/entity/patrol-03 at 2026-08-05T00:00:00Z?",
+        "Vị trí của https://data.example/entity/patrol-03 tại 2026-08-05T00:00:00Z ở đâu?"
+      ]
+    },
+    {
+      "id": "CQ-047",
+      "query_file": "q37_temporal_relationship.rq",
+      "label": "Membership history",
+      "triggers": ["membership", "member of", "affiliation", "thành viên", "thuộc về", "lịch sử trực thuộc"],
+      "bindings": {"person": "iri"},
+      "examples": [
+        "Show membership history for https://data.example/entity/person-01",
+        "Lịch sử thành viên của https://data.example/entity/person-01"
+      ]
+    },
+    {
+      "id": "CQ-027",
+      "query_file": "q22_provenance_sources.rq",
+      "label": "Assertion sources",
+      "triggers": ["which sources", "sources for", "evidence for", "nguồn của", "bằng chứng cho"],
+      "bindings": {"assertion": "iri"},
+      "examples": [
+        "Which sources support urn:assertion:example-01?",
+        "Nguồn nào hỗ trợ urn:assertion:example-01?"
+      ]
+    }
+  ]
+}

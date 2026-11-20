@@ -12,13 +12,13 @@ vụ truy vấn theo nhu cầu.
 
 | Lớp | Thành phần | Điểm vào |
 |-----|------------|----------|
-| **Ontology kernel** | 7 module / 31 lớp / 78 thuộc tính; bốn nhóm SHACL canonical và interop profile | `ontology/` · [Trạng thái ontology](guides/ontology-status.md) |
+| **Ontology kernel** | 7 module / 31 lớp / 79 thuộc tính; bốn nhóm SHACL canonical và interop profile | `ontology/` · [Trạng thái ontology](guides/ontology-status.md) |
 | **Ingestion** | Event log chỉ ghi nối tiếp; identity resolution và SHACL gate | `foundry/` |
 | **Read model** | PostgreSQL indexes cho identity, assertion và relation; replay có checkpoint | `foundry/projector.py` · `foundry/postgres_readmodel.py` |
 | **Query service** | Truy vấn vận hành có phân trang, timeout và giới hạn traversal | `foundry/query_service.py` · [OSINT query contract](https://github.com/damminhtien/ontology-research/blob/main/requirements/osint_queries.md) |
 | **Semantic queries** | 41 CQ regression cases chạy qua RDFLib, Jena và Oxigraph trong các evaluation targets | `benchmarks/` · `make conformance` |
 | **Governance** | SemVer registry, migration preflight, blast radius và stability | `registry/` |
-| **Console UI** | Dashboard / Explorer / Versions / Impact / Monitor / Projection / provenance-scoped reads / token-gated Admin | `make console` |
+| **Console UI** | Dashboard / Explorer / Versions / Impact / Monitor / Projection / Entity 360° / Semantic Query / provenance-scoped reads / token-gated Admin | `make console` |
 
 ## Bắt đầu
 
@@ -49,6 +49,7 @@ Nếu gặp lỗi, bắt đầu với [Tutorial 01 — Getting started](tutorial
 | Nạp dữ liệu thật từ Wikidata vào lake | [Tutorial 03 — Ingestion](tutorials/03-ingestion.md) |
 | Chạy thử Wikidata, GLEIF và tài liệu Wikipedia qua connector | [OSINT source adapters](guides/osint-ingestion.md) |
 | Thu thập feed quanh Việt Nam và Biển Đông | [Vietnam-SCS OSINT ingestion](osint-vietnam-scs.md) |
+| Cấu hình entity/relation semantics và hỏi bằng CQ an toàn | `profiles/vietnam/README.md` · [Semantic Query](tutorials/06-console.md) |
 | Chạy các luồng sửa dữ liệu và data lanes | [Workflows guide](guides/workflows.md) |
 | Tra cứu lệnh CLI | [CLI reference](guides/cli-reference.md) |
 | Xem trạng thái triển khai và backlog | [Roadmap](generated/roadmap.md) |

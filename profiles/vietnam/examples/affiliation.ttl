@@ -1,0 +1,47 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
+@prefix assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#> .
+@prefix ex: <https://data.example/vietnam-profile/> .
+
+# Synthetic contract fixture only. These are not claims about real people or organizations.
+ex:member a core:Person ; core:name "Example Member"@en .
+ex:organization a core:Organization ; core:name "Example Organization"@en .
+ex:role a core:Role ; core:name "Example Maritime Liaison"@en .
+ex:activity a core:Activity ; core:name "Example Regional Meeting"@en .
+ex:source a core:Source ; core:name "Example Public Register"@en .
+
+ex:membership-assertion a assertion:Assertion ;
+    core:describes ex:member ;
+    assertion:predicate core:memberOf ;
+    assertion:hasObject ex:organization ;
+    core:validFrom "2025-01-01T00:00:00Z"^^xsd:dateTime ;
+    core:validUntil "2026-01-01T00:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2025-01-03T00:00:00Z"^^xsd:dateTime ;
+    core:hasSource ex:source ;
+    assertion:status "asserted"^^xsd:string ;
+    assertion:evidenceQuality "direct"^^xsd:string ;
+    assertion:evidence [ assertion:evidenceSource ex:source ; assertion:locator "record 18" ] .
+
+ex:role-assertion a assertion:Assertion ;
+    core:describes ex:member ;
+    assertion:predicate core:hasRole ;
+    assertion:hasObject ex:role ;
+    core:validFrom "2025-01-01T00:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2025-01-03T00:00:00Z"^^xsd:dateTime ;
+    core:hasSource ex:source ;
+    assertion:status "asserted"^^xsd:string ;
+    assertion:evidenceQuality "direct"^^xsd:string ;
+    assertion:evidence [ assertion:evidenceSource ex:source ; assertion:locator "record 18, position" ] .
+
+ex:participation-assertion a assertion:Assertion ;
+    core:describes ex:member ;
+    assertion:predicate core:participatesIn ;
+    assertion:hasObject ex:activity ;
+    core:validFrom "2025-06-14T09:00:00Z"^^xsd:dateTime ;
+    core:validUntil "2025-06-14T17:00:00Z"^^xsd:dateTime ;
+    core:recordedAt "2025-06-16T00:00:00Z"^^xsd:dateTime ;
+    core:hasSource ex:source ;
+    assertion:status "asserted"^^xsd:string ;
+    assertion:evidenceQuality "direct"^^xsd:string ;
+    assertion:evidence [ assertion:evidenceSource ex:source ; assertion:locator "meeting roster" ] .

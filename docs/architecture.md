@@ -1,7 +1,7 @@
 # Kiến trúc Semantic Foundry
 
 - Status: accepted
-- Last synchronized with source: 2026-11-16
+- Last synchronized with source: 2026-11-20
 - Historical audit baseline: ADR-0001…ADR-0010 and an operational snapshot of 47.628 events / 24.217 entities (2026-09-02)
 - Tài liệu mô tả kiến trúc hiện tại và giữ lại các vấn đề trong audit ban đầu cùng cách xử lý. Backlog còn mở nằm trong `roadmap.md`; quyết định kiến trúc được ghi trong ADR.
 
@@ -46,6 +46,15 @@ PostgreSQL store khi cấu hình `FOUNDRY_DATABASE_URL`. `QueryService` phục v
 query vận hành; các CQ SPARQL có đường đánh giá riêng qua RDFLib, Jena và
 Oxigraph. API không chuyển query vận hành sang RDF store.
 
+Console có thêm query ngữ nghĩa tùy chọn: `/api/v1/semantic/query` chọn một CQ
+đã đăng ký trong regional profile, bind tham số kiểu IRI/dateTime rồi chạy
+SPARQL `SELECT` trên RDF projection được cấu hình bằng
+`FOUNDRY_SEMANTIC_QUERY_DATA`. Request không nhận SPARQL do client gửi và
+không dựng graph từ event log mỗi lần gọi. Planner mặc định chạy offline;
+`LlmIntentSelector` có thể nhận completion provider nhưng chỉ được chọn CQ ID
+trong allowlist. Đây là đường đọc ngữ nghĩa, không thay PostgreSQL
+`QueryService`.
+
 Thành phần và invariant đã được triển khai:
 
 | Thành phần | Hợp đồng hiện hành |
@@ -58,6 +67,8 @@ Thành phần và invariant đã được triển khai:
 | Namespace | Freeze guards kiểm tra URI/URN đã phát hành |
 | Merge và split | Correction là event có thể replay; merge ghi same-entity evidence |
 | Core ontology | Core giữ vocabulary dùng chung; term theo domain nằm trong module có version |
+| Vietnam profile | `profiles/vietnam/profile.json` ánh xạ nguồn vào lớp/quan hệ hiện hữu; profile shapes kiểm tra affiliation semantics |
+| Semantic query planner | Planner ánh xạ câu hỏi vào CQ-018/027/047; SPARQL tĩnh, bindings có kiểu, tối đa 100 hàng |
 
 ## 3. Các vấn đề trong audit ban đầu (đã khắc phục)
 

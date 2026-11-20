@@ -47,16 +47,16 @@ Kernel có 53 term. Usage audit ngày 2026-11-12 ghi nhận 32 term được cod
 shape hoặc query đã phát hành tham chiếu. Đây là snapshot, chưa được tính lại
 tự động. Các term chưa có consumer được giữ làm scaffold cho Phase 6–7:
 
-| Nhóm | Thuật ngữ | Phase dự kiến dùng |
+| Nhóm | Thuật ngữ | Trạng thái |
 |---|---|---|
-| Participation / Role | `Activity`, `Role`, `hasRole`, `playsRole`* (`hasParticipant`, `participatesIn`) | Phase 7 (Vietnam profile: chức danh, vai trò) |
-| Capability / Quality | `Capability`, `Quality`, `hasCapability` | Phase 7 (năng lực đơn vị) |
-| Mereology | `hasPart`, `partOf`* (`connectedTo`, `dependsOn`, `controls`) | Phase 6 (federation: quan hệ cấu trúc) |
-| Temporal boundaries | `startTime`, `endTime` | Phase 6 (khoảng thời gian cho State/Activity) |
-| Thuộc tính phản chiếu | `observedBy`, `describedBy`, `hasLocation`, `hasMember`, `externalId` | Thuộc tính nghịch đảo và tiện ích được giữ cho query template |
+| Participation / Role | `Activity`, `Role`, `hasRole`, `participatesIn` | Dùng trong Vietnam profile/fixture; `memberOf` dùng cho membership. `hasParticipant` là inverse chưa dùng trực tiếp. |
+| Capability / Quality | `Capability`, `Quality`, `hasCapability` | Chưa có use case profile cụ thể; vẫn reserved. |
+| Mereology | `hasPart`, `partOf`* (`connectedTo`, `dependsOn`, `controls`) | Chưa có federation workload; vẫn reserved. |
+| Temporal boundaries | `startTime`, `endTime` | Valid-time assertions đủ cho Phase 7 affiliation; vẫn reserved cho State/Activity. |
+| Thuộc tính phản chiếu | `observedBy`, `describedBy`, `hasLocation`, `hasMember`, `externalId` | Inverse/utility terms; giữ theo governance. Không khai báo predicate `playsRole`. |
 
-\* Các term này có trong core nhưng chưa được map. Giữ reserved terms tới khi
-Phase 6/7 chốt thiết kế; việc gỡ term cần MAJOR release theo governance.
+Các term reserved còn lại được giữ theo governance; gỡ term cần MAJOR release.
+Vietnam là profile trên ontology chung, không phải ontology/module mới.
 
 ## 3. Blast radius
 
@@ -80,6 +80,7 @@ Các phụ thuộc trong audit đi theo chiều core → middle → domain → a
 | assertion_shapes.ttl | AssertionShape, DocumentShape | pipeline gate (assertion lane) + `make validate` |
 | identity_shapes.ttl | UnresolvedReferenceShape, IdentifierShape | pipeline gate (pending/identity) + `make validate` |
 | interop_shapes.ttl | PROV-O, SOSA, GeoSPARQL export constraints | `make conformance` trên export hợp lệ và fixture lỗi |
+| profiles/vietnam/affiliation_shapes.ttl | Membership, role assignment, event participation | `make profile-check` với assertion SHACL và fixture có nguồn/evidence |
 
 `make check` tạo quality report và kiểm tra canonical data contracts. Snapshot
 ngày 2026-11-16 có 9 trong 15 shape target theo class với focus node; combined

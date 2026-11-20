@@ -24,6 +24,7 @@ Toàn bộ lệnh CLI của repo. Chạy từ root repo với `.venv/` đã setu
 |------|-----------|
 | `.venv/bin/python tools/validate.py --shapes FILE --data FILE` | SHACL validation, exit ≠ 0 nếu vi phạm |
 | `.venv/bin/python tools/check_dependency_dag.py` | Check DAG import core ← middle ← domain |
+| `make profile-check` | Validate Vietnam profile mappings and affiliation fixture against shared ontology terms |
 
 ## Benchmark & SLO
 
