@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections import deque
 from pathlib import Path
 from typing import Annotated
@@ -19,7 +20,7 @@ from foundry.console.api.provenance_access import (
     visible_source_ids,
 )
 from foundry.events import EventLog
-from foundry.paths import demo_event_log_path
+from foundry.paths import demo_event_log_path, production_event_log_path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -27,7 +28,11 @@ router = APIRouter(prefix="/monitor", tags=["monitoring"])
 
 
 def event_log_path() -> Path:
-    """Resolve FOUNDRY_EVENT_LOG or the external demo-log location."""
+    """Resolve the explicit event log or the active runtime's default log."""
+    if os.environ.get("FOUNDRY_EVENT_LOG"):
+        return demo_event_log_path()
+    if os.environ.get("FOUNDRY_DATABASE_URL"):
+        return production_event_log_path()
     return demo_event_log_path()
 
 

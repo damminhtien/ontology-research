@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import importlib.util
 import os
+from dataclasses import replace
 
 import pytest
 
-from foundry.events import EventLog, make_event
+from foundry.events import EVENT_SCHEMA_VERSION, EventLog, SemanticEvent, make_event, utc_now_iso
 from foundry.identity import IdentityEvidence, IdentityService, SourceRecordIdentity
 from foundry.merge import apply_identity_event
 from foundry.namespaces import CORE_LOCATED_AT
@@ -38,7 +39,10 @@ def test_migrations_are_applied_once(postgres_database):
         rows = connection.execute(
             "SELECT version FROM foundry_schema_migrations ORDER BY version"
         ).fetchall()
-    assert rows == [("001_operational_store.sql",)]
+    assert rows == [
+        ("001_operational_store.sql",),
+        ("002_assertion_surface_lookup.sql",),
+    ]
 
 
 def test_query_service_uses_postgres_indexes_and_bounded_contract(postgres_database, tmp_path):
@@ -109,13 +113,17 @@ def test_query_service_uses_postgres_indexes_and_bounded_contract(postgres_datab
     provenance = queries.assertion_provenance("urn:assert:query-a-b")
     assert provenance["source_ids"] == ["https://example.test/source/query"]
     assert provenance["evidence"][0]["locator"] == "p. 2"
+    history = queries.entity_timeline(entity_a, include_superseded=True)
+    assert [row["assertion_id"] for row in history.items] == [
+        "urn:assert:query-a-b",
+    ]
 
     with (
         pytest.raises(QueryTimeoutError),
-        store.query_timeout(10),
+        store.query_timeout(100),
         postgres_database.connection() as connection,
     ):
-        connection.execute("SELECT pg_sleep(0.05)")
+        connection.execute("SELECT pg_sleep(1)")
 
 
 @pytest.mark.skipif(importlib.util.find_spec("pyoxigraph") is None, reason="optional Oxigraph")
@@ -151,9 +159,29 @@ def test_query_adapter_evaluation_matches_postgres_and_oxigraph(postgres_databas
                         {
                             "source_id": "https://example.test/source/adapter-eval",
                             "locator": "p. 1",
-                            "span": None,
+                            "span": {
+                                "start": 0,
+                                "end": 12,
+                                "unit": "unicode_codepoint",
+                                "exact_text": "Probe Subject",
+                            },
                         }
                     ],
+                    "evidence_quality": "primary",
+                },
+            ),
+            make_event(
+                "AssertionMade",
+                {
+                    "assertion_id": "urn:assert:adapter-eval-earlier",
+                    "subject_id": subject_id,
+                    "predicate_iri": "https://example.test/ontology#connectedTo",
+                    "object": {"kind": "entity", "value": object_id},
+                    "valid_from": "2026-07-01T00:00:00Z",
+                    "valid_until": "2026-08-01T00:00:00Z",
+                    "recorded_at": "2026-08-02T00:00:00Z",
+                    "source_ids": ["https://example.test/source/adapter-eval"],
+                    "evidence": [],
                     "evidence_quality": "primary",
                 },
             ),
@@ -169,6 +197,8 @@ def test_query_adapter_evaluation_matches_postgres_and_oxigraph(postgres_databas
     )
     assert result["equivalent"] is True
     assert result["results"]["as_of_assertions"] == 1
+    assert result["latency_scope"]["comparable"] is True
+    assert result["workload"]["boundary"] == "OperationalQueryBoundary"
 
 
 def test_identity_bindings_survive_adapter_restart_and_split(postgres_database):
@@ -210,6 +240,23 @@ def test_identity_bindings_survive_adapter_restart_and_split(postgres_database):
     assert (first_id, second_id) in final.store.cannot_links()
 
 
+def test_postgres_cannot_link_follows_merge_components(postgres_database):
+    survivor, duplicate, separate = (
+        "urn:world:entity:postgres-" + suffix for suffix in ("survivor", "duplicate", "separate")
+    )
+    identity = IdentityService(PostgresIdentityStore(postgres_database))
+    for entity_id in (survivor, duplicate, separate):
+        identity.register(entity_id=entity_id, entity_type="Platform")
+    cannot_link = IdentityEvidence("different-vessels", "review", "different-hulls", "analyst")
+    identity.add_cannot_link(duplicate, separate, cannot_link)
+    same_entity = IdentityEvidence("same-vessel", "registry", "hull-match", "analyst")
+    identity.merge_entities(survivor, duplicate, same_entity_evidence=same_entity)
+
+    assert identity.cannot_link_evidence_between_components(survivor, separate) == cannot_link
+    with pytest.raises(ValueError, match="cannot-link"):
+        identity.preview_merge(survivor, separate, same_entity_evidence=same_entity)
+
+
 def test_projector_restarts_and_replays_only_new_suffix(postgres_database, tmp_path, monkeypatch):
     log = EventLog(tmp_path / "events.jsonl", max_segment_bytes=1)
     entity_id = "urn:world:entity:postgres-platform"
@@ -249,7 +296,8 @@ def test_projector_restarts_and_replays_only_new_suffix(postgres_database, tmp_p
     assert result["applied"] == 2
     assert result["checkpoint_sequence"] == 2
 
-    reopened = PostgresReadModelStore(PostgresDatabase(postgres_database.dsn))
+    reopened_database = PostgresDatabase(postgres_database.dsn)
+    reopened = PostgresReadModelStore(reopened_database)
     reference, _reference_stats = replay_log(log)
     view = reopened.get_entity(entity_id)
     assert view is not None and view.name == "Persistent Patrol Vessel"
@@ -263,9 +311,7 @@ def test_projector_restarts_and_replays_only_new_suffix(postgres_database, tmp_p
     assert reopened.entities_at("https://example.test/loc/7") == reference.entities_at(
         "https://example.test/loc/7"
     )
-    reopened_identity = IdentityService(
-        PostgresIdentityStore(PostgresDatabase(postgres_database.dsn))
-    )
+    reopened_identity = IdentityService(PostgresIdentityStore(reopened_database))
     assert reopened_identity.store.external_owners("wikidata", "Q7") == {entity_id}
 
     binding = make_event(
@@ -310,3 +356,143 @@ def test_projection_rows_and_checkpoint_rollback_together(postgres_database):
     assert reopened_identity.store.get("urn:world:entity:rollback") is None
     assert reopened.checkpoint_sequence is None
     assert reopened.applied_event_count == 0
+
+
+def test_projector_group_commit_rolls_back_and_replays_idempotently(postgres_database, tmp_path):
+    log = EventLog(tmp_path / "group-commit.jsonl")
+    entity_id = "urn:world:entity:group-commit"
+    log.extend(
+        [
+            make_event(
+                "EntityCreated",
+                {"entity_id": entity_id, "entity_type": "Platform", "name": "Group Commit"},
+            ),
+            make_event(
+                "AssertionMade",
+                {
+                    "assertion_id": "urn:assertion:group-commit",
+                    "subject_id": entity_id,
+                    "predicate_iri": CORE_LOCATED_AT,
+                    "object": {"kind": "location", "value": "https://example.test/loc/1"},
+                    "valid_from": "2026-11-01T00:00:00Z",
+                    "valid_until": None,
+                    "recorded_at": "2026-11-01T00:01:00Z",
+                    "source_ids": ["fixture-source"],
+                    "evidence": [],
+                },
+            ),
+        ]
+    )
+    events = list(log.iter_all())
+    model = PostgresReadModelStore(postgres_database)
+    identity = IdentityService(PostgresIdentityStore(postgres_database))
+    projector = Projector(model)
+
+    def fail_after_second_event(event):
+        apply_identity_event(identity, event)
+        if event.event_id == events[1].event_id:
+            raise RuntimeError("injected group failure")
+
+    with pytest.raises(RuntimeError, match="injected group failure"):
+        projector.apply_batch(events, before_apply=fail_after_second_event)
+
+    assert model.get_entity(entity_id) is None
+    assert model.get_assertion("urn:assertion:group-commit") is None
+    assert identity.store.get(entity_id) is None
+    assert model.checkpoint_sequence is None
+    assert model.applied_event_count == 0
+
+    result = projector.apply_batch(
+        events,
+        before_apply=lambda event: apply_identity_event(identity, event),
+    )
+    assert (result.applied, result.skipped, result.duplicates) == (2, 0, 0)
+    replayed = projector.apply_batch(
+        events,
+        before_apply=lambda event: apply_identity_event(identity, event),
+    )
+    assert (replayed.applied, replayed.skipped, replayed.duplicates) == (0, 0, 2)
+    assert model.checkpoint_sequence == 2
+    assert model.applied_event_count == 2
+    assert postgres_database.verify_projection(log.last_sequence)["consistent"] is True
+
+
+def test_new_name_collision_reopens_resolved_pending_assertions(postgres_database, tmp_path):
+    log = EventLog(tmp_path / "pending-name-collision.jsonl")
+    first_id = "urn:world:entity:pending-first"
+    second_id = "urn:world:entity:pending-second"
+    log.extend(
+        [
+            make_event(
+                "AssertionMade",
+                {
+                    "assertion_id": "urn:assertion:pending-name-collision",
+                    "subject_id": "",
+                    "subject_ref": {"surface_form": "Ghost Vessel", "entity_type": "Platform"},
+                    "predicate_iri": CORE_LOCATED_AT,
+                    "object": {"kind": "location", "value": "https://example.test/loc/2"},
+                    "valid_from": "2026-11-01T00:00:00Z",
+                    "valid_until": None,
+                    "recorded_at": "2026-11-01T00:01:00Z",
+                    "source_ids": ["fixture-source"],
+                    "evidence": [],
+                },
+            ),
+            make_event(
+                "EntityCreated",
+                {"entity_id": first_id, "entity_type": "Platform", "name": "Ghost Vessel"},
+            ),
+        ]
+    )
+    model = PostgresReadModelStore(postgres_database)
+    identity = IdentityService(PostgresIdentityStore(postgres_database))
+
+    first = project_once(log, identity, model, limit=2)
+    assert first["applied"] == 2
+    resolved = model.get_assertion("urn:assertion:pending-name-collision")
+    assert resolved["subject_id"] == first_id
+    assert resolved["subject_status"] == "resolved"
+
+    log.append(
+        make_event(
+            "EntityCreated",
+            {"entity_id": second_id, "entity_type": "Platform", "name": "Ghost Vessel"},
+        )
+    )
+    project_once(log, identity, model)
+    ambiguous = model.get_assertion("urn:assertion:pending-name-collision")
+    assert ambiguous["subject_id"] == ""
+    assert ambiguous["subject_status"] == "ambiguous"
+
+
+def test_group_ledger_records_skipped_events_with_checkpoint(postgres_database):
+    entity_id = "urn:world:entity:group-ledger"
+    created = replace(
+        make_event(
+            "EntityCreated",
+            {"entity_id": entity_id, "entity_type": "Platform", "name": "Ledger Test"},
+        ),
+        sequence=1,
+    )
+    unknown = SemanticEvent(
+        event_id="future-unsupported-ledger-event",
+        event_type="FutureUnsupportedEvent",
+        schema_version=EVENT_SCHEMA_VERSION,
+        occurred_at=utc_now_iso(),
+        payload={"payload": "ignored by this projector"},
+        sequence=2,
+    )
+    model = PostgresReadModelStore(postgres_database)
+    projector = Projector(model)
+
+    result = projector.apply_batch([created, unknown])
+
+    assert (result.applied, result.skipped, result.duplicates) == (1, 1, 0)
+    assert model.checkpoint_sequence == 2
+    assert model.applied_event_count == 1
+    with postgres_database.connection() as connection:
+        rows = connection.execute(
+            "SELECT sequence, applied FROM projection_events ORDER BY sequence"
+        ).fetchall()
+    assert rows == [(1, True), (2, False)]
+    assert postgres_database.verify_projection(2)["consistent"] is True

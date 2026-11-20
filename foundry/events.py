@@ -133,7 +133,7 @@ def make_event(
         normalized_payload["source_ids"] = list(
             normalize_source_ids(normalized_payload["source_ids"])
         )
-    if normalized_payload.get("evidence") is not None:
+    if event_type == EVENT_TYPE_ASSERTION_MADE and normalized_payload.get("evidence") is not None:
         sources, evidence = normalize_evidence(
             normalized_payload.get("source_ids") or (), normalized_payload["evidence"]
         )

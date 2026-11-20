@@ -200,6 +200,7 @@ class IngestionPipeline:
         external_source: str | None = None,
         external_id: str | None = None,
         aliases: list[str] | None = None,
+        content_hash: str | None = None,
     ) -> IngestResult:
         """Ingest one slowly-changing structured entity record.
 
@@ -220,6 +221,11 @@ class IngestionPipeline:
             raise ValueError("external_source and external_id must be non-empty")
         if entity_type not in ALLOWED_ENTITY_TYPES:
             return _reject("", f"entity_type {entity_type!r} is not an ingestible core type")
+        if content_hash is not None and (
+            len(content_hash) != 64
+            or any(character not in "0123456789abcdef" for character in content_hash)
+        ):
+            raise ValueError("content_hash must be a lowercase SHA-256 hex digest")
 
         source_record = SourceRecordIdentity(
             source_id, record_id if record_id is not None else source_id
@@ -248,9 +254,13 @@ class IngestionPipeline:
         command_hash = content_sha256(
             json.dumps(command, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         )
+        source_content_hash = content_hash or command_hash
+        fingerprint_payload = {"event_type": EVENT_TYPE_ENTITY_CREATED, "command": command}
+        if content_hash is not None:
+            fingerprint_payload["source_content_hash"] = source_content_hash
         command_fingerprint = content_sha256(
             json.dumps(
-                {"event_type": EVENT_TYPE_ENTITY_CREATED, "command": command},
+                fingerprint_payload,
                 ensure_ascii=False,
                 sort_keys=True,
                 separators=(",", ":"),
@@ -258,7 +268,7 @@ class IngestionPipeline:
         )
         operation_key = (
             f"entity-record:{stable_source_record_key(source_id, source_record.record_id)}"
-            f":{command_hash}"
+            f":{source_content_hash}"
         )
         prior = self._log.find_idempotency(
             operation_key,
@@ -306,7 +316,7 @@ class IngestionPipeline:
                     "source_record_key": stable_source_record_key(
                         source_record.source_id, source_record.record_id
                     ),
-                    "content_hash": command_hash,
+                    "content_hash": source_content_hash,
                     "name": name.strip(),
                     "name_aliases": normalized_aliases,
                     "external_ids": external_ids,
@@ -335,7 +345,7 @@ class IngestionPipeline:
                 "source_record_key": stable_source_record_key(
                     source_record.source_id, source_record.record_id
                 ),
-                "content_hash": command_hash,
+                "content_hash": source_content_hash,
                 "identity_evidence": dict(resolution.evidence or {}),
             },
         )
@@ -724,12 +734,18 @@ class IngestionPipeline:
             if candidate.valid_from is None:
                 skipped += 1
                 continue
-            found = self._identity.lookup(name=candidate.subject_name)
+            if candidate.subject_external_source and candidate.subject_external_id:
+                found = self._identity.lookup(
+                    external_source=candidate.subject_external_source,
+                    external_id=candidate.subject_external_id,
+                )
+            else:
+                found = self._identity.lookup(name=candidate.subject_name)
             if found.method not in {"alias", "external_id"}:
                 self._queue_review(
                     reference_name=candidate.subject_name,
-                    external_source=None,
-                    external_id=None,
+                    external_source=candidate.subject_external_source,
+                    external_id=candidate.subject_external_id,
                     entity_type="",
                     candidates=found.candidates,
                     reason=f"extracted from document {document_id}: {candidate.snippet}",
@@ -1206,19 +1222,19 @@ class IngestionPipeline:
         entity_type: str,
         candidates: tuple[str, ...],
         reason: str,
+        idempotency_key: str | None = None,
     ) -> SemanticEvent | None:
         """Append a durable ``ResolutionReviewQueued`` fact for a rejection.
 
         Rejections are no longer transient stdout noise: the review queue is
         replayable from the log, so a human review UI can drain it and a
         re-run of the same source does not silently lose it. Within one
-        pipeline run the same reference is queued only once (cross-run
-        repeats are legitimate — the reference is still unresolved).
+        pipeline run the same reference is queued only once. Source adapters
+        can also provide an idempotency key to deduplicate retries after restart.
         """
         key = (reference_name, external_source, external_id or "")
         if key in self._queued_references:
             return None
-        self._queued_references.add(key)
         event = make_event(
             "ResolutionReviewQueued",
             {
@@ -1230,5 +1246,32 @@ class IngestionPipeline:
                 "reason": reason,
             },
         )
-        self._log.append(event)
-        return event
+        if idempotency_key is None:
+            self._log.append(event)
+            committed = event
+        else:
+            committed = self._log.commit([event], idempotency_key=idempotency_key).events[0]
+        self._queued_references.add(key)
+        return committed
+
+    def queue_identity_review(
+        self,
+        *,
+        reference_name: str | None,
+        external_source: str | None,
+        external_id: str | None,
+        entity_type: str,
+        candidates: tuple[str, ...],
+        reason: str,
+        idempotency_key: str | None = None,
+    ) -> SemanticEvent | None:
+        """Append a durable review item for a source-mapped identity conflict."""
+        return self._queue_review(
+            reference_name=reference_name,
+            external_source=external_source,
+            external_id=external_id,
+            entity_type=entity_type,
+            candidates=candidates,
+            reason=reason,
+            idempotency_key=idempotency_key,
+        )

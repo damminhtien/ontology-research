@@ -8,8 +8,8 @@
 
 <https://damminhtien.github.io/ontology-research/ontology/middle/organization> a owl:Ontology ;
     dcterms:title "Middle Layer: Organization Structure"@en ;
-    dcterms:description "Command and administrative structure between organizations on top of core:Organization."@en ;
-    dcterms:version "0.1.0" ;
+    dcterms:description "Ownership, command and administrative relationships between organizations on top of core:Organization."@en ;
+    dcterms:version "0.2.0" ;
     owl:imports <https://damminhtien.github.io/ontology-research/ontology/core> ;
     vann:preferredNamespacePrefix "organization" ;
     vann:preferredNamespaceUri "https://damminhtien.github.io/ontology-research/ontology/middle/organization#" .
@@ -22,4 +22,9 @@ organization:subordinateTo a owl:ObjectProperty ;
     rdfs:domain core:Organization ; rdfs:range core:Organization ;
     rdfs:label "subordinate to"@en ;
     rdfs:comment "Command/administrative subordination between organizations. Use transitive queries (subordinateTo+) for chains."@en .
+
+organization:subsidiaryOf a owl:ObjectProperty ;
+    rdfs:domain core:Organization ; rdfs:range core:Organization ;
+    rdfs:label "subsidiary of"@en ;
+    rdfs:comment "Corporate ownership relationship where one organization is a subsidiary of another."@en .
 

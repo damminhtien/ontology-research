@@ -1,12 +1,30 @@
 /** Fetch helpers for the console API. */
 
-export async function get(path) {
-  const res = await fetch(path);
+export async function get(path, token) {
+  const res = await fetch(path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail ?? ""));
   }
   return res.json();
+}
+
+export async function put(path, body, token) {
+  const res = await fetch(path, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const payload = await res.json().catch(() => ({ detail: res.statusText }));
+  if (!res.ok) {
+    throw new Error(typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail ?? ""));
+  }
+  return payload;
 }
 
 export async function post(path, body, token) {

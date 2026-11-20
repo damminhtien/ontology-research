@@ -1,0 +1,70 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix core: <https://damminhtien.github.io/ontology-research/ontology/core#> .
+@prefix assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#> .
+@prefix profile: <urn:world:profile:vietnam-scs:shape:> .
+
+profile:AffiliationShape a sh:NodeShape ;
+    sh:targetClass assertion:Assertion ;
+    sh:sparql [
+        sh:message "A membership assertion subject must be a core:Agent."@en ;
+        sh:select """
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+            PREFIX assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#>
+            SELECT $this WHERE {
+              $this assertion:predicate core:memberOf ;
+                    core:describes ?member .
+              FILTER NOT EXISTS { ?member rdf:type core:Agent . }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "A membership assertion object must be a core:Agent."@en ;
+        sh:select """
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+            PREFIX assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#>
+            SELECT $this WHERE {
+              $this assertion:predicate core:memberOf ; assertion:hasObject ?organization .
+              FILTER NOT EXISTS { ?organization rdf:type core:Agent . }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "A role assignment must point to a core:Role."@en ;
+        sh:select """
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+            PREFIX assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#>
+            SELECT $this WHERE {
+              $this assertion:predicate core:hasRole ; assertion:hasObject ?role .
+              FILTER NOT EXISTS { ?role rdf:type core:Role . }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "A role must not be reclassified as a core:Agent."@en ;
+        sh:select """
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+            PREFIX assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#>
+            SELECT $this WHERE {
+              $this assertion:predicate core:hasRole ; assertion:hasObject ?role .
+              ?role rdf:type core:Agent .
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "An event-participation assertion must point to a core:Event."@en ;
+        sh:select """
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX core: <https://damminhtien.github.io/ontology-research/ontology/core#>
+            PREFIX assertion: <https://damminhtien.github.io/ontology-research/ontology/middle/assertion#>
+            SELECT $this WHERE {
+              $this assertion:predicate core:participatesIn ;
+                    assertion:hasObject ?event .
+              FILTER NOT EXISTS { ?event rdf:type core:Event . }
+            }
+        """
+    ] .

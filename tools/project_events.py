@@ -7,6 +7,7 @@ import os
 import sys
 import time
 from collections import Counter
+from itertools import islice
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -15,11 +16,13 @@ if REPO_ROOT.as_posix() not in sys.path:
 
 from foundry.events import EventLog  # noqa: E402
 from foundry.identity import IdentityService  # noqa: E402
-from foundry.merge import apply_identity_event  # noqa: E402
+from foundry.merge import apply_identity_events  # noqa: E402
 from foundry.paths import production_event_log_path  # noqa: E402
 from foundry.postgres import PostgresDatabase, PostgresIdentityStore  # noqa: E402
 from foundry.postgres_readmodel import PostgresReadModelStore  # noqa: E402
 from foundry.projector import Projector  # noqa: E402
+
+PROJECTOR_GROUP_COMMIT_SIZE = 10_000
 
 
 def project_once(
@@ -29,25 +32,30 @@ def project_once(
     *,
     limit: int | None = None,
 ) -> dict[str, object]:
-    """Apply one committed suffix and return stable counters."""
+    """Apply a committed suffix in bounded, atomic group commits."""
+    if limit is not None and limit < 1:
+        raise ValueError("limit must be positive")
+    if getattr(identity.store, "database", None) is not model.database:
+        raise ValueError("identity and read model must share one PostgresDatabase transaction")
+
     checkpoint = model.checkpoint_sequence or 0
     projector = Projector(model)
     counts: Counter[str] = Counter()
     applied = skipped = 0
-    for event in log.iter_after_sequence(checkpoint):
-        if limit is not None and applied + skipped >= limit:
+    events = iter(log.iter_after_sequence(checkpoint))
+    while limit is None or applied + skipped < limit:
+        remaining = limit - applied - skipped if limit is not None else PROJECTOR_GROUP_COMMIT_SIZE
+        group = list(islice(events, min(PROJECTOR_GROUP_COMMIT_SIZE, remaining)))
+        if not group:
             break
-        with model.transaction():
-            if model.is_applied(event.event_id):
-                counts["duplicates"] += 1
-                continue
-            apply_identity_event(identity, event)
-            if projector.apply(event):
-                applied += 1
-            else:
-                model.mark_skipped(event.event_id, event.sequence)
-                skipped += 1
-            counts[event.event_type] += 1
+        result = projector.apply_batch(
+            group,
+            before_apply_batch=lambda events: apply_identity_events(identity, events),
+        )
+        applied += result.applied
+        skipped += result.skipped
+        counts.update(result.by_type)
+        counts["duplicates"] += result.duplicates
     return {
         "applied": applied,
         "skipped": skipped,

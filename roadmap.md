@@ -72,6 +72,7 @@ Mười ADR nằm trong `docs/adr/`. Bảng triển khai theo commit ở
 | **4** — Domain vertical | Location, organization, sensor và tracking modules; domain SHACL và ingestion mapping |
 | **5** | SemVer registry, blast radius, stability, migration/alignment; merge/split/review/backfill/import; Document/Assertion; reference lane; streaming projector; identity store boundary; Console write có token và audit |
 | **6, nền tảng** | Provenance access, PostgreSQL identity/read model, bounded `QueryService` và hợp đồng đánh giá query adapter |
+| **7 — Vietnam profile và semantic query** | `profiles/vietnam/profile.json` tái sử dụng lớp/quan hệ chung; affiliation SHACL phân biệt membership, role và participation; Console chạy ba CQ đã đăng ký qua Qwen trên Ollama local, có phrase fallback. Kiểm tra bằng `make profile-check` và query API tests. |
 
 Kiến trúc nền B1–B8 theo `docs/architecture.md` §4: log transport bền vững
 (§4.1), projector sequence-ordered (§4.3), lake manifest-authoritative (§4.4),
@@ -95,7 +96,7 @@ còn số đo latency không được xem là engine-only comparison.
 
 | # | Việc | Ghi chú |
 |---|------|---------|
-| 1 | **Scale ladder** 10M entity / 100M edge → 100M / 1B | Probe in-memory đạt 100K entity / 1M location observation ngày 2026-11-12. PostgreSQL backend đã có; cần benchmark durable projection, build index và recovery ở 1M rồi 10M entity. Xem `requirements/scale_targets.md`. |
+| 1 | **Scale ladder** 10M entity / 100M edge → 100M / 1B | L0 đạt 10,243 events/s; L1 sau COPY ledger đạt 9,557, vẫn dưới gate 10,000. L2 pre-COPY đạt 5,846 và giảm 29.74% giữa hai nửa; chưa đo lại trên code mới. Query/recovery/checkpoint gates đạt ở các run. L3–L4 chưa đo; assertion write vẫn chiếm 45.1% profile prefix. Xem `requirements/scale_targets.md`. |
 | 2 | **Federation** theo domain KG và query layer | Nhiều domain KG cùng tuân thủ `core`, `middle` và semantic contracts |
 | 3 | **Multi-writer log** | Chưa triển khai; chỉ thiết kế khi benchmark cho thấy single-writer là giới hạn |
 | 4 | **Vector candidate generation** | Có thể bổ sung candidate generation; mọi match vẫn cần evidence và review policy hiện hành |
@@ -104,9 +105,9 @@ còn số đo latency không được xem là engine-only comparison.
 
 | # | Việc | Ghi chú |
 |---|------|---------|
-| 1 | `profiles/vietnam/` — VN là **profile**, không phải ontology riêng | Tái sử dụng domain chung (`Vietnam rdf:type Country`); không tạo `VietnameseCityClass` |
-| 2 | **Membership/affiliation lane** | `organization.ttl` đã có `memberOf`; dùng reserved terms participation/role |
-| 3 | **AI semantic query interface** | NL → competency-query templates → validated SPARQL |
+| 1 | `profiles/vietnam/` — VN là **profile**, không phải ontology riêng | Hoàn thành: `profiles/vietnam/profile.json` ánh xạ tới `location:Country`, `location:AdministrativeRegion`, `core:Platform` và các lớp chung. Không thêm lớp Vietnam-specific; Q881 là external reference. |
+| 2 | **Membership/affiliation lane** | Hoàn thành: generic `AssertionMade` với `memberOf`, `hasRole` hoặc `participatesIn`; profile SHACL kiểm tra object type và cấm role reclassify agent. |
+| 3 | **AI semantic query interface** | Hoàn thành: Console `/api/v1/semantic/query` dùng Qwen qua Ollama local để chọn CQ-018/027/047, bind IRI/dateTime có kiểu và chỉ chạy SELECT trong catalog; phrase map offline làm fallback. |
 
 ### 3.4 Giải phóng nợ ontology (review mỗi milestone)
 

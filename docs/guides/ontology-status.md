@@ -5,7 +5,7 @@ Báo cáo này tổng hợp kết quả từ `tools/manage_ontology.py stats`, `
 `benchmarks/queries`. Chạy `make quality` để tạo lại các phép đo schema, focus
 node của SHACL và kết quả CQ; xem [phương pháp đánh giá](ontology-quality.md).
 
-## 1. Inventory: 7 module, 31 lớp, 78 thuộc tính
+## 1. Inventory: 7 module, 31 lớp, 79 thuộc tính
 
 | Module | Version | Classes | Object properties | Datatype properties | Dùng bởi production code |
 |--------|-----|--------:|----------:|-----------:|--------------------------|
@@ -13,7 +13,7 @@ node của SHACL và kết quả CQ; xem [phương pháp đánh giá](ontology-q
 | middle/assertion | 1 | 3 | 7 | 15 | `foundry/assertions.py`, `ingestion.py` |
 | middle/identity | 1 | 2 | 1 | 3 | `foundry/identity_rdf.py` (Identifier, unresolved references) |
 | middle/location | 1 | 2 | 0 | 0 | Country, AdministrativeRegion |
-| middle/organization | 1 | 0 | 1 | 0 | membership mapping (chưa có lane) |
+| middle/organization | 1 | 0 | 2 | 0 | `foundry/public_sources.py` (`subsidiaryOf`) |
 | domain/sensor | 2 | 1 | 2 | 0 | `foundry/tracking.py` |
 | domain/tracking | 2 | 2 | 7 | 8 | `foundry/tracking.py`, `readmodel.py` |
 
@@ -47,16 +47,16 @@ Kernel có 53 term. Usage audit ngày 2026-11-12 ghi nhận 32 term được cod
 shape hoặc query đã phát hành tham chiếu. Đây là snapshot, chưa được tính lại
 tự động. Các term chưa có consumer được giữ làm scaffold cho Phase 6–7:
 
-| Nhóm | Thuật ngữ | Phase dự kiến dùng |
+| Nhóm | Thuật ngữ | Trạng thái |
 |---|---|---|
-| Participation / Role | `Activity`, `Role`, `hasRole`, `playsRole`* (`hasParticipant`, `participatesIn`) | Phase 7 (Vietnam profile: chức danh, vai trò) |
-| Capability / Quality | `Capability`, `Quality`, `hasCapability` | Phase 7 (năng lực đơn vị) |
-| Mereology | `hasPart`, `partOf`* (`connectedTo`, `dependsOn`, `controls`) | Phase 6 (federation: quan hệ cấu trúc) |
-| Temporal boundaries | `startTime`, `endTime` | Phase 6 (khoảng thời gian cho State/Activity) |
-| Thuộc tính phản chiếu | `observedBy`, `describedBy`, `hasLocation`, `hasMember`, `externalId` | Thuộc tính nghịch đảo và tiện ích được giữ cho query template |
+| Participation / Role | `Activity`, `Role`, `hasRole`, `participatesIn` | Dùng trong Vietnam profile/fixture; `memberOf` dùng cho membership. `hasParticipant` là inverse chưa dùng trực tiếp. |
+| Capability / Quality | `Capability`, `Quality`, `hasCapability` | Chưa có use case profile cụ thể; vẫn reserved. |
+| Mereology | `hasPart`, `partOf`* (`connectedTo`, `dependsOn`, `controls`) | Chưa có federation workload; vẫn reserved. |
+| Temporal boundaries | `startTime`, `endTime` | Valid-time assertions đủ cho Phase 7 affiliation; vẫn reserved cho State/Activity. |
+| Thuộc tính phản chiếu | `observedBy`, `describedBy`, `hasLocation`, `hasMember`, `externalId` | Inverse/utility terms; giữ theo governance. Không khai báo predicate `playsRole`. |
 
-\* Các term này có trong core nhưng chưa được map. Giữ reserved terms tới khi
-Phase 6/7 chốt thiết kế; việc gỡ term cần MAJOR release theo governance.
+Các term reserved còn lại được giữ theo governance; gỡ term cần MAJOR release.
+Vietnam là profile trên ontology chung, không phải ontology/module mới.
 
 ## 3. Blast radius
 
@@ -80,6 +80,7 @@ Các phụ thuộc trong audit đi theo chiều core → middle → domain → a
 | assertion_shapes.ttl | AssertionShape, DocumentShape | pipeline gate (assertion lane) + `make validate` |
 | identity_shapes.ttl | UnresolvedReferenceShape, IdentifierShape | pipeline gate (pending/identity) + `make validate` |
 | interop_shapes.ttl | PROV-O, SOSA, GeoSPARQL export constraints | `make conformance` trên export hợp lệ và fixture lỗi |
+| profiles/vietnam/affiliation_shapes.ttl | Membership, role assignment, event participation | `make profile-check` với assertion SHACL và fixture có nguồn/evidence |
 
 `make check` tạo quality report và kiểm tra canonical data contracts. Snapshot
 ngày 2026-11-16 có 9 trong 15 shape target theo class với focus node; combined
@@ -91,11 +92,9 @@ có 41 câu bắt buộc trên workload cố định; xem
 
 ## 5. Gaps & hành động
 
-1. **organization.ttl chỉ có 1 thuộc tính (`memberOf`), 0 class** — membership
-   lane chưa có data source; giữ nguyên tới khi Phase 7 VN profile cần.
-2. **Reserved terms (21)** — đánh dấu trong report này thay vì xoá; reviewed
+1. **Reserved terms (21)** — đánh dấu trong report này thay vì xoá; reviewed
    lại mỗi Phase 6/7 milestone.
-3. **`core:externalId` chưa được dùng** — giá trị theo nguồn được biểu diễn
+2. **`core:externalId` chưa được dùng** — giá trị theo nguồn được biểu diễn
    thành tài nguyên `identity:Identifier`, thay vì literal trực tiếp trên
    entity; RDF mapper tạo chúng từ `EntityCreated` và `ExternalIdBound`. Giữ
    thuộc tính core dự trữ cho tới khi có quyết định tương thích rõ ràng.

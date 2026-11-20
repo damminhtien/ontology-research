@@ -59,9 +59,17 @@ builds or refreshes that snapshot, reads the existing PostgreSQL projection
 without resetting it, and runs matched entity lookup, as-of relationship and
 assertion-provenance probes. Set `FOUNDRY_DATABASE_URL` for the operational
 database. PostgreSQL must have projected the event-log sequence first. The
-report checks result equivalence and records latency boundaries; PostgreSQL
-timings include `QueryService` and psycopg, while Oxigraph timings use direct
-`Store.query`, so those latency figures are not engine-equivalent.
+report routes both backends through `OperationalQueryBoundary` and compares the
+same normalized results and bounded arguments. PostgreSQL delegates to the
+production `QueryService`; Oxigraph executes the corresponding SPARQL operation
+and normalizes its result to the same DTO. The latency figures include each
+backend adapter and result normalization, exclude HTTP, and are comparable at
+that boundary. They are not raw engine-only timings.
+
+PostgreSQL enforces the query deadline with a server-side statement timeout.
+pyoxigraph 0.5 does not expose query cancellation, so its adapter consumes the
+lazy result iterator and checks elapsed time afterward. The report records this
+difference; the comparison does not claim identical cancellation behavior.
 
 This contract does not define SPARQL federation, query rewriting across stores,
 or a production traffic switch to Oxigraph.

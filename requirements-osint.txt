@@ -1,0 +1,2 @@
+# Optional dependency for bounded AISStream WebSocket collection.
+websockets==15.0.1
