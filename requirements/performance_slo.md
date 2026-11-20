@@ -70,9 +70,10 @@ Recovery ở đây là replay vào read model mới; chưa gồm restore snapsho
 
 `make check` chạy benchmark đầy đủ cho ingestion, Parquet, projector và truy vấn
 lake với 60 entity tổng hợp trong 11 iteration độc lập, giữ cùng quy mô với
-baseline đã commit. Gate so sánh throughput median của từng stage với ngưỡng tuyệt
-đối và yêu cầu throughput đạt ít nhất 1/1.5 baseline. Nhiều iteration giúp một lần runner bị gián đoạn ngắn ít chi
-phối kết quả. Gate không tự ghi lại hoặc hiệu chỉnh baseline.
+baseline đã commit. Gate so sánh median throughput của từng stage với ngưỡng tuyệt
+đối và baseline, đồng thời yêu cầu throughput đạt ít nhất 1/1.5 baseline. Nhiều
+iteration giúp một lần runner bị gián đoạn ngắn ít chi phối kết quả. Gate không
+tự ghi lại hoặc hiệu chỉnh baseline.
 
 ## Quy tắc đo
 
