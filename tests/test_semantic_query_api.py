@@ -7,12 +7,39 @@ import json
 from fastapi.testclient import TestClient
 
 from foundry.console.api import semantic
-from foundry.console.app import app
-from foundry.semantic_query import REPO_ROOT
+from foundry.console.app import create_app
+from foundry.semantic_query import (
+    DEFAULT_OLLAMA_MODEL,
+    REPO_ROOT,
+    KeywordIntentSelector,
+    LlmIntentSelector,
+    OllamaChatCompletion,
+)
+
+
+def _client() -> TestClient:
+    return TestClient(create_app(semantic_intent_selector=KeywordIntentSelector()))
+
+
+def test_console_defaults_to_local_qwen_selector(monkeypatch):
+    for name in (
+        "FOUNDRY_SEMANTIC_QUERY_MODEL",
+        "OLLAMA_MODEL",
+        "FOUNDRY_OLLAMA_BASE_URL",
+        "OLLAMA_HOST",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    app = create_app()
+    selector = app.state.semantic_intent_selector
+
+    assert isinstance(selector, LlmIntentSelector)
+    assert isinstance(selector._complete, OllamaChatCompletion)
+    assert selector._complete.model == DEFAULT_OLLAMA_MODEL
+    assert selector._complete.base_url == "http://127.0.0.1:11434"
 
 
 def test_query_catalog_is_available_without_semantic_data():
-    client = TestClient(app)
+    client = _client()
 
     response = client.get("/api/v1/semantic/templates")
 
@@ -23,7 +50,7 @@ def test_query_catalog_is_available_without_semantic_data():
 def test_query_requires_explicit_semantic_projection(monkeypatch):
     monkeypatch.delenv("FOUNDRY_SEMANTIC_QUERY_DATA", raising=False)
     semantic.reset_cache()
-    client = TestClient(app)
+    client = _client()
 
     response = client.post(
         "/api/v1/semantic/query",
@@ -40,7 +67,7 @@ def test_query_runs_registered_template_on_configured_rdf(monkeypatch):
     data = (REPO_ROOT / "benchmarks" / "datasets" / "semantic_workload.ttl").as_posix()
     monkeypatch.setenv("FOUNDRY_SEMANTIC_QUERY_DATA", data)
     semantic.reset_cache()
-    client = TestClient(app)
+    client = _client()
 
     response = client.post(
         "/api/v1/semantic/query",
@@ -61,7 +88,7 @@ def test_query_endpoint_rejects_client_supplied_sparql(monkeypatch):
         (REPO_ROOT / "benchmarks" / "datasets" / "semantic_workload.ttl").as_posix(),
     )
     semantic.reset_cache()
-    client = TestClient(app)
+    client = _client()
 
     response = client.post(
         "/api/v1/semantic/query",
@@ -82,7 +109,7 @@ def test_provenance_query_obeys_source_scope(monkeypatch):
         json.dumps({"authorized-test-token": ["https://data.example/source/report-2026-08-09"]}),
     )
     semantic.reset_cache()
-    client = TestClient(app)
+    client = _client()
     payload = {"question": "Which sources support https://data.example/entity/assert-17-corrected?"}
 
     anonymous = client.post("/api/v1/semantic/query", json=payload)

@@ -39,10 +39,13 @@ in `profiles/vietnam/examples/` enforce these object-type distinctions.
 The API only selects a query from `semantic_query_templates`, loads its
 registered CQ query file, validates the SPARQL as a `SELECT`, and binds typed
 parameters separately. It never accepts SPARQL text from the request. The
-current offline planner recognizes a small Vietnamese/English phrase set. A
-model-backed planner can be injected through `LlmIntentSelector`; it may only
-return one of the registered CQ IDs. Entity and time slots are still parsed
-and validated by the service.
+default planner uses Qwen `qwen3.5:35b-mlx` through local Ollama at
+`http://127.0.0.1:11434`. It may only return one of the registered CQ IDs;
+entity and time slots are still parsed and validated by the service. When
+Ollama is unavailable or returns an invalid response, the planner falls back to
+the offline Vietnamese/English phrase map. Set `FOUNDRY_SEMANTIC_QUERY_MODEL`
+to select another model and `FOUNDRY_OLLAMA_BASE_URL` to change the local
+endpoint.
 
 Set `FOUNDRY_SEMANTIC_QUERY_DATA` to an RDF/Turtle file or a directory of RDF
 files to enable `/api/v1/semantic/query`. That endpoint is an optional semantic

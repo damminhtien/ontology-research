@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import unicodedata
@@ -11,6 +12,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 from rdflib import Dataset, Graph, Literal, URIRef
 from rdflib.namespace import XSD
@@ -24,6 +27,8 @@ QUERY_ROOT = REPO_ROOT / "benchmarks" / "queries"
 EXPECTED_ROOT = REPO_ROOT / "benchmarks" / "expected_results"
 MAX_RESULT_LIMIT = 100
 MAX_RESULT_OFFSET = 100_000
+DEFAULT_OLLAMA_MODEL = "qwen3.5:35b-mlx"
+DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 
 _IRI_PATTERN = re.compile(r"(?:https?://|urn:)[^\s<>\"']+")
 _INSTANT_PATTERN = re.compile(
@@ -56,6 +61,76 @@ class SourceScope(Protocol):
     def allows(self, source_id: object) -> bool:
         """Return whether the source identifier is visible to the caller."""
         ...
+
+
+class OllamaCompletionError(RuntimeError):
+    """Local Ollama request failed or returned an unusable response."""
+
+
+class OllamaChatCompletion:
+    """JSON-mode completion client for a local Ollama chat endpoint."""
+
+    def __init__(
+        self,
+        *,
+        model: str | None = None,
+        base_url: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        """Use configured local Ollama settings or this workstation's Qwen model."""
+        self.model = (
+            model
+            or os.getenv("FOUNDRY_SEMANTIC_QUERY_MODEL")
+            or os.getenv("OLLAMA_MODEL")
+            or DEFAULT_OLLAMA_MODEL
+        )
+        configured_url = (
+            base_url
+            or os.getenv("FOUNDRY_OLLAMA_BASE_URL")
+            or os.getenv("OLLAMA_HOST")
+            or DEFAULT_OLLAMA_URL
+        )
+        if "://" not in configured_url:
+            configured_url = f"http://{configured_url}"
+        if not configured_url.startswith(("http://", "https://")):
+            raise ValueError("Ollama base URL must use HTTP or HTTPS")
+        self.base_url = configured_url.rstrip("/")
+        configured_timeout = timeout_seconds
+        if configured_timeout is None:
+            configured_timeout = float(os.getenv("FOUNDRY_SEMANTIC_QUERY_TIMEOUT_SECONDS", "45"))
+        if configured_timeout <= 0:
+            raise ValueError("Ollama timeout must be greater than zero")
+        self.timeout_seconds = configured_timeout
+
+    def __call__(self, prompt: str) -> str:
+        """Return one non-streaming JSON-mode Ollama response."""
+        body = json.dumps(
+            {
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "format": "json",
+                "stream": False,
+                "options": {"temperature": 0},
+            }
+        ).encode("utf-8")
+        request = Request(
+            f"{self.base_url}/api/chat",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:
+                payload = json.loads(response.read())
+        except (URLError, TimeoutError, OSError, ValueError) as exc:
+            raise OllamaCompletionError("local Ollama chat request failed") from exc
+        if not isinstance(payload, dict):
+            raise OllamaCompletionError("local Ollama returned an invalid response")
+        message = payload.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str):
+            raise OllamaCompletionError("local Ollama response has no message content")
+        return content
 
 
 def _normalize_text(text: str) -> str:
@@ -108,9 +183,23 @@ class LlmIntentSelector:
 
     name = "llm"
 
-    def __init__(self, complete: Callable[[str], str]) -> None:
-        """Bind a provider-specific completion callable without owning secrets."""
+    def __init__(
+        self,
+        complete: Callable[[str], str],
+        *,
+        fallback: IntentSelector | None = None,
+        name: str = "llm",
+    ) -> None:
+        """Bind a completion callable and optional offline fallback selector."""
         self._complete = complete
+        self._fallback = fallback
+        self.name = name
+
+    def _fallback_selection(self, question: str, templates: tuple[dict, ...]) -> IntentSelection:
+        if self._fallback is None:
+            return IntentSelection((), self.name)
+        selection = self._fallback.select(question, templates)
+        return IntentSelection(selection.template_ids, f"{self._fallback.name}-fallback")
 
     def select(self, question: str, templates: tuple[dict, ...]) -> IntentSelection:
         """Ask the injected model to choose one ID from the supplied allowlist."""
@@ -132,12 +221,22 @@ class LlmIntentSelector:
         )
         try:
             result = json.loads(self._complete(prompt))
-        except (TypeError, json.JSONDecodeError):
-            return IntentSelection((), self.name)
+        except (OllamaCompletionError, TypeError, json.JSONDecodeError):
+            return self._fallback_selection(question, templates)
         template_id = result.get("template_id") if isinstance(result, dict) else None
         if not isinstance(template_id, str) or template_id not in allowed:
-            return IntentSelection((), self.name)
+            return self._fallback_selection(question, templates)
         return IntentSelection((template_id,), self.name)
+
+
+def default_intent_selector() -> LlmIntentSelector:
+    """Build the workstation default: Qwen via local Ollama, with phrase fallback."""
+    completion = OllamaChatCompletion()
+    return LlmIntentSelector(
+        completion,
+        fallback=KeywordIntentSelector(),
+        name=f"ollama:{completion.model}",
+    )
 
 
 def load_vietnam_profile(path: Path = PROFILE_PATH) -> dict:

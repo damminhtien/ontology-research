@@ -2,8 +2,21 @@
 
 from __future__ import annotations
 
+import json
+from io import BytesIO
+
 from foundry.console.api.provenance_access import ProvenanceScope
-from foundry.semantic_query import IntentSelection, LlmIntentSelector, SemanticQueryService
+from foundry.semantic_query import (
+    DEFAULT_OLLAMA_MODEL,
+    DEFAULT_OLLAMA_URL,
+    IntentSelection,
+    KeywordIntentSelector,
+    LlmIntentSelector,
+    OllamaChatCompletion,
+    OllamaCompletionError,
+    SemanticQueryService,
+    default_intent_selector,
+)
 
 
 def test_temporal_location_question_runs_parameterized_cq(benchmark_graph):
@@ -122,6 +135,65 @@ def test_model_selector_returns_a_safe_template_not_model_query(benchmark_graph)
     assert result["planner"] == "llm"
     assert result["template_id"] == "CQ-018"
     assert "SERVICE" not in result["sparql"]
+
+
+def test_default_selector_uses_local_qwen_model(monkeypatch):
+    monkeypatch.delenv("FOUNDRY_SEMANTIC_QUERY_MODEL", raising=False)
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    monkeypatch.delenv("FOUNDRY_OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+
+    selector = default_intent_selector()
+
+    assert isinstance(selector, LlmIntentSelector)
+    assert selector.name == f"ollama:{DEFAULT_OLLAMA_MODEL}"
+    assert isinstance(selector._complete, OllamaChatCompletion)
+    assert selector._complete.base_url == DEFAULT_OLLAMA_URL
+
+
+def test_ollama_completion_sends_non_streaming_json_request(monkeypatch):
+    request_data = {}
+
+    def fake_urlopen(request, timeout):
+        request_data["url"] = request.full_url
+        request_data["timeout"] = timeout
+        request_data["body"] = json.loads(request.data)
+        return BytesIO(b'{"message":{"content":"{\\"template_id\\":\\"CQ-018\\"}"}}')
+
+    monkeypatch.setattr("foundry.semantic_query.urlopen", fake_urlopen)
+    completion = OllamaChatCompletion(
+        model="qwen3.5:35b-mlx",
+        base_url="127.0.0.1:11434",
+        timeout_seconds=12,
+    )
+
+    result = completion("choose a competency query")
+
+    assert result == '{"template_id":"CQ-018"}'
+    assert request_data["url"] == "http://127.0.0.1:11434/api/chat"
+    assert request_data["timeout"] == 12
+    assert request_data["body"]["model"] == "qwen3.5:35b-mlx"
+    assert request_data["body"]["stream"] is False
+    assert request_data["body"]["format"] == "json"
+    assert request_data["body"]["options"]["temperature"] == 0
+
+
+def test_ollama_failure_falls_back_to_offline_intent_selector(benchmark_graph):
+    def unavailable(_prompt):
+        raise OllamaCompletionError("offline")
+
+    selector = LlmIntentSelector(
+        unavailable,
+        fallback=KeywordIntentSelector(),
+        name="ollama:qwen3.5:35b-mlx",
+    )
+    result = SemanticQueryService(benchmark_graph, selector=selector).query(
+        "Where was https://data.example/entity/patrol-03 at 2026-08-05T00:00:00Z?"
+    )
+
+    assert result["status"] == "matched"
+    assert result["planner"] == "keyword-fallback"
+    assert result["template_id"] == "CQ-018"
 
 
 def test_query_bounds_and_pagination_are_validated(benchmark_graph):

@@ -124,9 +124,10 @@ log dùng cho monitor và local read-model scaffold.
 Tab **Semantic Query** hỗ trợ vị trí tại một thời điểm, lịch sử membership và
 nguồn của assertion. Nhập canonical entity/assertion IRI; câu hỏi vị trí nhận
 ngày ISO như `2026-08-05` (00:00 UTC) hoặc timestamp có timezone. Planner mặc
-định chạy tại chỗ bằng phrase map Việt/Anh. `LlmIntentSelector` có thể nhận
-completion provider khi khởi tạo app; model chỉ chọn một CQ ID và không sinh
-SPARQL.
+định gọi Qwen `qwen3.5:35b-mlx` qua Ollama ở `127.0.0.1:11434`; model chỉ chọn
+một CQ ID và không sinh SPARQL. Khi Ollama chưa chạy hoặc trả lỗi, phrase map
+Việt/Anh xử lý câu hỏi phù hợp. Đổi model bằng `FOUNDRY_SEMANTIC_QUERY_MODEL`
+và endpoint bằng `FOUNDRY_OLLAMA_BASE_URL`.
 
 Để chạy trên RDF projection, đặt `FOUNDRY_SEMANTIC_QUERY_DATA` thành một file
 RDF hoặc thư mục chứa file RDF trước khi khởi động Console. Endpoint chỉ đọc

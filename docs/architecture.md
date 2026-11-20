@@ -50,10 +50,11 @@ Console có thêm query ngữ nghĩa tùy chọn: `/api/v1/semantic/query` chọ
 đã đăng ký trong regional profile, bind tham số kiểu IRI/dateTime rồi chạy
 SPARQL `SELECT` trên RDF projection được cấu hình bằng
 `FOUNDRY_SEMANTIC_QUERY_DATA`. Request không nhận SPARQL do client gửi và
-không dựng graph từ event log mỗi lần gọi. Planner mặc định chạy offline;
-`LlmIntentSelector` có thể nhận completion provider nhưng chỉ được chọn CQ ID
-trong allowlist. Đây là đường đọc ngữ nghĩa, không thay PostgreSQL
-`QueryService`.
+không dựng graph từ event log mỗi lần gọi. Planner mặc định dùng
+`LlmIntentSelector` với Qwen `qwen3.5:35b-mlx` qua Ollama trên máy local; model
+chỉ chọn CQ ID trong allowlist. Khi Ollama lỗi, planner dùng phrase map
+offline. Có thể đổi model bằng `FOUNDRY_SEMANTIC_QUERY_MODEL`. Đây là đường đọc
+ngữ nghĩa, không thay PostgreSQL `QueryService`.
 
 Thành phần và invariant đã được triển khai:
 

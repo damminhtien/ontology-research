@@ -43,7 +43,7 @@ from foundry.console.api import (  # noqa: E402
 )
 from foundry.console.crawl_control import shutdown_crawl_manager  # noqa: E402
 from foundry.query_service import QueryTimeoutError  # noqa: E402
-from foundry.semantic_query import IntentSelector, KeywordIntentSelector  # noqa: E402
+from foundry.semantic_query import IntentSelector, default_intent_selector  # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -67,7 +67,11 @@ def create_app(*, semantic_intent_selector: IntentSelector | None = None) -> Fas
         ),
         lifespan=lifespan,
     )
-    application.state.semantic_intent_selector = semantic_intent_selector or KeywordIntentSelector()
+    application.state.semantic_intent_selector = (
+        semantic_intent_selector
+        if semantic_intent_selector is not None
+        else default_intent_selector()
+    )
 
     @application.exception_handler(QueryTimeoutError)
     async def query_timeout_handler(
